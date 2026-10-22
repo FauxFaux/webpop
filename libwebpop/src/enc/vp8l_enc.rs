@@ -177,3 +177,114 @@ pub fn WriteHuffmanCodeWithExtraBits(
         depth + n_bits,
     )
 }
+
+/// Build the five alphabets per histogram, preserving upstream's count smoothing.
+pub fn GetHuffBitLengthsAndCodes(
+    histograms: &mut [super::histogram_enc::VP8LHistogram],
+) -> Result<Vec<HuffmanTreeCode>, TryReserveError> {
+    let mut codes = Vec::new();
+    codes.try_reserve_exact(histograms.len().checked_mul(5).expect("histogram count"))?;
+    for h in histograms {
+        for counts in [
+            h.literal.as_mut_slice(),
+            &mut h.red,
+            &mut h.blue,
+            &mut h.alpha,
+            &mut h.distance,
+        ] {
+            codes.push(VP8LCreateHuffmanTree(counts, 15)?);
+        }
+    }
+    Ok(codes)
+}
+
+/// Serialize tokens using the Huffman group at each token's starting pixel.
+/// Distances must already have been converted to plane codes.
+pub fn StoreImageToBitMask(
+    bw: &mut VP8LBitWriter,
+    width: usize,
+    histo_bits: u32,
+    refs: &super::backward_references_enc::VP8LBackwardRefs,
+    histogram_symbols: &[u32],
+    huffman_codes: &[HuffmanTreeCode],
+) -> Result<(), TryReserveError> {
+    use super::backward_references_enc::*;
+    use crate::dsp::lossless_common::{VP8LPrefixEncode, VP8LSubSampleSize};
+    use crate::webp::format_constants::NUM_LENGTH_CODES;
+    assert!(width > 0);
+    let histo_xsize = if histo_bits == 0 {
+        1
+    } else {
+        VP8LSubSampleSize(width as u32, histo_bits) as usize
+    };
+    let (mut x, mut y) = (0, 0);
+    for v in refs.iter() {
+        let tile = if histo_bits == 0 {
+            0
+        } else {
+            (y >> histo_bits) * histo_xsize + (x >> histo_bits)
+        };
+        let group = ((histogram_symbols[tile] >> 8) & 0xffff) as usize;
+        let codes = &huffman_codes[5 * group..5 * group + 5];
+        if PixOrCopyIsLiteral(v) {
+            for (k, component) in [1, 2, 0, 3].into_iter().enumerate() {
+                WriteHuffmanCode(bw, &codes[k], PixOrCopyLiteral(v, component) as usize)?;
+            }
+        } else if PixOrCopyIsCacheIdx(v) {
+            WriteHuffmanCode(
+                bw,
+                &codes[0],
+                256 + NUM_LENGTH_CODES + PixOrCopyCacheIdx(v) as usize,
+            )?;
+        } else {
+            let (code, n_bits, bits) = VP8LPrefixEncode(PixOrCopyLength(v));
+            WriteHuffmanCodeWithExtraBits(bw, &codes[0], 256 + code as usize, bits, n_bits)?;
+            let (code, n_bits, bits) = VP8LPrefixEncode(PixOrCopyDistance(v));
+            WriteHuffmanCode(bw, &codes[4], code as usize)?;
+            VP8LPutBits(bw, bits, n_bits)?;
+        }
+        x += PixOrCopyLength(v) as usize;
+        y += x / width;
+        x %= width;
+    }
+    Ok(())
+}
+
+/// Auxiliary image stream (no transforms, cache or spatial Huffman image).
+/// Like upstream, low_effort affects hash-chain construction only.
+pub fn EncodeImageNoHuffman(
+    bw: &mut VP8LBitWriter,
+    argb: &[u32],
+    hash_chain: &mut super::backward_references_enc::VP8LHashChain,
+    refs: &mut [super::backward_references_enc::VP8LBackwardRefs],
+    width: usize,
+    height: usize,
+    quality: u32,
+    low_effort: bool,
+) -> Result<(), TryReserveError> {
+    use super::backward_references_enc::*;
+    use super::histogram_enc::*;
+    VP8LHashChainFill(hash_chain, quality, argb, width, height, low_effort)?;
+    let cache_bits = VP8LGetBackwardReferences(
+        width,
+        height,
+        argb,
+        quality,
+        false,
+        kLZ77Standard | kLZ77RLE,
+        0,
+        false,
+        hash_chain,
+        refs,
+    )?;
+    assert_eq!(cache_bits, 0);
+    let mut histogram = VP8LAllocateHistogram(0)?;
+    VP8LHistogramStoreRefs(&refs[0], None, 0, &mut histogram);
+    let mut codes = GetHuffBitLengthsAndCodes(std::slice::from_mut(&mut histogram))?;
+    VP8LPutBits(bw, 0, 1)?;
+    for code in &mut codes {
+        StoreHuffmanCode(bw, code)?;
+        ClearHuffmanTreeIfOnlyOneSymbol(code);
+    }
+    StoreImageToBitMask(bw, width, 0, &refs[0], &[0], &codes)
+}

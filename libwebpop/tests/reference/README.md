@@ -232,3 +232,15 @@ low effort, exhaustive eight-pixel binary inputs, repeated rows, random palettes
 and runs around length 4095 are covered. Progress hooks are omitted from the
 Rust internal API. Prefix-table entry zero is defined upstream and used by the
 traceback length-cost cache; NoLUT entry points still require inputs >= 3.
+
+Milestone 5 auxiliary integration is in progress. `auxiliary_streams_match_pinned_reference`
+compares 720 complete `EncodeImageNoHuffman` streams (including an 11-bit
+sentinel to expose trailing-bit differences), using seed `6d2b79f5` and the
+same pinned scalar build. Cases cover five geometries, six patterns, four
+qualities, both hash-chain effort settings, and three initial bit offsets.
+Thirty C responses are retained in `tests/fixtures/auxiliary.txt`; each line
+contains the existing request protocol, ` | `, then the response protocol.
+These are cases with zero-based index `i % 24 == 16` from the live corpus.
+`auxiliary_images` checks these without compiling C and independently decodes
+75 test-only untransformed RIFF images with exact RGBA equality. Reusable
+container headers and direct cache/multi-group serialization remain pending.

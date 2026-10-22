@@ -67,7 +67,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   cost estimation. Milestone 4 adds packed hash chains, RLE/standard/box LZ77,
   cache selection and rewriting, fixed-point traceback with bounded interval
   maintenance, and full reference trial selection. The public Rust encoder is
-  not implemented; auxiliary-image integration (milestone 5) is next.
+  not implemented. Milestone 5 auxiliary-image integration is implemented;
+  reusable RIFF/image header helpers and direct multi-group/cache token-writer
+  comparisons remain before closing that milestone.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -106,6 +108,16 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   Prefix lookup entry zero is retained for the traceback length-cost cache.
   No numerical divergence was observed. Debug and release suites, including the
   existing Wasm regression, pass.
+- Milestone 5 (in progress) adds `GetHuffBitLengthsAndCodes`,
+  `StoreImageToBitMask`, and `EncodeImageNoHuffman`. Complete auxiliary streams
+  passed 720 exact scalar C comparisons with seed `6d2b79f5`, covering six pixel
+  patterns, five geometries, four qualities, both hash-chain effort modes, and
+  three starting bit offsets. Thirty committed C fixtures run without C.
+  A test-only untransformed RIFF wrapper independently decodes 75 cases with
+  exact RGBA, including hidden transparent RGB. Normal tests (including Wasm),
+  release auxiliary tests, formatting and a normal Rust library build pass.
+  No numerical divergence was observed. Production header/container helpers
+  and direct cache/multi-group token serialization coverage remain unfinished.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

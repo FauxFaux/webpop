@@ -189,3 +189,80 @@ fn pinned_public_encoder_round_trips() {
         eprintln!("{}: {} encoded bytes", image.name, bytes.len());
     }
 }
+
+#[test]
+fn auxiliary_streams_match_pinned_reference() {
+    use libwebpop::enc::backward_references_enc::*;
+    use libwebpop::enc::vp8l_enc::EncodeImageNoHuffman;
+    use libwebpop::utils::bit_writer_utils::*;
+    let mut cases = Vec::new();
+    let mut seed = support::SEED;
+    for (w, h) in [(1, 1), (1, 37), (41, 1), (17, 19), (64, 33)] {
+        for pattern in 0..6 {
+            let pixels: Vec<u32> = (0..w * h)
+                .map(|i| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    match pattern {
+                        0 => 0xff123456,
+                        1 => {
+                            if i % 2 == 0 {
+                                0
+                            } else {
+                                0xffffffff
+                            }
+                        }
+                        2 => 0xff000000 | (i % w) * 0x010203,
+                        3 => seed,
+                        4 => [0xff102030, 0x80506070, 0x00123456][(i / 7 % 3) as usize],
+                        _ => seed % 17 * 0x0f0f0f0f,
+                    }
+                })
+                .collect();
+            for quality in [0, 25, 70, 100] {
+                for low_effort in [0, 1] {
+                    for prefix in [0, 7, 31] {
+                        let mut input = vec![
+                            w,
+                            h,
+                            quality,
+                            low_effort,
+                            5 & ((1u32 << prefix) - 1),
+                            prefix,
+                        ];
+                        input.extend_from_slice(&pixels);
+                        cases.push(support::Case::new("EncodeImageNoHuffman", input));
+                    }
+                }
+            }
+        }
+    }
+    let outputs = native::run("auxiliary", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        let a = &case.input;
+        let mut bw = VP8LBitWriterInit(0).unwrap();
+        VP8LPutBits(&mut bw, a[4], a[5]).unwrap();
+        let mut chain = VP8LHashChainInit((a[0] * a[1]) as usize).unwrap();
+        let mut refs = [VP8LBackwardRefsInit(256), VP8LBackwardRefsInit(256)];
+        EncodeImageNoHuffman(
+            &mut bw,
+            &a[6..],
+            &mut chain,
+            &mut refs,
+            a[0] as usize,
+            a[1] as usize,
+            a[2],
+            a[3] != 0,
+        )
+        .unwrap();
+        VP8LPutBits(&mut bw, 0x5ad, 11).unwrap();
+        let actual: Vec<u32> = VP8LBitWriterFinish(&mut bw)
+            .unwrap()
+            .iter()
+            .map(|&b| u32::from(b))
+            .collect();
+        native::compare(case, &expected, &actual);
+    }
+    eprintln!("Compared {} auxiliary streams", cases.len());
+}

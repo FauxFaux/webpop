@@ -23,6 +23,7 @@
 void WebpopStoreHuffmanCode(VP8LBitWriter*, const HuffmanTreeCode*);
 void WebpopClearHuffmanTree(HuffmanTreeCode*);
 void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
+unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopTrace(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopGetRefs(const uint32_t*, unsigned, uint32_t*);
@@ -74,7 +75,10 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8LCostEstimates)) {
+    if (IS(EncodeImageNoHuffman)) {
+      REQUIRE(n >= 7 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && (uint64_t)in[0] * in[1] == n - 6 && n < 20000 && in[2] <= 100 && in[3] <= 1 && in[5] <= 31);
+      count = WebpopAuxiliary(in, out);
+    } else if (IS(VP8LCostEstimates)) {
       REQUIRE(n > 0 && n <= 2328);
       count = WebpopCosts(in, n, out);
     } else if (IS(VP8LTrace)) {
