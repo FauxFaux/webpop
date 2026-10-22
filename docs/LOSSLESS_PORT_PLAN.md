@@ -57,15 +57,17 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1–3 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–4 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
   packing, fixed-point log/entropy/streak/vector DSP, the lossless bit writer,
   Huffman construction, compression, and serialization, token/reference storage
   and cursors, spatial distance coding, and histogram accumulation and fixed-point
-  cost estimation. The public Rust encoder is not implemented; hash chains,
-  LZ77 strategies, cache selection, and traceback (milestone 4) are next.
+  cost estimation. Milestone 4 adds packed hash chains, RLE/standard/box LZ77,
+  cache selection and rewriting, fixed-point traceback with bounded interval
+  maintenance, and full reference trial selection. The public Rust encoder is
+  not implemented; auxiliary-image integration (milestone 5) is next.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -91,6 +93,19 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   counts in Rust, and C's distinct initialization/reset metadata is preserved.
   Debug and release suites, including the Wasm regression, pass without numerical
   divergence. Histogram clustering remains milestone 6.
+- Milestone 4 passed 32,212 exact native C comparisons with seed `6d2b79f5`
+  on the same scalar toolchain: 15,180 matching/cache cases, 10,066 traceback
+  cases, and 6,966 complete strategy-selection cases. Intermediate comparisons
+  cover packed match offsets/lengths, cache bits, cost-model estimates, every
+  traceback distance, chosen paths, and final tokens. Reference replay independently
+  reconstructs the prepared pixels, including overlapping copies and cache updates.
+  Portable C fixtures cover all new request types; six additional independent Rust
+  tests cover saturated runs, reuse, singleton costs, path packing, interval splits
+  and the 500-interval immediate-write fallback. Stable indexed interval slots
+  replace C pointers/free lists; owned allocations propagate `Result` errors.
+  Prefix lookup entry zero is retained for the traceback length-cost cache.
+  No numerical divergence was observed. Debug and release suites, including the
+  existing Wasm regression, pass.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -430,7 +445,7 @@ milestone implements just one part of a file.
 | 1 | Constants, endian helpers, checked geometry, pixel arithmetic, prefix codes, hash/cache primitives, scalar predictor/color kernels and log/entropy DSP `[A]` | 0 | Differential edge cases, small-domain exhaustive checks, fixed-seed arrays; lookup and slow paths covered |
 | 2 (complete) | Lossless bit writer `[B]`; Huffman tree generation, compression, and serialization `[C]` except histogram-driven glue | 1 | Exact output bits across flush boundaries, clone/reset trials, degenerate and depth-limited trees; 11,852 native comparisons and portable round trips pass |
 | 3 (complete) | `PixOrCopy`, reference storage/cursors; histogram initialization, accumulation and cost estimation `[D/E foundations]` | 1 | Matching tokens, histograms, metadata and costs in 27,919 native comparisons; 40 portable C fixtures; cursor/storage boundaries and independent replay exercised |
-| 4 | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | Matching tokens, match lengths/distances, cache choices, and chosen paths; replay reconstructs the source pixels |
+| 4 (complete) | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | 32,212 exact native comparisons of matches, tokens, cache choices, costs and chosen paths; independent replay, portable fixtures and interval stress checks pass |
 | 5 | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
 | 6 | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | Matching cluster maps, Huffman groups, and main-image streams, including multi-group images and trial resets |
 | 7 | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Matching palette orders and packed indices, residuals, selected transforms and auxiliary images on forced branch cases |

@@ -7,6 +7,48 @@ use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases
 use support::references::{foundation_cases, foundation_fixture_cases};
 
 #[test]
+fn traceback_matches_pinned_reference() {
+    let cases = support::matches::traceback_cases();
+    let outputs = native::run("traceback", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} traceback cases (seed {:08x})",
+        cases.len(),
+        support::SEED
+    );
+}
+
+#[test]
+fn selection_matches_pinned_reference() {
+    let cases = support::matches::selection_cases();
+    let outputs = native::run("selection", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} selection cases (seed {:08x})",
+        cases.len(),
+        support::SEED
+    );
+}
+
+#[test]
+fn matching_matches_pinned_reference() {
+    let cases = support::matches::matching_cases();
+    let outputs = native::run("matches", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} matching cases (seed {:08x})",
+        cases.len(),
+        support::SEED
+    );
+}
+
+#[test]
 fn reference_and_histogram_foundations_match_pinned_reference() {
     let cases = foundation_cases();
     let outputs = native::run("foundations", &cases);
@@ -73,6 +115,8 @@ fn committed_fixtures_match_reference() {
             .into_iter()
             .chain(entropy_coding_fixture_cases())
             .chain(foundation_fixture_cases())
+            .chain(support::matches::matching_fixture_cases())
+            .chain(support::matches::traceback_fixture_cases())
         {
             if !cases
                 .iter()

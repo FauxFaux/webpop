@@ -50,7 +50,8 @@ const fn prefix_table() -> [(u32, u32, u32); PREFIX_LOOKUP_IDX_MAX] {
 const PREFIX_TABLE: [(u32, u32, u32); PREFIX_LOOKUP_IDX_MAX] = prefix_table();
 
 pub const fn VP8LPrefixEncode(distance: u32) -> (u32, u32, u32) {
-    assert!(distance > 0 && distance <= i32::MAX as u32);
+    // Entry zero is used by the traceback length-cost cache.
+    assert!(distance <= i32::MAX as u32);
     if distance < PREFIX_LOOKUP_IDX_MAX as u32 {
         PREFIX_TABLE[distance as usize]
     } else {

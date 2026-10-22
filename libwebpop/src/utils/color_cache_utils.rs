@@ -25,10 +25,18 @@ pub fn VP8LColorCacheInit(hash_bits: u32) -> Option<VP8LColorCache> {
     if !(1..=MAX_CACHE_BITS).contains(&hash_bits) {
         return None;
     }
+    VP8LColorCacheTryInit(hash_bits).ok()
+}
+
+/// Internal encoder allocation path, retaining the allocation error.
+pub fn VP8LColorCacheTryInit(
+    hash_bits: u32,
+) -> Result<VP8LColorCache, std::collections::TryReserveError> {
+    assert!((1..=MAX_CACHE_BITS).contains(&hash_bits));
     let mut colors = Vec::new();
-    colors.try_reserve_exact(1 << hash_bits).ok()?;
+    colors.try_reserve_exact(1 << hash_bits)?;
     colors.resize(1 << hash_bits, 0);
-    Some(VP8LColorCache {
+    Ok(VP8LColorCache {
         colors,
         hash_shift: 32 - hash_bits,
     })

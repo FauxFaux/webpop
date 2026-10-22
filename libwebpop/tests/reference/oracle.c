@@ -23,6 +23,10 @@
 void WebpopStoreHuffmanCode(VP8LBitWriter*, const HuffmanTreeCode*);
 void WebpopClearHuffmanTree(HuffmanTreeCode*);
 void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
+unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopTrace(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopGetRefs(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopMatches(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopRefs(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopPopulationCost(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopHistogram(const uint32_t*, unsigned, uint32_t*);
@@ -70,7 +74,19 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8LBackwardRefs)) {
+    if (IS(VP8LCostEstimates)) {
+      REQUIRE(n > 0 && n <= 2328);
+      count = WebpopCosts(in, n, out);
+    } else if (IS(VP8LTrace)) {
+      REQUIRE(n >= 7 && n < 200000 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[0] * in[1] == n - 6 && in[5] <= 10 && in[2] <= 100 && in[3] <= 1 && in[4] >= 1 && in[4] <= 3);
+      count = WebpopTrace(in, n, out);
+    } else if (IS(VP8LGetBackwardReferences)) {
+      REQUIRE(n >= 8 && n < 200000 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[0] * in[1] == n - 7 && in[5] <= 10 && in[2] <= 100 && in[3] <= 1 && in[4] > 0 && in[4] <= 7 && in[6] <= 1);
+      count = WebpopGetRefs(in, n, out);
+    } else if (IS(VP8LMatches)) {
+      REQUIRE(n >= 7 && n < 200000 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[0] * in[1] == n - 6);
+      count = WebpopMatches(in, n, out);
+    } else if (IS(VP8LBackwardRefs)) {
       REQUIRE(n >= 1 && (n - 1) % 3 == 0 && n < 10000 && in[0] < 10000);
       count = WebpopRefs(in, n, out);
     } else if (IS(PopulationCost)) {
@@ -200,7 +216,7 @@ int main(void) {
     } else if (IS(VP8LPrefixEncode) || IS(VP8LPrefixEncodeBits) ||
                IS(VP8LPrefixEncodeNoLUT) || IS(VP8LPrefixEncodeBitsNoLUT)) {
       int code, bits, value;
-      REQUIRE(n == 1 && in[0] >= 1 && in[0] <= INT32_MAX);
+      REQUIRE(n == 1 && in[0] <= INT32_MAX);
       if (IS(VP8LPrefixEncode)) VP8LPrefixEncode((int)in[0], &code, &bits, &value);
       else if (IS(VP8LPrefixEncodeBits)) VP8LPrefixEncodeBits((int)in[0], &code, &bits);
       else {

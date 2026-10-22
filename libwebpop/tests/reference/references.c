@@ -66,3 +66,65 @@ unsigned WebpopRefs(const uint32_t* in, unsigned n, uint32_t* out) {
   VP8LBackwardRefsClear(&saved);
   return count;
 }
+
+// width, height, quality, low_effort, strategy (0 hash only, 1 RLE,
+// 2 standard, 3 box, 4 cache selection), cache_bits, pixels.
+// Return packed chain (box chain for strategy 3), then logical tokens.
+unsigned WebpopMatches(const uint32_t* in, unsigned n, uint32_t* out) {
+  const int width = (int)in[0], height = (int)in[1], size = width * height;
+  const int strategy = (int)in[4];
+  int percent = 0, bits = (int)in[5];
+  unsigned count = 0;
+  VP8LHashChain chain = {0}, box = {0};
+  VP8LBackwardRefs refs;
+  if (width <= 0 || height <= 0 || width > 16383 || n != (unsigned)size + 6 ||
+      bits < 0 || bits > 10 || in[2] > 100 || in[3] > 1 || strategy > 4) abort();
+  if (!VP8LHashChainInit(&chain, size) ||
+      !VP8LHashChainFill(&chain, (int)in[2], in + 6, width, height, (int)in[3],
+                         NULL, 0, &percent)) abort();
+  VP8LBackwardRefsInit(&refs, 256);
+  if (strategy == 1) {
+    if (!BackwardReferencesRle(width, height, in + 6, bits, &refs)) abort();
+  } else if (strategy == 2 || strategy == 4) {
+    if (!BackwardReferencesLz77(width, height, in + 6, strategy == 4 ? 0 : bits,
+                                 &chain, &refs)) abort();
+  } else if (strategy == 3) {
+    if (!VP8LHashChainInit(&box, size) ||
+        !BackwardReferencesLz77Box(width, height, in + 6, bits, &chain, &box, &refs)) abort();
+  }
+  for (int i = 0; i < size; ++i) out[count++] =
+      strategy == 3 ? box.offset_length[i] : chain.offset_length[i];
+  if (strategy == 4) {
+    if (!CalculateBestCacheSize(in + 6, (int)in[2], &refs, &bits)) abort();
+    out[count++] = (uint32_t)bits;
+    if (bits && !BackwardRefsWithLocalCache(in + 6, bits, &refs)) abort();
+  }
+  count += InspectRefs(&refs, out + count);
+  VP8LBackwardRefsClear(&refs);
+  VP8LHashChainClear(&chain);
+  VP8LHashChainClear(&box);
+  return count;
+}
+
+#include "cost.c"
+
+// width, height, quality, low_effort, lz77_types, cache_bits_max, do_no_cache, pixels
+unsigned WebpopGetRefs(const uint32_t* in, unsigned n, uint32_t* out) {
+  const int size = (int)n - 7;
+  int percent = 0, bits = 0;
+  unsigned count = 0;
+  VP8LHashChain chain = {0};
+  VP8LBackwardRefs refs[3];
+  for (int i = 0; i < 3; ++i) VP8LBackwardRefsInit(&refs[i], 256);
+  if (!VP8LHashChainInit(&chain, size) ||
+      !VP8LHashChainFill(&chain, (int)in[2], in + 7, (int)in[0], (int)in[1], (int)in[3], NULL, 0, &percent) ||
+      !VP8LGetBackwardReferences((int)in[0], (int)in[1], in + 7, (int)in[2], (int)in[3],
+                                (int)in[4], (int)in[5], (int)in[6], &chain, refs, &bits, NULL, 0, &percent)) abort();
+  out[count++] = (uint32_t)bits;
+  count += InspectRefs(&refs[0], out + count);
+  // Low effort only initializes the first result, even with do_no_cache set.
+  if (in[6]) count += InspectRefs(&refs[1], out + count);
+  for (int i = 0; i < 3; ++i) VP8LBackwardRefsClear(&refs[i]);
+  VP8LHashChainClear(&chain);
+  return count;
+}

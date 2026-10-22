@@ -175,7 +175,7 @@ version, CMake cache, exact compilation commands, Rust host/toolchain, pin, and
 seed in `target/native-oracle/provenance.txt`. Build and protocol failures fail
 the test rather than silently skipping comparisons.
 
-Milestones 1–3 are implemented, with 129 additional compact DSP fixtures and
+Milestones 1–4 are implemented, with 129 additional compact DSP fixtures and
 100 bit-writer/Huffman fixtures generated on the same toolchain/configuration
 as the initial fixtures. Milestone 2 adds 11,852 native comparisons: every
 pending offset 0–63 and next-write width 0–32, C buffer growth, clone/reset/swap
@@ -188,8 +188,47 @@ and six independent Rust tests covering hand-computed populations, storage and
 cursor boundaries, histogram reset state, distance modifier equivalence,
 allocation-size overflow, and token replay with overlapping copies and cache
 updates. All comparisons pass in debug and release on the recorded toolchain.
-Hash chains, LZ77 generation and traceback, histogram clustering, and the Rust
-public encoder remain unimplemented. Checked RGBA geometry and the
+Hash chains, LZ77 generation, cache selection, traceback and reference trial
+selection are implemented. Histogram clustering and the Rust public encoder
+remain unimplemented. Checked RGBA geometry and the
 overflow-safe extension of `VP8LSubSampleSize` have portable Rust boundary tests; the C oracle
 is invoked only on its defined domain. In particular, zero-bit scans and NoLUT
 prefix distances below 3 are invalid upstream inputs.
+
+
+Milestone 4 adds 32,212 native comparisons (15,180 matching/cache, 10,066
+traceback and population-cost conversion, 6,966 complete reference selection)
+with seed `6d2b79f5`, plus 79 portable C fixtures (including the two prefix-zero
+fixtures). All run with the recorded scalar pin/configuration. Six independent
+Rust tests cover saturated run boundaries, hash storage reuse, cache and
+singleton costs, path packing, randomized interval splitting, and saturation of
+the 500-slot interval pool against an eager minimum-cost expansion. Generated
+reference sequences are independently replayed against the input pixels; final
+spatial distances are inverted before replay. No numerical divergence was seen.
+
+New protocol requests:
+
+- `VP8LMatches`: `(width, height, quality, low_effort, strategy, cache_bits)`,
+  then tightly packed ARGB pixels. Strategies are hash only (0), RLE (1),
+  standard LZ77 (2), box LZ77 (3), or cache selection/rewrite after standard
+  LZ77 (4). Returns the packed match array (the box array for strategy 3),
+  selected cache bits for strategy 4, then a reference inspection.
+- `VP8LCostEstimates`: population counts; returns fixed-point symbol costs.
+- `VP8LTrace`: same inputs as `VP8LMatches`, with source strategy 1–3.
+  Returns literal/red/blue/alpha/distance cost-model arrays, the complete
+  traceback distance array, chosen-path count and lengths, then refined
+  reference inspection. `cost.c` is included by `references.c` to expose
+  static helpers from the pinned cost translation unit. Each logical stage is
+  compared separately, and Rust's integrated traceback entry point is checked
+  against the staged path.
+- `VP8LGetBackwardReferences`: `(width, height, quality, low_effort,
+  lz77_types, cache_bits_max, do_no_cache)`, then ARGB pixels. Returns selected
+  cache bits and primary reference inspection, plus a no-cache inspection if
+  requested. The low-effort branch only populates the primary result, matching
+  upstream. Copy distances are spatial codes in this request.
+
+Quality thresholds 24/25/26, 50/51, 75/76, all cache sizes, every strategy mask,
+low effort, exhaustive eight-pixel binary inputs, repeated rows, random palettes,
+and runs around length 4095 are covered. Progress hooks are omitted from the
+Rust internal API. Prefix-table entry zero is defined upstream and used by the
+traceback length-cost cache; NoLUT entry points still require inputs >= 3.

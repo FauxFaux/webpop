@@ -2,8 +2,12 @@
 
 ## Target and compatibility
 
-Complete the [lossless port](LOSSLESS_PORT_PLAN.md) first, then port the lossy
-RGBA entry points exposed by quad-image's full WebP Wasm encoder. Preserve
+The implementation order is [lossless](LOSSLESS_PORT_PLAN.md), then
+[near-lossless VP8L](NEAR_LOSSLESS_PORT_PLAN.md), then the lossy RGBA entry
+points covered here, exposed by quad-image's full WebP Wasm encoder. The
+near-lossless extension reuses VP8L and needs none of this plan's VP8/YUV/ALPH
+milestones. This plan retains completed lossless as its technical prerequisite;
+completing near-lossless first does not change the lossy dependency graph. Preserve
 upstream function names and source layout where practical. The result is a
 pure Rust library accepting prepared RGBA pixels and returning a complete
 still-image WebP file containing VP8, with a separate alpha stream when needed.
@@ -78,7 +82,7 @@ Direct module inspection confirmed the following codec exports:
 | `WebPEncodeRGBA` | Default lossy preset, caller's color quality, lossless alpha | Required |
 | `WebPEncodeRGBAWithAlphaQuality` | Same lossy preset with independent alpha quality; values below 100 quantize alpha | Required, including quantization |
 | `WebPEncodeLosslessRGBA` | VP8L, quality 70/method 4 | Inherited from the completed lossless plan |
-| `WebPEncodeRGBAWithNearLossless` | VP8L at quality 70/method 4 with caller-selected pixel preprocessing | Separate follow-up; not a lossy VP8 feature |
+| `WebPEncodeRGBAWithNearLossless` | VP8L at quality 70/method 4 with caller-selected near-lossless strength | Implement first under the [near-lossless plan](NEAR_LOSSLESS_PORT_PLAN.md); not a lossy VP8 feature |
 
 The other exports provide linear memory, allocation/free, an indirect function
 table, initialization, stack helpers, and exception support. The only import is
@@ -567,16 +571,12 @@ the encoder-required inverse WHT, animation, metadata muxing, file loaders,
 negative strides, and C ABI compatibility. Default-path header-budget retries
 and deterministic filter-strength adjustment remain required.
 
-### Separate full-module parity follow-up: near-lossless VP8L
+### Earlier extension: near-lossless VP8L
 
-If the next objective is every codec export in the full Wasm, add
-`WebPEncodeRGBAWithNearLossless` after these lossy entry points. Its wrapper
-sets `lossless=1`, `use_argb=1`, quality 70, method 4 and caller near-lossless
-`0..=100`. In addition to the completed lossless path it reaches
-`VP8ApplyNearLossless` in `enc/near_lossless_enc.c` when preprocessing is chosen,
-and near-lossless residual/quantization branches in `enc/predictor_enc.c`.
-Palette and selected transform paths affect which preprocessing is used; port
-the actual selection rather than applying a universal RGBA quantizer first.
-Require near-lossless 100 to equal the inherited simple lossless API, alpha
-equality everywhere, and exact bytes against the pin for lower settings. This
-extension is separate from the quantized ALPH stream in a lossy VP8 file.
+Implement `WebPEncodeRGBAWithNearLossless` before these lossy entry points,
+following the dedicated [near-lossless plan](NEAR_LOSSLESS_PORT_PLAN.md). It
+extends the completed VP8L pipeline with standalone preprocessing and predictor
+quantization, selected per transform candidate. It does not depend on this
+plan's separate ALPH stream. Near-lossless 100 must equal the simple lossless
+API; lower settings must match the pin and can change intermediate alpha
+values, while preserving alpha 0 and 255.

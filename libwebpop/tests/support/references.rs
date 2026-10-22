@@ -11,7 +11,7 @@ fn token(op: &[u32]) -> PixOrCopy {
     }
 }
 
-fn inspect_refs(refs: &VP8LBackwardRefs, out: &mut Vec<u32>) {
+pub fn inspect_refs(refs: &VP8LBackwardRefs, out: &mut Vec<u32>) {
     let start = out.len();
     out.push(0);
     let mut c = VP8LRefsCursorInit(refs);

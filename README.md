@@ -6,12 +6,14 @@ Initially focused on simple encoding, then complex encoding, then decoding.
 
 See the [lossless encoder porting plan](docs/LOSSLESS_PORT_PLAN.md) for the
 `WebPEncodeLosslessRGBA` dependency map, implementation order, and testing strategy.
-The follow-on [lossy encoder plan](docs/LOSSY_PORT_PLAN.md) maps the full Wasm
-build's lossy RGBA and independent alpha-quality APIs, assuming lossless is complete.
+Next is the [near-lossless VP8L extension](docs/NEAR_LOSSLESS_PORT_PLAN.md),
+assuming lossless is complete. The later [lossy encoder plan](docs/LOSSY_PORT_PLAN.md)
+maps the full Wasm build's lossy RGBA and independent alpha-quality APIs.
 
 The crate now contains scalar lossless leaves, the bit writer, Huffman
 construction and serialization, token/reference storage, and histogram
-accumulation and cost estimation (port milestones 1–3). Run `cargo test` for
+accumulation and cost estimation, hash chains, LZ77 strategies, cache selection,
+and traceback refinement (port milestones 1–4). Run `cargo test` for
 portable fixtures and the Wasm regression, or
 `cargo test --features native-oracle` to compare leaves with the pinned scalar
 C implementation. See the [oracle guide](libwebpop/tests/reference/README.md)
