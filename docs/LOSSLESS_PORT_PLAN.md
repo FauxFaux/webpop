@@ -70,8 +70,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   not implemented. Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
-  main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction, mapping foundations and all sorting
-  methods are implemented; packed mapping and transform selection remain.
+  main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction,
+  all sorting methods, packed mapping and the palette transform writer are
+  implemented; predictor and cross-color transform search/writers remain.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -182,8 +183,21 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   uses one owned index row instead of C's two rows; allocation failures return
   `Result`. The full portable suite (including Wasm), all 20 native-oracle
   tests, release palette/unit tests, formatting and the production library
-  build pass. Packed mapping integration, predictor/residual search, cross-color
-  search and transform writers remain in milestone 7.
+  build pass. `ApplyPalette`, `MapImageFromPalette` and `EncodePalette` now
+  add packed index mapping and palette transform serialization. All 600 new
+  scalar C comparisons match both mapped pixels/current width and complete
+  palette streams, including 0/5/97-bit prefixes, both effort modes, every
+  packing threshold, padded source rows and trailing-zero omission above 17
+  colors. Twenty-seven committed C fixtures preserve these comparisons.
+  Independent checks force all three perfect-hash lookup paths and the sorted
+  search fallback, verify untouched destination padding, unpack every mapped
+  index and decode 200 complete files with exact RGBA (including hidden RGB).
+  The full portable suite, all 22 native-oracle tests, release palette/unit
+  tests, formatting and the production library build pass without divergence.
+  Encoder-state integration remains for milestone 8: the internal mapping API
+  currently returns owned packed pixels/current width, and the writer accepts
+  reusable hash-chain/reference scratch explicitly. Predictor/residual search,
+  cross-color search and their transform writers remain in milestone 7.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

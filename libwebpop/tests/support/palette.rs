@@ -168,3 +168,87 @@ pub fn spatial_cases() -> Vec<Case> {
     }
     cases
 }
+
+pub fn transform_evaluate(case: &Case) -> Vec<u32> {
+    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::utils::bit_writer_utils::*;
+    let a = &case.input;
+    let n = a[0] as usize;
+    let palette = &a[6..6 + n];
+    let (width, pixels) = MapImageFromPalette(
+        &a[6 + n..],
+        a[3] as usize,
+        palette,
+        a[1] as usize,
+        a[2] as usize,
+    )
+    .unwrap();
+    let mut bw = VP8LBitWriterInit(0).unwrap();
+    let mut remaining = a[5];
+    while remaining > 0 {
+        let bits = remaining.min(32);
+        VP8LPutBits(&mut bw, 0x05ad5ad5 & (u32::MAX >> (32 - bits)), bits).unwrap();
+        remaining -= bits;
+    }
+    let mut chain = VP8LHashChainInit(n).unwrap();
+    let mut refs = [VP8LBackwardRefsInit(256), VP8LBackwardRefsInit(256)];
+    EncodePalette(&mut bw, palette, &mut chain, &mut refs, a[4] != 0).unwrap();
+    VP8LPutBits(&mut bw, 0x5ad, 11).unwrap();
+    let mut out = vec![width as u32];
+    out.extend(pixels);
+    out.extend(
+        VP8LBitWriterFinish(&mut bw)
+            .unwrap()
+            .iter()
+            .map(|&v| u32::from(v)),
+    );
+    out
+}
+
+pub fn transform_cases() -> Vec<Case> {
+    let mut palettes = Vec::new();
+    for n in [1usize, 2, 3, 4, 5, 16, 17, 18, 224, 225, 256] {
+        let mut colors: Vec<_> = (0..n).map(|i| 0xff000000 | (i as u32 * 65793)).collect();
+        palettes.push(colors.clone());
+        colors[0] = 0;
+        colors.rotate_left(1); // Force the trailing-zero omission threshold.
+        palettes.push(colors);
+    }
+    palettes.extend([
+        vec![0xff000001, 0xff000002, 0xff000003, 0xff000004], // Hash 1.
+        vec![0xff000001, 0xff05009e, 0xff400001, 0xff800001], // Hash 2.
+        vec![0x00123456, 0x01123456, 0x80123456, 0xff123456], // Search fallback.
+    ]);
+    let mut cases = Vec::new();
+    for palette in palettes {
+        for (width, height) in [(1, 19), (7, 3), (17, 5), (palette.len() + 1, 2)] {
+            for low in 0..=1 {
+                for prefix in [0, 5, 97] {
+                    let stride = width + 2;
+                    let mut input = vec![
+                        palette.len() as u32,
+                        width as u32,
+                        height as u32,
+                        stride as u32,
+                        low,
+                        prefix,
+                    ];
+                    input.extend_from_slice(&palette);
+                    for y in 0..height {
+                        for x in 0..stride {
+                            let index = (y * width + x) / 3 % palette.len();
+                            input.push(if x < width {
+                                palette[index]
+                            } else {
+                                0xdeadbeef
+                            });
+                        }
+                    }
+                    input.truncate(6 + palette.len() + (height - 1) * stride + width);
+                    cases.push(Case::new("PaletteTransform", input));
+                }
+            }
+        }
+    }
+    cases
+}

@@ -123,3 +123,97 @@ fn spatial_sorting_preserves_colors_and_refinement_reduces_cost() {
         assert!(cost(&outputs[4]) <= cost(&outputs[1]));
     }
 }
+#[test]
+fn committed_palette_transform_fixtures_match_scalar_c() {
+    for line in include_str!("fixtures/palette_transform.txt")
+        .lines()
+        .filter(|s| !s.starts_with('#'))
+    {
+        let (request, response) = line.split_once(" | ").unwrap();
+        let mut words = request.split_whitespace();
+        let function = words.next().unwrap();
+        let count: usize = words.next().unwrap().parse().unwrap();
+        let input: Vec<u32> = words.map(|w| u32::from_str_radix(w, 16).unwrap()).collect();
+        assert_eq!(count, input.len());
+        let mut words = response.split_whitespace();
+        let count: usize = words.next().unwrap().parse().unwrap();
+        let expected: Vec<u32> = words.map(|w| u32::from_str_radix(w, 16).unwrap()).collect();
+        assert_eq!(count, expected.len());
+        assert_eq!(support::Case::new(function, input).rust(), expected);
+    }
+}
+
+#[test]
+fn packed_palette_images_decode_exactly() {
+    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::utils::bit_writer_utils::*;
+    for case in support::palette::transform_cases()
+        .into_iter()
+        .filter(|c| c.input[5] == 0)
+    {
+        let a = &case.input;
+        let (n, width, height, stride) =
+            (a[0] as usize, a[1] as usize, a[2] as usize, a[3] as usize);
+        let palette = &a[6..6 + n];
+        let source = &a[6 + n..];
+        let (packed_width, pixels) =
+            MapImageFromPalette(source, stride, palette, width, height).unwrap();
+        // Independently unpack every index, including the last partial group.
+        let xbits = match n {
+            1..=2 => 3,
+            3..=4 => 2,
+            5..=16 => 1,
+            _ => 0,
+        };
+        let bits = 8 >> xbits;
+        for y in 0..height {
+            for x in 0..width {
+                let index = (pixels[y * packed_width + (x >> xbits)]
+                    >> (8 + bits * (x % (1 << xbits))))
+                    & ((1 << bits) - 1);
+                assert_eq!(palette[index as usize], source[y * stride + x]);
+            }
+        }
+        let mut bw = VP8LBitWriterInit(0).unwrap();
+        WriteImageSize(&mut bw, width as u32, height as u32).unwrap();
+        WriteRealAlphaAndVersion(&mut bw, palette.iter().any(|p| p >> 24 != 255)).unwrap();
+        let mut chain = VP8LHashChainInit(n.max(pixels.len())).unwrap();
+        let mut refs = std::array::from_fn::<_, 4, _>(|_| VP8LBackwardRefsInit(256));
+        EncodePalette(&mut bw, palette, &mut chain, &mut refs[..2], a[4] != 0).unwrap();
+        VP8LPutBits(&mut bw, 0, 1).unwrap(); // End transform list.
+        let initial = VP8LBitWriterNumBytes(&bw);
+        let mut cache = 0;
+        EncodeImageInternal(
+            &mut bw,
+            &pixels,
+            &mut chain,
+            &mut refs,
+            packed_width,
+            height,
+            70,
+            a[4] != 0,
+            &[CrunchSubConfig {
+                lz77: kLZ77Standard | kLZ77RLE,
+                do_no_cache: false,
+            }],
+            &mut cache,
+            2,
+            initial,
+        )
+        .unwrap();
+        let file = WriteImage(&mut bw).unwrap();
+        let decoded = image::load_from_memory_with_format(&file, image::ImageFormat::WebP)
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(decoded.dimensions(), (width as u32, height as u32));
+        for y in 0..height {
+            for x in 0..width {
+                let p = source[y * stride + x];
+                assert_eq!(
+                    decoded.get_pixel(x as u32, y as u32).0,
+                    [(p >> 16) as u8, (p >> 8) as u8, p as u8, (p >> 24) as u8]
+                );
+            }
+        }
+    }
+}

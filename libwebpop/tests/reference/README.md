@@ -363,3 +363,21 @@ Independent Rust checks compare spatial counts to a hand-computed graph and
 MinLA's best insertion slots to brute-force complete arrangement costs, using
 zero, seeded and maximum-u32 edge weights. Image tests directly sum adjacent
 palette-index distances before/after refinement and check color preservation.
+
+`PaletteTransform` inputs are `(palette size, width, height, source stride,
+low effort, prefix bit count)`, then ordered palette words and ARGB rows without
+final-row padding. The wrapper in `huffman.c` calls the original static
+`MapImageFromPalette` and `EncodePalette`. Outputs are packed width, packed
+pixels (packed width times height words), then the full palette bitstream with
+the standard prefix and 11-bit sentinel. It covers the greedy small-palette,
+three perfect-hash and sorted-search paths, all packing thresholds, and
+trailing-zero omission at the 17/18-color boundary. There are 600 comparisons
+and 27 fixtures (every 23rd case), regenerated after pin/provenance review with:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle palette_transform_fixtures_match_pinned_reference
+```
+
+Portable tests independently unpack mapped indices, check destination padding,
+assert each lookup strategy is reached, and decode 200 complete palette files
+using the main-image encoder. They require exact RGBA, including hidden RGB.

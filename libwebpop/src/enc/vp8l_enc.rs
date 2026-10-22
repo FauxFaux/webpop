@@ -512,3 +512,218 @@ pub fn WriteImage(bw: &mut VP8LBitWriter) -> Result<Vec<u8>, ImageWriteError> {
     output.resize(size, 0);
     Ok(output)
 }
+
+fn ApplyPaletteHash0(color: u32) -> usize {
+    ((color >> 8) & 255) as usize
+}
+fn ApplyPaletteHash1(color: u32) -> usize {
+    ((color & 0x00ffffff).wrapping_mul(4222244071) >> 21) as usize
+}
+fn ApplyPaletteHash2(color: u32) -> usize {
+    ((color & 0x00ffffff).wrapping_mul((1 << 31) - 1) >> 21) as usize
+}
+
+fn PaletteHashTable(palette: &[u32], buffer: &mut [u16; 2048]) -> usize {
+    for (i, hash) in [ApplyPaletteHash0, ApplyPaletteHash1, ApplyPaletteHash2]
+        .into_iter()
+        .enumerate()
+    {
+        buffer.fill(u16::MAX);
+        let mut success = true;
+        for (j, &color) in palette.iter().enumerate() {
+            let index = hash(color);
+            if buffer[index] != u16::MAX {
+                success = false;
+                break;
+            }
+            buffer[index] = j as u16;
+        }
+        if success {
+            return i;
+        }
+    }
+    3
+}
+
+/// Remap validated ARGB rows to packed green-channel palette indices. Each
+/// source pixel must occur in the distinct palette, and xbits must permit its
+/// indices. Source/destination strides are in words; padding is untouched.
+#[allow(clippy::too_many_arguments)]
+pub fn ApplyPalette(
+    src: &[u32],
+    src_stride: usize,
+    dst: &mut [u32],
+    dst_stride: usize,
+    palette: &[u32],
+    width: usize,
+    height: usize,
+    xbits: u32,
+) -> Result<(), TryReserveError> {
+    use crate::utils::palette::{PrepareMapToPalette, SearchColorNoIdx};
+    assert!((1..=256).contains(&palette.len()) && xbits <= 3);
+    assert!(palette.len() <= 1usize << (8 >> xbits));
+    assert!(width > 0 && height > 0 && src_stride >= width);
+    let packed_width = width.div_ceil(1 << xbits);
+    assert!(dst_stride >= packed_width);
+    let source_len = (height - 1)
+        .checked_mul(src_stride)
+        .and_then(|v| v.checked_add(width));
+    let dest_len = (height - 1)
+        .checked_mul(dst_stride)
+        .and_then(|v| v.checked_add(packed_width));
+    assert!(source_len.is_some_and(|v| v <= src.len()));
+    assert!(dest_len.is_some_and(|v| v <= dst.len()));
+    let mut row = Vec::new();
+    row.try_reserve_exact(width)?;
+    row.resize(width, 0u8);
+    let mut table = [u16::MAX; 2048];
+    let mode = if palette.len() < 4 {
+        4
+    } else {
+        PaletteHashTable(palette, &mut table)
+    };
+    let mut sorted = [0; 256];
+    let mut map = [0; 256];
+    if mode == 3 {
+        PrepareMapToPalette(
+            palette,
+            &mut sorted[..palette.len()],
+            &mut map[..palette.len()],
+        );
+    }
+    let mut previous = palette[0];
+    let mut index = 0;
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = src[y * src_stride + x];
+            if pixel != previous {
+                index = match mode {
+                    0 => table[ApplyPaletteHash0(pixel)] as usize,
+                    1 => table[ApplyPaletteHash1(pixel)] as usize,
+                    2 => table[ApplyPaletteHash2(pixel)] as usize,
+                    3 => {
+                        map[SearchColorNoIdx(&sorted[..palette.len()], pixel)
+                            .expect("pixel absent from palette")] as usize
+                    }
+                    _ => palette
+                        .iter()
+                        .position(|&c| c == pixel)
+                        .expect("pixel absent from palette"),
+                };
+                previous = pixel;
+            }
+            row[x] = index as u8;
+        }
+        crate::dsp::lossless_enc::VP8LBundleColorMap(
+            &row,
+            xbits,
+            &mut dst[y * dst_stride..y * dst_stride + packed_width],
+        );
+    }
+    Ok(())
+}
+
+/// Upstream MapImageFromPalette without the not-yet-integrated encoder state.
+/// Returns the current (packed) width and owned transformed pixels.
+pub fn MapImageFromPalette(
+    src: &[u32],
+    stride: usize,
+    palette: &[u32],
+    width: usize,
+    height: usize,
+) -> Result<(usize, Vec<u32>), TryReserveError> {
+    assert!((1..=256).contains(&palette.len()));
+    let xbits = match palette.len() {
+        1..=2 => 3,
+        3..=4 => 2,
+        5..=16 => 1,
+        _ => 0,
+    };
+    let packed_width = width.div_ceil(1 << xbits);
+    let size = packed_width
+        .checked_mul(height)
+        .expect("validated image size");
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(size)?;
+    pixels.resize(size, 0);
+    ApplyPalette(
+        src,
+        stride,
+        &mut pixels,
+        packed_width,
+        palette,
+        width,
+        height,
+        xbits,
+    )?;
+    Ok((packed_width, pixels))
+}
+
+/// Write the color-indexing transform and delta-coded palette auxiliary image.
+/// As in upstream, a trailing zero color may be omitted only above 17 colors.
+pub fn EncodePalette(
+    bw: &mut VP8LBitWriter,
+    palette: &[u32],
+    hash_chain: &mut super::backward_references_enc::VP8LHashChain,
+    refs: &mut [super::backward_references_enc::VP8LBackwardRefs],
+    low_effort: bool,
+) -> Result<(), TryReserveError> {
+    assert!((1..=256).contains(&palette.len()));
+    let size = palette.len() - usize::from(palette.len() > 17 && palette.last() == Some(&0));
+    VP8LPutBits(bw, 1, 1)?;
+    VP8LPutBits(bw, 3, 2)?; // COLOR_INDEXING_TRANSFORM
+    VP8LPutBits(bw, (size - 1) as u32, 8)?;
+    let mut deltas = [0; 256];
+    deltas[0] = palette[0];
+    for i in 1..size {
+        deltas[i] = crate::dsp::lossless_common::VP8LSubPixels(palette[i], palette[i - 1]);
+    }
+    EncodeImageNoHuffman(
+        bw,
+        &deltas[..size],
+        hash_chain,
+        refs,
+        size,
+        1,
+        20,
+        low_effort,
+    )
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    #[test]
+    fn palette_lookup_exercises_all_hashes_and_search_fallback() {
+        for (expected, palette) in [
+            (0, vec![0xff000000, 0xff000100, 0xff000200, 0xff000300]),
+            (1, vec![0xff000001, 0xff000002, 0xff000003, 0xff000004]),
+            (2, vec![0xff000001, 0xff05009e, 0xff400001, 0xff800001]),
+            (3, vec![0x00123456, 0x01123456, 0x80123456, 0xff123456]),
+        ] {
+            assert_eq!(PaletteHashTable(&palette, &mut [0; 2048]), expected);
+            let mut output = [0xdeadbeef; 8];
+            let pixels = [
+                palette[3], palette[0], palette[2], palette[1], 0xbaadf00d, palette[1], palette[2],
+                palette[0], palette[3],
+            ];
+            ApplyPalette(&pixels, 5, &mut output, 4, &palette, 4, 2, 0).unwrap();
+            assert_eq!(
+                output,
+                [
+                    0xff000300, 0xff000000, 0xff000200, 0xff000100, 0xff000100, 0xff000200,
+                    0xff000000, 0xff000300
+                ]
+            );
+            // Repeat with actual destination padding and no final-row padding.
+            let mut output = [0xdeadbeef; 10];
+            ApplyPalette(&pixels, 5, &mut output, 6, &palette, 4, 2, 0).unwrap();
+            assert_eq!(&output[4..6], &[0xdeadbeef; 2]);
+            assert_eq!(
+                &output[6..],
+                &[0xff000100, 0xff000200, 0xff000000, 0xff000300]
+            );
+        }
+    }
+}

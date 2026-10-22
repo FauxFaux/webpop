@@ -165,3 +165,44 @@ unsigned WebpopTokenStream(const uint32_t* in, unsigned n, uint32_t* out) {
   VP8LBitWriterWipeOut(&bw);
   return count;
 }
+
+// palette size, width, height, source stride, low effort, prefix bits,
+// palette words, then positive-stride ARGB (no last-row padding).
+unsigned WebpopPaletteTransform(const uint32_t* in, uint32_t* out) {
+  VP8LEncoder enc;
+  WebPPicture pic;
+  VP8LBitWriter bw;
+  unsigned i, count = 0, remaining = in[5];
+  size_t size;
+  memset(&enc, 0, sizeof(enc));
+  if (!WebPPictureInit(&pic) || !VP8LBitWriterInit(&bw, 0)) abort();
+  pic.use_argb = 1; pic.width = in[1]; pic.height = in[2];
+  pic.argb_stride = in[3]; pic.argb = (uint32_t*)(in + 6 + in[0]);
+  enc.pic = &pic; enc.palette_size = in[0];
+  memcpy(enc.palette, in + 6, in[0] * sizeof(uint32_t));
+  VP8LEncDspInit();
+  if (!VP8LHashChainInit(&enc.hash_chain, in[0])) abort();
+  for (i = 0; i < 2; ++i) VP8LBackwardRefsInit(&enc.refs[i], 256);
+  if (!MapImageFromPalette(&enc)) abort();
+  out[count++] = enc.current_width;
+  for (i = 0; i < enc.current_width * in[2]; ++i) out[count++] = enc.argb[i];
+  while (remaining) {
+    const unsigned bits = remaining > 32 ? 32 : remaining;
+    const uint32_t mask = bits == 32 ? 0xffffffffu : (1u << bits) - 1;
+    VP8LPutBits(&bw, 0x05ad5ad5u & mask, bits);
+    remaining -= bits;
+  }
+  {
+    int percent = 0;
+    if (!EncodePalette(&bw, in[4], &enc, 0, &percent)) abort();
+  }
+  VP8LPutBits(&bw, 0x5ad, 11);
+  VP8LBitWriterFinish(&bw);
+  size = VP8LBitWriterNumBytes(&bw);
+  for (i = 0; i < size; ++i) out[count++] = bw.buf[i];
+  VP8LBitWriterWipeOut(&bw);
+  VP8LHashChainClear(&enc.hash_chain);
+  for (i = 0; i < 2; ++i) VP8LBackwardRefsClear(&enc.refs[i]);
+  ClearTransformBuffer(&enc);
+  return count;
+}

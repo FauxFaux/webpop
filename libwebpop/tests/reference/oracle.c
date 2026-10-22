@@ -26,6 +26,7 @@ void WebpopClearHuffmanTree(HuffmanTreeCode*);
 void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
 unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
+unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopMainImage(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
@@ -86,6 +87,11 @@ int main(void) {
       REQUIRE(n >= 11 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && in[2] <= 100 && in[3] <= 1 && in[4] <= 10 && in[5] >= 2 && in[5] <= 9 && in[6] <= 97 && in[7] >= 1 && in[7] <= 2);
       REQUIRE((uint64_t)in[0] * in[1] == n - 8 - 2 * in[7] && n < 20000);
       count = WebpopMainImage(in, n, out);
+    } else if (IS(PaletteTransform)) {
+      REQUIRE(n >= 8 && in[0] > 0 && in[0] <= 256);
+      REQUIRE(in[1] > 0 && in[2] > 0 && in[3] >= in[1] && in[4] <= 1 && in[5] <= 97);
+      REQUIRE(n == 6 + in[0] + (in[2] - 1) * in[3] + in[1]);
+      count = WebpopPaletteTransform(in, out);
     } else if (IS(PaletteSpatial)) {
       WebPPicture pic;
       uint32_t palette[256];

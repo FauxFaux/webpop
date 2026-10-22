@@ -31,6 +31,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "PaletteTransform" => palette::transform_evaluate(self),
             "PaletteLeaves" => palette::evaluate(self),
             "PaletteSpatial" => palette::spatial_evaluate(self),
             "EncodeImageInternal" => main_images::evaluate(self),
