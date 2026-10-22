@@ -2,3 +2,5 @@ A "live port" of libwebp to rust.
 
 A pinned commit of libwebp exists in upstream/.
 
+Initially focused on simple encoding, then complex encoding, then decoding.
+
