@@ -381,3 +381,32 @@ WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test
 Portable tests independently unpack mapped indices, check destination padding,
 assert each lookup strategy is reached, and decode 200 complete palette files
 using the main-image encoder. They require exact RGBA, including hidden RGB.
+
+### Predictor foundations
+
+`PredictorFoundations` uses the original static functions included by
+`predictor.c`, with external entry points renamed to retain the normal public
+encoder. Its opcode determines the input and output:
+
+- 0: `(max quantization, exact)`, pixels; returns plane mask and minimum mode.
+- 1: `(mode, left mode, above mode, plane mask)`, 1024 tile counts, 1024
+  accumulated counts; returns signed fixed-point cost as low/high u32 words.
+- 2: `(width, height, tile bits, low effort, exact)`, predictor-map words,
+  pixels; returns the converted image. Quantization is fixed to 1.
+- 3: `(width, mode, start x, y, exact, pixel count)`, current and upper rows
+  (width + 1 words each); returns residuals followed by both mutated rows.
+- 4: plane mask, 1024 initial counts, residual words; returns updated counts.
+- 5: `(zero weight, exponential value)`, 256 counts; returns bias as signed
+  low/high words.
+
+There are 4,758 seeded comparisons and 38 committed fixtures selected per
+opcode. Review the pin and recorded toolchain provenance before regeneration:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle predictor_fixtures_match_pinned_reference
+```
+
+Portable independent tests reconstruct 3,456 supplied-map cases, check plane
+eligibility/histogram counts and fixed-point bias identities, and decode 192
+complete files containing a supplied predictor map. Near-lossless residual
+quantization and automatic predictor-map selection are not part of this batch.

@@ -72,7 +72,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
   main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction,
   all sorting methods, packed mapping and the palette transform writer are
-  implemented; predictor and cross-color transform search/writers remain.
+  implemented. Predictor cost/mask helpers and supplied-map lossless residual
+  conversion are implemented; automatic predictor selection and predictor/
+  cross-color transform writers remain.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -196,8 +198,25 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   tests, formatting and the production library build pass without divergence.
   Encoder-state integration remains for milestone 8: the internal mapping API
   currently returns owned packed pixels/current width, and the writer accepts
-  reusable hash-chain/reference scratch explicitly. Predictor/residual search,
-  cross-color search and their transform writers remain in milestone 7.
+  reusable hash-chain/reference scratch explicitly.
+  Predictor foundations now add `PredictionCostBias`,
+  `PredictionCostSpatialHistogram`, `GetPlaneDiffMask`, `UpdateHisto`,
+  `PredictBatch`, lossless `GetResidual` and `CopyImageWithPrediction`.
+  There are 4,758 exact scalar C comparisons with the same seed, including
+  every plane mask and predictor, neighbor-mode biases, first-row/column
+  rules, right-edge wrap context, transparent RGB cleanup, exact preservation,
+  low-effort mode 11, mixed maps and partial tiles. Thirty-eight portable C
+  fixtures preserve these comparisons. Independent tests reconstruct all 3,456
+  supplied-map conversion cases, check histogram byte counts/constant-plane
+  eligibility and decode 192 complete files with supplied maps, preserving
+  alpha everywhere and RGB wherever alpha is nonzero (all RGB in exact or
+  low-effort conversions). Scratch rows are owned and allocation failures
+  propagate. The full portable suite (including Wasm), all 24 native-oracle
+  tests, release predictor tests, formatting and the production library build
+  pass without divergence. Conversion currently supports max quantization 1; standalone
+  near-lossless preprocessing remains separate. Automatic tile-mode and
+  sampling search, cross-color search and their transform writers remain in
+  milestone 7.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

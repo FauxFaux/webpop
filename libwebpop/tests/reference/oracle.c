@@ -27,6 +27,7 @@ void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*,
 unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
+unsigned WebpopPredictor(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopMainImage(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
@@ -83,7 +84,10 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(EncodeImageInternal)) {
+    if (IS(PredictorFoundations)) {
+      REQUIRE(n > 0);
+      count = WebpopPredictor(in, n, out);
+    } else if (IS(EncodeImageInternal)) {
       REQUIRE(n >= 11 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && in[2] <= 100 && in[3] <= 1 && in[4] <= 10 && in[5] >= 2 && in[5] <= 9 && in[6] <= 97 && in[7] >= 1 && in[7] <= 2);
       REQUIRE((uint64_t)in[0] * in[1] == n - 8 - 2 * in[7] && n < 20000);
       count = WebpopMainImage(in, n, out);

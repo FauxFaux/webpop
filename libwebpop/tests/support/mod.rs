@@ -5,6 +5,7 @@ pub mod entropy_coding;
 pub mod main_images;
 pub mod matches;
 pub mod palette;
+pub mod predictors;
 pub mod references;
 pub mod token_streams;
 
@@ -31,6 +32,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "PredictorFoundations" => predictors::evaluate(self),
             "PaletteTransform" => palette::transform_evaluate(self),
             "PaletteLeaves" => palette::evaluate(self),
             "PaletteSpatial" => palette::spatial_evaluate(self),

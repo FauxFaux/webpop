@@ -561,3 +561,44 @@ fn palette_transforms_match_pinned_reference() {
     }
     eprintln!("Compared {} palette transform cases", cases.len());
 }
+
+#[test]
+fn predictor_fixtures_match_pinned_reference() {
+    let cases: Vec<_> = support::predictors::fixture_cases();
+    let outputs = native::run("predictor-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C predictor fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/predictors.txt"),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn predictor_foundations_match_pinned_reference() {
+    let cases = support::predictors::cases();
+    for (case, expected) in cases
+        .iter()
+        .zip(native::run("predictor-foundations", &cases))
+    {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} predictor foundation cases", cases.len());
+}
