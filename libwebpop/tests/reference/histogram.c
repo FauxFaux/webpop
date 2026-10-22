@@ -130,3 +130,104 @@ unsigned WebpopHistogramSet(const uint32_t* in, uint32_t* out) {
   VP8LFreeHistogramSet(set);
   return count;
 }
+
+// Sparse logical serialization: every nonzero bin is preserved, not hashed.
+static unsigned InspectCompactSet(const VP8LHistogramSet* set, uint32_t* out,
+                                  unsigned capacity) {
+  unsigned count = 0;
+  int i, j, k;
+  if (capacity < 1) abort();
+  out[count++] = set->size;
+  for (i = 0; i < set->size; ++i) {
+    const VP8LHistogram* h = set->histograms[i];
+    if (count + 10000 >= capacity) abort();
+    out[count++] = h != NULL;
+    if (h == NULL) continue;
+    for (j = 0; j < 5; ++j) {
+      const uint32_t* p;
+      int length;
+      unsigned start = count++;
+      GetPopulationInfo(h, (HistogramIndex)j, &p, &length);
+      out[start] = 0;
+      for (k = 0; k < length; ++k) if (p[k]) {
+        ++out[start];
+        out[count++] = k;
+        out[count++] = p[k];
+      }
+    }
+    for (j = 0; j < 5; ++j) out[count++] = h->trivial_symbol[j];
+    count += Emit64(out + count, h->bit_cost);
+    for (j = 0; j < 5; ++j) count += Emit64(out + count, h->costs[j]);
+    for (j = 0; j < 5; ++j) out[count++] = h->is_used[j];
+    out[count++] = h->bin_id;
+  }
+  return count;
+}
+
+// width, height, quality, low_effort, tile bits, cache bits, then tokens
+// (mode, payload, length). Distances are already spatial codes.
+unsigned WebpopClustering(const uint32_t* in, unsigned n, uint32_t* out) {
+  const int w = in[0], h = in[1], q = in[2], low = in[3], bits = in[4], cache = in[5];
+  const int size = VP8LSubSampleSize(w, bits) * VP8LSubSampleSize(h, bits);
+  const int bins = low ? NUM_PARTITIONS : BIN_SIZE;
+  int combine, greedy = 0, percent = 0;
+  unsigned i, count = 0, position = 0;
+  VP8LBackwardRefs refs;
+  VP8LHistogramSet* orig = VP8LAllocateHistogramSet(size, cache);
+  VP8LHistogramSet* image = VP8LAllocateHistogramSet(size, cache);
+  VP8LHistogramSet* integrated = VP8LAllocateHistogramSet(size, cache);
+  VP8LHistogram* tmp = VP8LAllocateHistogram(cache);
+  uint32_t* symbols = (uint32_t*)calloc(size, sizeof(*symbols));
+  WebPPicture pic;
+  if (!orig || !image || !integrated || !tmp || !symbols || !WebPPictureInit(&pic)) abort();
+  VP8LHistogramInit(tmp, cache, 1);
+  VP8LBackwardRefsInit(&refs, 256);
+  for (i = 6; i < n; i += 3) {
+    PixOrCopy v;
+    if (in[i] == 0) v = PixOrCopyCreateLiteral(in[i + 1]);
+    else if (in[i] == 1) {
+      if (!cache || in[i + 1] >= (1u << cache)) abort();
+      v = PixOrCopyCreateCacheIdx(in[i + 1]);
+    } else if (in[i] == 2) {
+      if (!in[i + 1] || in[i + 1] > (1u << 20) || !in[i + 2] || in[i + 2] > MAX_LENGTH) abort();
+      v = PixOrCopyCreateCopy(in[i + 1], in[i + 2]);
+    } else { abort(); }
+    position += PixOrCopyLength(&v);
+    if (position > (unsigned)(w * h)) abort();
+    VP8LBackwardRefsCursorAdd(&refs, v);
+  }
+  if (position != (unsigned)(w * h) || refs.error) abort();
+  HistogramBuild(w, bits, &refs, orig);
+  HistogramCopyAndAnalyze(orig, image);
+  count += InspectCompactSet(orig, out + count, (1u << 20) - count);
+  count += InspectCompactSet(image, out + count, (1u << 20) - count);
+  combine = image->size > bins * 2 && q < 100;
+  out[count++] = combine;
+  if (combine) HistogramAnalyzeEntropyBin(image, low);
+  count += InspectCompactSet(image, out + count, (1u << 20) - count);
+  if (combine) HistogramCombineEntropyBin(image, tmp, bins, GetCombineCostFactor(size, q), low);
+  count += InspectCompactSet(image, out + count, (1u << 20) - count);
+  if (!low || !combine) {
+    const int threshold = 1 + DivRound(q * q * q * (MAX_HISTO_GREEDY - 1), 1000000);
+    if (!HistogramCombineStochastic(image, threshold, &greedy)) abort();
+  }
+  out[count++] = greedy;
+  count += InspectCompactSet(image, out + count, (1u << 20) - count);
+  if (greedy && !HistogramCombineGreedy(image)) abort();
+  count += InspectCompactSet(image, out + count, (1u << 20) - count);
+  HistogramRemap(orig, image, symbols);
+  for (i = 0; i < (unsigned)size; ++i) out[count++] = symbols[i];
+  count += InspectCompactSet(image, out + count, (1u << 20) - count);
+  // Also check the actual entry point, without changing the staged transcript.
+  if (!VP8LGetHistoImageSymbols(w, h, &refs, q, low, bits, cache, integrated,
+                               tmp, symbols, &pic, 0, &percent)) abort();
+  count += InspectCompactSet(integrated, out + count, (1u << 20) - count);
+  for (i = 0; i < (unsigned)size; ++i) out[count++] = symbols[i];
+  VP8LFreeHistogramSet(orig);
+  VP8LFreeHistogramSet(image);
+  VP8LFreeHistogramSet(integrated);
+  VP8LFreeHistogram(tmp);
+  VP8LBackwardRefsClear(&refs);
+  free(symbols);
+  return count;
+}

@@ -26,6 +26,7 @@ void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*,
 unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
+unsigned WebpopMainImage(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopTrace(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopGetRefs(const uint32_t*, unsigned, uint32_t*);
@@ -34,6 +35,8 @@ unsigned WebpopRefs(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopPopulationCost(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopHistogram(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopHistogramSet(const uint32_t*, uint32_t*);
+unsigned WebpopClustering(const uint32_t*, unsigned, uint32_t*);
+extern void VP8LOptimizeSampling(uint32_t*, int, int, int, int, int*);
 extern int VP8LDistanceToPlaneCode(int, int);
 int WebpopNearLossless(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 
@@ -78,7 +81,22 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(TokenStream)) {
+    if (IS(EncodeImageInternal)) {
+      REQUIRE(n >= 11 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && in[2] <= 100 && in[3] <= 1 && in[4] <= 10 && in[5] >= 2 && in[5] <= 9 && in[6] <= 97 && in[7] >= 1 && in[7] <= 2);
+      REQUIRE((uint64_t)in[0] * in[1] == n - 8 - 2 * in[7] && n < 20000);
+      count = WebpopMainImage(in, n, out);
+    } else if (IS(VP8LOptimizeSampling)) {
+      int best_bits;
+      REQUIRE(n >= 5 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && in[2] <= in[3] && in[3] <= 9);
+      REQUIRE((uint64_t)VP8LSubSampleSize(in[0], in[2]) * VP8LSubSampleSize(in[1], in[2]) == n - 4);
+      VP8LOptimizeSampling(in + 4, in[0], in[1], in[2], in[3], &best_bits);
+      out[count++] = best_bits;
+      for (i = 4; i < n; ++i) out[count++] = in[i];
+    } else if (IS(VP8LClustering)) {
+      REQUIRE(n >= 9 && n < 50000 && (n - 6) % 3 == 0 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && in[2] <= 100 && in[3] <= 1 && in[4] >= 1 && in[4] <= 9 && in[5] <= 10);
+      REQUIRE((uint64_t)VP8LSubSampleSize(in[0], in[4]) * VP8LSubSampleSize(in[1], in[4]) <= 1200);
+      count = WebpopClustering(in, n, out);
+    } else if (IS(TokenStream)) {
       REQUIRE(n >= 7 && n < 50000 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] <= 9 && in[3] <= 10 && in[4] > 0 && in[4] <= 16 && in[5] <= 31 && in[6] < n - 6 && (n - 7 - in[6]) % 3 == 0);
       count = WebpopTokenStream(in, n, out);
     } else if (IS(ImageHeaders)) {

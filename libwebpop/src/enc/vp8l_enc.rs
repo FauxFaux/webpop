@@ -1,5 +1,5 @@
 // Copyright 2012 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/vp8l_enc.c (Huffman storage helpers).
+// Derived from upstream/src/enc/vp8l_enc.c (image streams and Huffman storage).
 // See COPYING and PATENTS.
 
 use std::collections::TryReserveError;
@@ -287,6 +287,161 @@ pub fn EncodeImageNoHuffman(
         ClearHuffmanTreeIfOnlyOneSymbol(code);
     }
     StoreImageToBitMask(bw, width, 0, &refs[0], &[0], &codes)
+}
+
+/// Parameters for one main-image reference trial (upstream CrunchSubConfig).
+#[derive(Clone, Copy, Debug)]
+pub struct CrunchSubConfig {
+    pub lz77: u32,
+    pub do_no_cache: bool,
+}
+
+/// Encode prepared pixels, including cache selection, spatial Huffman groups
+/// and reference trials. Transforms and image/container headers are supplied
+/// by the caller. Returns (header bytes, data bytes) for the winning trial,
+/// relative to init_byte_position, and updates cache_bits to that trial's value.
+/// The internal API assumes validated geometry and configuration.
+#[allow(clippy::too_many_arguments)]
+pub fn EncodeImageInternal(
+    bw: &mut VP8LBitWriter,
+    argb: &[u32],
+    hash_chain: &mut super::backward_references_enc::VP8LHashChain,
+    refs: &mut [super::backward_references_enc::VP8LBackwardRefs],
+    width: usize,
+    height: usize,
+    quality: u32,
+    low_effort: bool,
+    sub_configs: &[CrunchSubConfig],
+    cache_bits: &mut u32,
+    histogram_bits_in: u32,
+    init_byte_position: usize,
+) -> Result<(usize, usize), TryReserveError> {
+    use super::backward_references_enc::*;
+    use super::histogram_enc::*;
+    use super::predictor_enc::VP8LOptimizeSampling;
+    use crate::utils::bit_writer_utils::*;
+    use crate::webp::format_constants::{MIN_HUFFMAN_BITS, NUM_HUFFMAN_BITS};
+    const MAX_HUFFMAN_BITS: u32 = MIN_HUFFMAN_BITS + (1 << NUM_HUFFMAN_BITS) - 1;
+    assert!((MIN_HUFFMAN_BITS..=MAX_HUFFMAN_BITS).contains(&histogram_bits_in));
+    assert!(width > 0 && height > 0 && refs.len() >= 4);
+    assert!(!sub_configs.is_empty() && sub_configs.len() <= 2);
+    assert!(init_byte_position <= VP8LBitWriterNumBytes(bw));
+    let histogram_size = width
+        .div_ceil(1 << histogram_bits_in)
+        .checked_mul(height.div_ceil(1 << histogram_bits_in))
+        .expect("image geometry");
+    let mut histogram_argb = Vec::new();
+    histogram_argb.try_reserve_exact(histogram_size)?;
+    histogram_argb.resize(histogram_size, 0);
+    let mut histogram_chain = VP8LHashChainInit(histogram_size)?;
+    let bw_init = VP8LBitWriterClone(bw)?;
+    let mut bw_best = if sub_configs.len() > 1 || sub_configs[0].do_no_cache {
+        VP8LBitWriterClone(bw)?
+    } else {
+        VP8LBitWriterInit(0)?
+    };
+    VP8LHashChainFill(hash_chain, quality, argb, width, height, low_effort)?;
+    let cache_bits_init = if *cache_bits == 0 {
+        MAX_COLOR_CACHE_BITS
+    } else {
+        *cache_bits
+    };
+    let mut best_size = usize::MAX;
+    let mut sizes = (0, 0);
+    for config in sub_configs {
+        let best_cache = VP8LGetBackwardReferences(
+            width,
+            height,
+            argb,
+            quality,
+            low_effort,
+            config.lz77,
+            cache_bits_init,
+            config.do_no_cache,
+            hash_chain,
+            refs,
+        )?;
+        for i_cache in 0..if config.do_no_cache { 2 } else { 1 } {
+            let trial_cache = if i_cache == 0 { best_cache } else { 0 };
+            if i_cache == 1 && best_cache == 0 {
+                break;
+            }
+            VP8LBitWriterReset(&bw_init, bw);
+            let mut histogram_image = VP8LAllocateHistogramSet(histogram_size, trial_cache)?;
+            let mut tmp = VP8LAllocateHistogram(trial_cache)?;
+            VP8LGetHistoImageSymbols(
+                width,
+                height,
+                &refs[i_cache],
+                quality,
+                low_effort,
+                histogram_bits_in,
+                trial_cache,
+                &mut histogram_image,
+                &mut tmp,
+                &mut histogram_argb,
+            )?;
+            let groups = histogram_image.size;
+            let mut codes = GetHuffBitLengthsAndCodes(&mut histogram_image.histograms[..groups])?;
+            drop(histogram_image);
+            drop(tmp);
+            VP8LPutBits(bw, u32::from(trial_cache > 0), 1)?;
+            if trial_cache > 0 {
+                VP8LPutBits(bw, trial_cache, 4)?;
+            }
+            let mut image_size = 0;
+            for symbol in &mut histogram_argb {
+                image_size = image_size.max(*symbol as usize + 1);
+                *symbol <<= 8;
+            }
+            let write_image = image_size > 1;
+            VP8LPutBits(bw, u32::from(write_image), 1)?;
+            let mut histogram_bits = histogram_bits_in;
+            if write_image {
+                histogram_bits = VP8LOptimizeSampling(
+                    &mut histogram_argb,
+                    width,
+                    height,
+                    histogram_bits_in,
+                    MAX_HUFFMAN_BITS,
+                );
+                VP8LPutBits(bw, histogram_bits - MIN_HUFFMAN_BITS, NUM_HUFFMAN_BITS)?;
+                EncodeImageNoHuffman(
+                    bw,
+                    &histogram_argb,
+                    &mut histogram_chain,
+                    &mut refs[2..],
+                    width.div_ceil(1 << histogram_bits),
+                    height.div_ceil(1 << histogram_bits),
+                    quality,
+                    low_effort,
+                )?;
+            }
+            for code in &mut codes[..5 * image_size] {
+                StoreHuffmanCode(bw, code)?;
+                ClearHuffmanTreeIfOnlyOneSymbol(code);
+            }
+            let header_size = VP8LBitWriterNumBytes(bw) - init_byte_position;
+            StoreImageToBitMask(
+                bw,
+                width,
+                histogram_bits,
+                &refs[i_cache],
+                &histogram_argb,
+                &codes,
+            )?;
+            let trial_size = VP8LBitWriterNumBytes(bw);
+            // Upstream compares rounded byte counts, preserving the first tie.
+            if trial_size < best_size {
+                best_size = trial_size;
+                *cache_bits = trial_cache;
+                sizes = (header_size, trial_size - init_byte_position - header_size);
+                VP8LBitWriterSwap(bw, &mut bw_best);
+            }
+        }
+    }
+    VP8LBitWriterSwap(bw, &mut bw_best);
+    Ok(sizes)
 }
 
 /// Errors at the checked image-header/container boundary.

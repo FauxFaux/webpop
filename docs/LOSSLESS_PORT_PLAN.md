@@ -57,7 +57,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1–5 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–6 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
@@ -69,7 +69,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   maintenance, and full reference trial selection. The public Rust encoder is
   not implemented. Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
-  Histogram clustering and main-image encoding are next (milestone 6).
+  Milestone 6 adds histogram clustering/remap, sampling optimization, and
+  main-image encoding with cache/LZ77 trials. Palette and transform selection
+  are next (milestone 7).
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -130,6 +132,31 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   A hand-computed bit test independently checks group selection after a copy
   crosses multiple rows. Debug tests including Wasm, release integration tests,
   formatting and the production library build pass; no divergence was observed.
+- Milestone 6 (complete) adds `VP8LGetHistoImageSymbols` and its histogram
+  cost/entropy-bin, stochastic, greedy-queue and remap helpers,
+  `VP8LOptimizeSampling`, and `EncodeImageInternal` with `CrunchSubConfig`
+  trials. There are 4,388 exact scalar C comparisons (1,308 staged clustering
+  transcripts and 3,080 sampling cases), plus 1,068 complete main-image stream
+  comparisons, all with seed `6d2b79f5`. Transcripts include every nonzero
+  population bin and cached metadata before/after each clustering stage, empty
+  tiles, final maps and the integrated entry point. Coverage assertions confirm
+  full/low-effort bin merges, stochastic merges and early stopping, greedy
+  merges, and multiple groups. Main-image comparisons include selected cache
+  bits, header/data byte counts, both reference sub-configurations, optional
+  no-cache trials, every legal tile bit count, and writer prefixes through
+  97 bits (including flushed prefixes and retained first ties). Thirty-one
+  committed C fixtures preserve clustering, sampling and main streams without C.
+  Independent checks cover exhaustive uniform-square sampling, cross-row copy
+  assignment, remap ties/empty tiles, population conservation, strict/saturating
+  cost thresholds and trial selection by rounded byte count. The 168 independent
+  main-image decode cases preserve exact RGBA (including hidden transparent RGB):
+  34 use caches, 50 have multiple Huffman groups and 15 subsample the group map.
+  Rust retains owned histogram slots in place of pointer aliases, represents
+  empty original tiles with unused populations, and preserves queue traversal
+  and tie order. Allocation failures propagate through `Result`. No numerical
+  divergence was observed. The full portable and native-oracle suites, release
+  clustering/main-image/Wasm tests, formatting and the production library build
+  pass. The public encoder still awaits milestones 7–9.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -471,7 +498,7 @@ milestone implements just one part of a file.
 | 3 (complete) | `PixOrCopy`, reference storage/cursors; histogram initialization, accumulation and cost estimation `[D/E foundations]` | 1 | Matching tokens, histograms, metadata and costs in 27,919 native comparisons; 40 portable C fixtures; cursor/storage boundaries and independent replay exercised |
 | 4 (complete) | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | 32,212 exact native comparisons of matches, tokens, cache choices, costs and chosen paths; independent replay, portable fixtures and interval stress checks pass |
 | 5 (complete) | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
-| 6 | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | Matching cluster maps, Huffman groups, and main-image streams, including multi-group images and trial resets |
+| 6 (complete) | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | 4,388 exact staged clustering/sampling comparisons and 1,068 main streams match C; 31 portable fixtures and 168 exact RGBA decodes cover caches, multi-group images, sampling and trial resets |
 | 7 | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Matching palette orders and packed indices, residuals, selected transforms and auxiliary images on forced branch cases |
 | 8 | `AnalyzeEntropy`, sizing heuristics, `EncoderAnalyze` `[H]`; encoder storage and `EncodeStreamHook`; `VP8LEncodeStream` | 6, 7 | Matching analysis decisions, tried configurations, and selected stream; full palette trial selection included |
 | 9 | Picture/config/import/writer glue; `WebPEncode`, `VP8LEncodeImage`, and public `WebPEncodeLosslessRGBA` | 8, header helpers | All public corpus cases match the pinned reference and independently decode; invalid inputs fail without panic |

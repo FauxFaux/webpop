@@ -7,6 +7,133 @@ use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases
 use support::references::{foundation_cases, foundation_fixture_cases};
 
 #[test]
+fn main_image_streams_match_pinned_reference() {
+    let cases = support::main_images::cases();
+    for (case, expected) in cases.iter().zip(native::run("main-images", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} main-image streams/cache choices/sizes",
+        cases.len()
+    );
+}
+
+#[test]
+fn main_image_fixtures_match_pinned_reference() {
+    let cases = support::main_images::fixture_cases();
+    let outputs = native::run("main-image-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C main-image stream fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/main_images.txt"
+            ),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn clustering_and_sampling_match_pinned_reference() {
+    fn skip_set(words: &[u32], pos: &mut usize) -> (u32, u32) {
+        let size = words[*pos];
+        *pos += 1;
+        let mut used = 0;
+        for _ in 0..size {
+            let present = words[*pos];
+            *pos += 1;
+            if present == 0 {
+                continue;
+            }
+            used += 1;
+            for _ in 0..5 {
+                let nonzero = words[*pos] as usize;
+                *pos += 1 + 2 * nonzero;
+            }
+            *pos += 23; // trivial symbols, cached costs, used flags and bin id
+        }
+        (size, used)
+    }
+    let cases = support::clustering::cases();
+    let mut reached = [false; 7];
+    for (case, expected) in cases.iter().zip(native::run("clustering", &cases)) {
+        native::compare(case, &expected, &case.rust());
+        if case.function != "VP8LClustering" {
+            continue;
+        }
+        let mut pos = 0;
+        let (raw, used) = skip_set(&expected, &mut pos);
+        reached[0] |= used < raw;
+        let (initial, _) = skip_set(&expected, &mut pos);
+        let combine = expected[pos] != 0;
+        pos += 1;
+        skip_set(&expected, &mut pos);
+        let (binned, _) = skip_set(&expected, &mut pos);
+        reached[1] |= combine && binned < initial && case.input[3] == 0;
+        reached[2] |= combine && binned < initial && case.input[3] != 0;
+        let greedy = expected[pos] != 0;
+        pos += 1;
+        let (stochastic, _) = skip_set(&expected, &mut pos);
+        reached[3] |= stochastic < binned;
+        reached[4] |= !greedy && stochastic > 1;
+        let (final_size, _) = skip_set(&expected, &mut pos);
+        reached[5] |= greedy && final_size < stochastic;
+        reached[6] |= final_size > 1;
+    }
+    assert_eq!(
+        reached, [true; 7],
+        "empty tiles, full/low bin merges, stochastic merges/early stop, greedy merges, multi-group"
+    );
+    eprintln!("Compared {} staged clustering/sampling cases", cases.len());
+}
+
+#[test]
+fn clustering_fixtures_match_pinned_reference() {
+    let cases = support::clustering::fixture_cases();
+    let outputs = native::run("clustering-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C clustering and sampling fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/clustering.txt"),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn traceback_matches_pinned_reference() {
     let cases = support::matches::traceback_cases();
     let outputs = native::run("traceback", &cases);

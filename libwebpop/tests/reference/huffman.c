@@ -47,6 +47,51 @@ unsigned WebpopAuxiliary(const uint32_t* in, uint32_t* out) {
   return (unsigned)size;
 }
 
+// width, height, quality, low_effort, cache bound (0=automatic), histogram
+// bits, prefix bit count, trial count, (lz77, do_no_cache) pairs, then ARGB.
+unsigned WebpopMainImage(const uint32_t* in, unsigned n, uint32_t* out) {
+  VP8LBitWriter bw;
+  VP8LHashChain chain;
+  VP8LBackwardRefs refs[4];
+  CrunchConfig config;
+  WebPPicture pic;
+  int cache = in[4], hdr, data, percent = 0;
+  unsigned i, remaining = in[6], count = 0;
+  size_t size, initial;
+  (void)n;
+  memset(&config, 0, sizeof(config));
+  config.sub_configs_size = in[7];
+  for (i = 0; i < in[7]; ++i) {
+    if (in[8 + 2 * i] < 1 || in[8 + 2 * i] > 7 || in[9 + 2 * i] > 1) abort();
+    config.sub_configs[i].lz77 = in[8 + 2 * i];
+    config.sub_configs[i].do_no_cache = in[9 + 2 * i];
+  }
+  if (!WebPPictureInit(&pic) || !VP8LBitWriterInit(&bw, 0) ||
+      !VP8LHashChainInit(&chain, in[0] * in[1])) abort();
+  for (i = 0; i < 4; ++i) VP8LBackwardRefsInit(&refs[i], 256);
+  while (remaining) {
+    const unsigned bits = remaining > 32 ? 32 : remaining;
+    const uint32_t mask = bits == 32 ? 0xffffffffu : (1u << bits) - 1;
+    VP8LPutBits(&bw, 0x05ad5ad5u & mask, bits);
+    remaining -= bits;
+  }
+  initial = VP8LBitWriterNumBytes(&bw);
+  if (!EncodeImageInternal(&bw, in + 8 + 2 * in[7], &chain, refs,
+                            in[0], in[1], in[2], in[3], &config, &cache,
+                            in[5], initial, &hdr, &data, &pic, 0, &percent)) abort();
+  out[count++] = cache;
+  out[count++] = hdr;
+  out[count++] = data;
+  VP8LPutBits(&bw, 0x5ad, 11);
+  VP8LBitWriterFinish(&bw);
+  size = VP8LBitWriterNumBytes(&bw);
+  for (i = 0; i < size; ++i) out[count++] = bw.buf[i];
+  VP8LBitWriterWipeOut(&bw);
+  VP8LHashChainClear(&chain);
+  for (i = 0; i < 4; ++i) VP8LBackwardRefsClear(&refs[i]);
+  return count;
+}
+
 unsigned WebpopImageHeaders(const uint32_t* in, uint32_t* out) {
   WebPPicture pic;
   WebPMemoryWriter memory;

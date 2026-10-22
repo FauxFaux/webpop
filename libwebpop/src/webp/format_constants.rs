@@ -4,6 +4,8 @@
 pub const MAX_CACHE_BITS: u32 = 11;
 pub const MAX_ALLOWED_CODE_LENGTH: usize = 15;
 pub const CODE_LENGTH_CODES: usize = 19;
+pub const MIN_HUFFMAN_BITS: u32 = 2;
+pub const NUM_HUFFMAN_BITS: u32 = 3;
 pub const NUM_LITERAL_CODES: usize = 256;
 pub const NUM_LENGTH_CODES: usize = 24;
 pub const NUM_DISTANCE_CODES: usize = 40;

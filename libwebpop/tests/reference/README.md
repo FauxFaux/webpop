@@ -233,7 +233,7 @@ and runs around length 4095 are covered. Progress hooks are omitted from the
 Rust internal API. Prefix-table entry zero is defined upstream and used by the
 traceback length-cost cache; NoLUT entry points still require inputs >= 3.
 
-Milestone 5 auxiliary integration is in progress. `auxiliary_streams_match_pinned_reference`
+Milestone 5 auxiliary integration is complete. `auxiliary_streams_match_pinned_reference`
 compares 720 complete `EncodeImageNoHuffman` streams (including an 11-bit
 sentinel to expose trailing-bit differences), using seed `6d2b79f5` and the
 same pinned scalar build. Cases cover five geometries, six patterns, four
@@ -243,7 +243,7 @@ contains the existing request protocol, ` | `, then the response protocol.
 These are cases with zero-based index `i % 24 == 16` from the live corpus.
 `auxiliary_images` checks these without compiling C and independently decodes
 75 test-only untransformed RIFF images with exact RGBA equality. Reusable
-container headers and direct cache/multi-group serialization remain pending.
+container headers and direct cache/multi-group serialization are covered below.
 
 The `image_headers_match_pinned_reference` test compares 1,600 complete containers
 against the original static `WriteImageSize`, `WriteRealAlphaAndVersion` and
@@ -270,3 +270,59 @@ exactly. Non-group bits of tile symbols are deliberately nonzero.
 17x33, tile bits 2, all four cache sizes and three offsets, alternating the three
 token patterns. The seed remains `6d2b79f5`. The portable token test also checks
 a hand-computed group transition after a copy crosses multiple rows.
+
+Milestone 6 adds 4,388 exact clustering/sampling comparisons and 1,068 complete
+main-image comparisons, with the same scalar pin/configuration and seed.
+`clustering_and_sampling_match_pinned_reference` compares 1,308 transcripts
+and 3,080 complete sampling buffers. It asserts that the corpus reaches empty
+tiles, full/low-effort entropy-bin merges, stochastic merges/early stopping,
+greedy merges and multiple final groups. The main-image test compares selected
+cache bits, header/data byte counts and complete streams, including an 11-bit
+sentinel. Configurations include all LZ77 strategies, one/two sub-configurations,
+optional no-cache trials, preset/automatic cache bounds, both effort modes,
+every legal histogram tile bit count and prefixes of 0/7/31/63/97 bits.
+
+New requests:
+
+- `VP8LOptimizeSampling`: `(full_width, full_height, bits, max_bits)`, then the
+  complete subsampled input map. Returns selected bits and the entire mutated
+  buffer, including the untouched tail after in-place compaction.
+- `VP8LClustering`: `(width, height, quality, low_effort, tile_bits, cache_bits)`,
+  then `(mode, payload, length)` tokens (literal=0, cache=1, copy=2). Distances
+  are already plane codes; these synthetic tokens need not reconstruct pixels.
+  Returns original/analyzed sets, the entropy-bin enabled flag, sets after bin
+  assignment/combination, the greedy flag, sets after stochastic/greedy passes,
+  the tile map, the remapped set, and the integrated entry point's set/map.
+  Each set starts with its size. Each slot starts with a presence flag (0 for
+  an empty original tile). Present histograms contain, for each of five
+  populations, the number of nonzero bins then `(index, count)` pairs, followed
+  by five trivial symbols, total cached cost, five population costs, five used
+  flags and bin id. Costs are low/high word pairs. Every population value is
+  preserved; there is no hash/checksum. Rust's unused original populations
+  represent C's null histogram pointers.
+- `EncodeImageInternal`: `(width, height, quality, low_effort, cache_bound,
+  histogram_bits, prefix_bits, trial_count)`, `(lz77_mask, do_no_cache)` pairs,
+  then ARGB pixels. Cache bound zero requests the automatic maximum (10).
+  The adapter writes a fixed `0x05ad5ad5` prefix in chunks of at most 32 bits,
+  masking partial chunks, and uses its rounded byte length as the initial byte
+  position. Returns selected cache bits, header/data byte counts and the whole
+  prefix/main stream with the 11-bit sentinel. `huffman.c` calls the original
+  static encoder directly, including its original clustering implementation.
+
+`fixtures/clustering.txt` contains the 20 cases from
+`support::clustering::fixture_cases`; `fixtures/main_images.txt` contains the
+11 cases from `support::main_images::fixture_cases`. Outputs come exclusively
+from the pinned C wrappers. Review the source pin and
+`target/native-oracle/provenance.txt` before regenerating these specific files:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle clustering_fixtures_match_pinned_reference
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle main_image_fixtures_match_pinned_reference
+```
+
+Portable independent tests exhaust uniform-square sampling, check copy/tile
+assignment and remap ties, conserve histogram populations, test strict and
+saturating thresholds, and compare combined trial selection to individually
+encoded trials. `main_images` also independently decodes 168 untransformed
+files with exact RGBA equality, including hidden RGB: 34 use caches, 50 use
+multiple Huffman groups and 15 compact the group map to larger tiles.
