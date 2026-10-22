@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["libwebpop"]
+members = ["cwebpop","libwebpop"]
 
 [profile.dev]
 opt-level = 1
