@@ -288,3 +288,72 @@ pub fn EncodeImageNoHuffman(
     }
     StoreImageToBitMask(bw, width, 0, &refs[0], &[0], &codes)
 }
+
+/// Errors at the checked image-header/container boundary.
+#[derive(Debug, thiserror::Error)]
+pub enum ImageWriteError {
+    #[error("image dimensions must be in 1..=16383")]
+    InvalidDimensions,
+    #[error("encoded image exceeds the RIFF size limit")]
+    SizeOverflow,
+    #[error(transparent)]
+    Allocation(#[from] TryReserveError),
+}
+
+/// Upstream WriteImageSize, with validation before changing the writer.
+pub fn WriteImageSize(
+    bw: &mut VP8LBitWriter,
+    width: u32,
+    height: u32,
+) -> Result<(), ImageWriteError> {
+    if !(1..=16383).contains(&width) || !(1..=16383).contains(&height) {
+        return Err(ImageWriteError::InvalidDimensions);
+    }
+    VP8LPutBits(bw, width - 1, 14)?;
+    VP8LPutBits(bw, height - 1, 14)?;
+    Ok(())
+}
+
+/// Upstream WriteRealAlphaAndVersion (VP8L version zero).
+pub fn WriteRealAlphaAndVersion(
+    bw: &mut VP8LBitWriter,
+    has_alpha: bool,
+) -> Result<(), TryReserveError> {
+    VP8LPutBits(bw, u32::from(has_alpha), 1)?;
+    VP8LPutBits(bw, 0, 3)
+}
+
+/// Upstream WriteRiffHeader, returning the fixed header instead of invoking a
+/// picture writer callback. Sizes include the signature and RIFF padding.
+pub fn WriteRiffHeader(webpll_size: usize) -> Result<[u8; 21], ImageWriteError> {
+    let vp8l_size = webpll_size
+        .checked_add(1)
+        .ok_or(ImageWriteError::SizeOverflow)?;
+    let riff_size = vp8l_size
+        .checked_add(12 + (vp8l_size & 1))
+        .ok_or(ImageWriteError::SizeOverflow)?;
+    let riff_size = u32::try_from(riff_size).map_err(|_| ImageWriteError::SizeOverflow)?;
+    let vp8l_size = u32::try_from(vp8l_size).map_err(|_| ImageWriteError::SizeOverflow)?;
+    let mut header = *b"RIFF\0\0\0\0WEBPVP8L\0\0\0\0\x2f";
+    header[4..8].copy_from_slice(&riff_size.to_le_bytes());
+    header[16..20].copy_from_slice(&vp8l_size.to_le_bytes());
+    Ok(header)
+}
+
+/// Upstream WriteImage, collecting the finalized stream in an owned RIFF file.
+/// The returned length replaces C's coded_size out parameter.
+pub fn WriteImage(bw: &mut VP8LBitWriter) -> Result<Vec<u8>, ImageWriteError> {
+    let data = crate::utils::bit_writer_utils::VP8LBitWriterFinish(bw)?;
+    let header = WriteRiffHeader(data.len())?;
+    let padding = (data.len() + 1) & 1;
+    let size = data
+        .len()
+        .checked_add(header.len() + padding)
+        .ok_or(ImageWriteError::SizeOverflow)?;
+    let mut output = Vec::new();
+    output.try_reserve_exact(size)?;
+    output.extend_from_slice(&header);
+    output.extend_from_slice(data);
+    output.resize(size, 0);
+    Ok(output)
+}

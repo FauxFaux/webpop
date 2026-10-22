@@ -244,3 +244,11 @@ These are cases with zero-based index `i % 24 == 16` from the live corpus.
 `auxiliary_images` checks these without compiling C and independently decodes
 75 test-only untransformed RIFF images with exact RGBA equality. Reusable
 container headers and direct cache/multi-group serialization remain pending.
+
+The `image_headers_match_pinned_reference` test compares 1,600 complete containers
+against the original static `WriteImageSize`, `WriteRealAlphaAndVersion` and
+`WriteImage` helpers. It crosses five widths/heights, both alpha flags and every
+trailing bit count from 0 through 31. The adapter collects the actual C writer
+callback output. Portable tests independently check packed header bits, RIFF and
+chunk lengths, padding, invalid dimensions and size overflow. Auxiliary decode
+tests now use the production Rust header/container helpers.

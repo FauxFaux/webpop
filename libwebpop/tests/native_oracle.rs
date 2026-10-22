@@ -266,3 +266,37 @@ fn auxiliary_streams_match_pinned_reference() {
     }
     eprintln!("Compared {} auxiliary streams", cases.len());
 }
+
+#[test]
+fn image_headers_match_pinned_reference() {
+    use libwebpop::enc::vp8l_enc::{WriteImage, WriteImageSize, WriteRealAlphaAndVersion};
+    use libwebpop::utils::bit_writer_utils::{VP8LBitWriterInit, VP8LPutBits};
+    let mut cases = Vec::new();
+    for width in [1, 2, 255, 256, 16383] {
+        for height in [1, 2, 255, 256, 16383] {
+            for alpha in [0, 1] {
+                for bits in 0..=31 {
+                    let value = 0x5ad5ad5 & ((1u32 << bits) - 1);
+                    cases.push(support::Case::new(
+                        "ImageHeaders",
+                        vec![width, height, alpha, value, bits],
+                    ));
+                }
+            }
+        }
+    }
+    for (case, expected) in cases.iter().zip(native::run("image-headers", &cases)) {
+        let a = &case.input;
+        let mut bw = VP8LBitWriterInit(0).unwrap();
+        WriteImageSize(&mut bw, a[0], a[1]).unwrap();
+        WriteRealAlphaAndVersion(&mut bw, a[2] != 0).unwrap();
+        VP8LPutBits(&mut bw, a[3], a[4]).unwrap();
+        let actual: Vec<u32> = WriteImage(&mut bw)
+            .unwrap()
+            .into_iter()
+            .map(u32::from)
+            .collect();
+        native::compare(case, &expected, &actual);
+    }
+    eprintln!("Compared {} image headers/containers", cases.len());
+}

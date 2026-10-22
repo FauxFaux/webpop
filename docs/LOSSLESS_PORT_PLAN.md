@@ -68,8 +68,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   cache selection and rewriting, fixed-point traceback with bounded interval
   maintenance, and full reference trial selection. The public Rust encoder is
   not implemented. Milestone 5 auxiliary-image integration is implemented;
-  reusable RIFF/image header helpers and direct multi-group/cache token-writer
-  comparisons remain before closing that milestone.
+  reusable RIFF/image header helpers are implemented. Direct multi-group/cache
+  token-writer comparisons remain before closing that milestone.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -116,8 +116,13 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   A test-only untransformed RIFF wrapper independently decodes 75 cases with
   exact RGBA, including hidden transparent RGB. Normal tests (including Wasm),
   release auxiliary tests, formatting and a normal Rust library build pass.
-  No numerical divergence was observed. Production header/container helpers
-  and direct cache/multi-group token serialization coverage remain unfinished.
+  No numerical divergence was observed. Production `WriteImageSize`, `WriteRealAlphaAndVersion`, `WriteRiffHeader`
+  and `WriteImage` now validate dimensions and RIFF lengths and return owned
+  output with allocation errors propagated. They pass 1,600 exact scalar C
+  header/container comparisons, including all trailing bit counts from 0 to 31,
+  dimension boundaries and padding. Independent tests check invalid geometry,
+  size overflow and container lengths; the 75 decode cases use these helpers.
+  Direct cache/multi-group token serialization coverage remains unfinished.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

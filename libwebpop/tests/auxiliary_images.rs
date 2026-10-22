@@ -1,15 +1,16 @@
 use libwebpop::enc::backward_references_enc::{VP8LBackwardRefsInit, VP8LHashChainInit};
-use libwebpop::enc::vp8l_enc::EncodeImageNoHuffman;
+use libwebpop::enc::vp8l_enc::{
+    EncodeImageNoHuffman, ImageWriteError, WriteImage, WriteImageSize, WriteRealAlphaAndVersion,
+    WriteRiffHeader,
+};
 use libwebpop::utils::bit_writer_utils::{VP8LBitWriterFinish, VP8LBitWriterInit, VP8LPutBits};
 
 // Test-only untransformed container. The public encoder still needs analysis
 // and transforms; this exercises the milestone-5 integration independently.
 fn encode(pixels: &[u32], width: usize, height: usize, quality: u32, low_effort: bool) -> Vec<u8> {
     let mut bw = VP8LBitWriterInit(0).unwrap();
-    VP8LPutBits(&mut bw, (width - 1) as u32, 14).unwrap();
-    VP8LPutBits(&mut bw, (height - 1) as u32, 14).unwrap();
-    VP8LPutBits(&mut bw, u32::from(pixels.iter().any(|p| p >> 24 != 255)), 1).unwrap();
-    VP8LPutBits(&mut bw, 0, 3).unwrap(); // version
+    WriteImageSize(&mut bw, width as u32, height as u32).unwrap();
+    WriteRealAlphaAndVersion(&mut bw, pixels.iter().any(|p| p >> 24 != 255)).unwrap();
     VP8LPutBits(&mut bw, 0, 1).unwrap(); // no transforms
     // Main images include a spatial Huffman flag; auxiliary images omit it.
     // Both flags are zero, so prefix it before the auxiliary cache flag.
@@ -20,16 +21,7 @@ fn encode(pixels: &[u32], width: usize, height: usize, quality: u32, low_effort:
         &mut bw, pixels, &mut chain, &mut refs, width, height, quality, low_effort,
     )
     .unwrap();
-    let mut payload = vec![0x2f];
-    payload.extend_from_slice(VP8LBitWriterFinish(&mut bw).unwrap());
-    let padding = payload.len() & 1;
-    let mut file = b"RIFF".to_vec();
-    file.extend_from_slice(&((12 + payload.len() + padding) as u32).to_le_bytes());
-    file.extend_from_slice(b"WEBPVP8L");
-    file.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-    file.extend_from_slice(&payload);
-    file.resize(file.len() + padding, 0);
-    file
+    WriteImage(&mut bw).unwrap()
 }
 
 #[test]
@@ -114,4 +106,55 @@ fn committed_auxiliary_streams_match_scalar_c() {
         VP8LPutBits(&mut bw, 0x5ad, 11).unwrap();
         assert_eq!(VP8LBitWriterFinish(&mut bw).unwrap(), expected);
     }
+}
+
+#[test]
+fn checked_headers_and_padding() {
+    for (width, height) in [(1, 1), (16383, 1), (1, 16383), (16383, 16383)] {
+        for alpha in [false, true] {
+            let mut bw = VP8LBitWriterInit(0).unwrap();
+            WriteImageSize(&mut bw, width, height).unwrap();
+            WriteRealAlphaAndVersion(&mut bw, alpha).unwrap();
+            let bits = (width - 1) | ((height - 1) << 14) | (u32::from(alpha) << 28);
+            assert_eq!(VP8LBitWriterFinish(&mut bw).unwrap(), bits.to_le_bytes());
+        }
+    }
+    for (width, height) in [(0, 1), (1, 0), (16384, 1), (1, u32::MAX)] {
+        let mut bw = VP8LBitWriterInit(0).unwrap();
+        assert!(matches!(
+            WriteImageSize(&mut bw, width, height),
+            Err(ImageWriteError::InvalidDimensions)
+        ));
+        assert!(VP8LBitWriterFinish(&mut bw).unwrap().is_empty());
+    }
+    for bytes in 0..8 {
+        let mut bw = VP8LBitWriterInit(0).unwrap();
+        for i in 0..bytes {
+            VP8LPutBits(&mut bw, i as u32, 8).unwrap();
+        }
+        let file = WriteImage(&mut bw).unwrap();
+        assert_eq!(&file[..4], b"RIFF");
+        assert_eq!(&file[8..16], b"WEBPVP8L");
+        assert_eq!(
+            u32::from_le_bytes(file[4..8].try_into().unwrap()) as usize,
+            file.len() - 8
+        );
+        assert_eq!(
+            u32::from_le_bytes(file[16..20].try_into().unwrap()) as usize,
+            bytes + 1
+        );
+        assert_eq!(file[20], 0x2f);
+        assert_eq!(&file[21..21 + bytes], (0..bytes as u8).collect::<Vec<_>>());
+        assert_eq!(file.len() % 2, 0);
+        if bytes % 2 == 0 {
+            assert_eq!(file.last(), Some(&0));
+        }
+    }
+    for size in [usize::MAX, u32::MAX as usize, u32::MAX as usize - 12] {
+        assert!(matches!(
+            WriteRiffHeader(size),
+            Err(ImageWriteError::SizeOverflow)
+        ));
+    }
+    assert!(WriteRiffHeader(u32::MAX as usize - 14).is_ok());
 }

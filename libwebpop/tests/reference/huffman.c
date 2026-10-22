@@ -46,3 +46,24 @@ unsigned WebpopAuxiliary(const uint32_t* in, uint32_t* out) {
   for (i = 0; i < 2; ++i) VP8LBackwardRefsClear(&refs[i]);
   return (unsigned)size;
 }
+
+unsigned WebpopImageHeaders(const uint32_t* in, uint32_t* out) {
+  WebPPicture pic;
+  WebPMemoryWriter memory;
+  VP8LBitWriter bw;
+  size_t coded_size, i;
+  if (!WebPPictureInit(&pic) || !VP8LBitWriterInit(&bw, 0)) abort();
+  WebPMemoryWriterInit(&memory);
+  pic.writer = WebPMemoryWrite;
+  pic.custom_ptr = &memory;
+  pic.width = in[0];
+  pic.height = in[1];
+  if (!WriteImageSize(&pic, &bw) || !WriteRealAlphaAndVersion(&bw, in[2])) abort();
+  VP8LPutBits(&bw, in[3], in[4]);
+  if (!WriteImage(&pic, &bw, &coded_size) || coded_size != memory.size) abort();
+  for (i = 0; i < memory.size; ++i) out[i] = memory.mem[i];
+  i = memory.size;
+  WebPMemoryWriterClear(&memory);
+  VP8LBitWriterWipeOut(&bw);
+  return (unsigned)i;
+}
