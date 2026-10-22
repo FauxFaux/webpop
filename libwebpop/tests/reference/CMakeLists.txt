@@ -18,3 +18,4 @@ target_include_directories(webpop_oracle PRIVATE "${UPSTREAM}" "${CMAKE_CURRENT_
 target_compile_definitions(webpop_oracle PRIVATE HAVE_CONFIG_H)
 target_link_libraries(webpop_oracle PRIVATE webp)
 set_target_properties(webpop_oracle PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)
+target_sources(webpop_oracle PRIVATE near_lossless.c)

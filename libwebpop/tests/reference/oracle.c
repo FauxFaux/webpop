@@ -35,6 +35,7 @@ unsigned WebpopPopulationCost(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopHistogram(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopHistogramSet(const uint32_t*, uint32_t*);
 extern int VP8LDistanceToPlaneCode(int, int);
+int WebpopNearLossless(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -380,6 +381,8 @@ int main(void) {
       for (i = 0; i < size; ++i) out[count++] = encoded[i];
       WebPFree(encoded);
       free(allocation);
+    } else if (WebpopNearLossless(name, in, n, out, &count)) {
+      // Standalone near-lossless leaves and preprocessing passes.
     } else REQUIRE(0);
     printf("%u", count);
     for (i = 0; i < count; ++i) printf(" %08" PRIx32, out[i]);
