@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{Cursor, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -206,8 +206,20 @@ fn decoding_uses_file_content_with_extension_fallback() {
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
-        assert_eq!(decode(&fs::read(output).unwrap()), source());
+        assert_eq!(decode(&fs::read(&output).unwrap()), source());
+        let copy = temp.file("copy.webp");
+        let result = command()
+            .arg(&output)
+            .arg("-o")
+            .arg(&copy)
+            .arg("--exact")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(decode(&fs::read(copy).unwrap()), source());
     }
-    // The output decoder feature is enabled for ordinary CLI builds too.
-    assert!(Path::new("unused.webp").extension().is_some());
 }

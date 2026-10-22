@@ -21,6 +21,17 @@ and traceback refinement (port milestones 1–4). Run `cargo test` for
 portable fixtures and the Wasm regression, or
 `cargo test --features native-oracle` to compare leaves with the pinned scalar
 C implementation. See the [oracle guide](libwebpop/tests/reference/README.md)
-for setup, fixture regeneration, and mismatch replay. The Rust public image
-encoder is not implemented yet.
+for setup, fixture regeneration, and mismatch replay.
+
+Encode an image with the Rust lossless pipeline:
+
+```sh
+cargo run --release -p cwebpop -- input.png -o output.webp
+```
+
+The library entry point is `libwebpop::encode_lossless_rgba`; see the
+[CLI documentation](cwebpop/README.md) for settings and input formats. It uses
+the completed encoder stages with a fixed transform policy. Automatic upstream
+analysis/configuration selection is still being ported, so compressed bytes
+need not match libwebp's simple API.
 

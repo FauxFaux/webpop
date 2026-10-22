@@ -242,15 +242,19 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions,
         "near_lossless",
     ];
     let command = Args::command();
-    for id in matches.ids() {
+    // matches.ids() also includes clap's derived "Args" group. Walk actual
+    // argument definitions so groups never need to appear in this allowlist.
+    for arg in command.get_arguments() {
+        let id = arg.get_id();
         if matches.value_source(id.as_str()) == Some(ValueSource::CommandLine)
             && !SUPPORTED.contains(&id.as_str())
         {
-            let arg = command.get_arguments().find(|a| a.get_id() == id).unwrap();
             let flag = if let Some(long) = arg.get_long() {
                 format!("--{long}")
+            } else if let Some(short) = arg.get_short() {
+                format!("-{short}")
             } else {
-                format!("-{}", arg.get_short().unwrap())
+                id.to_string()
             };
             return Err(format!("{flag} is not implemented").into());
         }

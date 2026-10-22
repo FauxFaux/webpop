@@ -66,8 +66,10 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   and cursors, spatial distance coding, and histogram accumulation and fixed-point
   cost estimation. Milestone 4 adds packed hash chains, RLE/standard/box LZ77,
   cache selection and rewriting, fixed-point traceback with bounded interval
-  maintenance, and full reference trial selection. The public Rust encoder is
-  not implemented. Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
+  maintenance, and full reference trial selection. The checked
+  `encode_lossless_rgba` entry point now produces complete images using a fixed
+  transform policy; full upstream analysis/configuration parity remains ahead.
+  Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
   main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction,
@@ -75,8 +77,28 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   implemented. Predictor cost/mask helpers, automatic tile-mode/sampling search
   and lossless residual conversion are implemented, including the predictor
   transform writer. Cross-color multiplier search and all four transform
-  writers are complete. Encoder analysis/state and the public API remain in
-  milestones 8–9.
+  writers are complete. Encoder analysis/state and the upstream-compatible
+  simple API remain in milestones 8–9.
+- `encode_lossless_rgba` imports checked positive-stride RGBA without changing
+  the source, optionally preserves hidden RGB, uses default-sorted palettes
+  when eligible, otherwise subtract-green, then prediction and non-palette
+  cross-color at nonzero methods. It writes main-image data and the RIFF
+  container with reusable hash/reference scratch and propagated allocation
+  errors. `LosslessOptions` exposes quality, method and exact handling. This
+  is an early usable API, not completion of milestones 8–9: it does not run
+  upstream's entropy/configuration trials and makes no compressed-byte parity
+  promise. There are 350 deterministic independent RGBA round trips spanning
+  palettes, non-palette images, transparent pixels, padded strides and effort
+  settings, plus checked invalid-input/option errors. `cwebpop` decodes input
+  bytes with `image`, calls this entry point and writes a complete WebP to a
+  file or stdout. CLI tests cover files, stdin/stdout, opaque/RGBA inputs,
+  exact RGB, alpha removal, content/extension detection, and failures before
+  output is opened. Unsupported CLI options are rejected explicitly; validation
+  iterates argument definitions so clap's generated `Args` group is excluded.
+  The complete workspace suite, all 30 native-oracle tests, release CLI/RGBA
+  tests and formatting pass. A release smoke run encodes the checked-in
+  128×128 PPM as a 15,246-byte WebP, which decodes and re-encodes identically
+  with exact handling.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
