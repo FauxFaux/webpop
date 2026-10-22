@@ -86,6 +86,19 @@ int main(void) {
       REQUIRE(n >= 11 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383 && in[2] <= 100 && in[3] <= 1 && in[4] <= 10 && in[5] >= 2 && in[5] <= 9 && in[6] <= 97 && in[7] >= 1 && in[7] <= 2);
       REQUIRE((uint64_t)in[0] * in[1] == n - 8 - 2 * in[7] && n < 20000);
       count = WebpopMainImage(in, n, out);
+    } else if (IS(PaletteSpatial)) {
+      WebPPicture pic;
+      uint32_t palette[256];
+      unsigned i, size;
+      REQUIRE(n >= 7 && in[0] <= 4 && in[1] > 0 && in[2] > 0 && in[3] >= in[1]);
+      size = in[4];
+      REQUIRE(size > 0 && size <= 256);
+      REQUIRE(n == 5 + size + (in[2] - 1) * in[3] + in[1]);
+      WebPPictureInit(&pic);
+      pic.use_argb = 1; pic.width = in[1]; pic.height = in[2];
+      pic.argb_stride = in[3]; pic.argb = in + 5 + size;
+      REQUIRE(PaletteSort((PaletteSorting)in[0], &pic, in + 5, size, palette));
+      for (i = 0; i < size; ++i) out[count++] = palette[i];
     } else if (IS(PaletteLeaves)) {
       uint32_t palette[256], sorted[256], map[256];
       unsigned size = n - 1, i;

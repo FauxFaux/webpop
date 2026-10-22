@@ -345,3 +345,21 @@ before regenerating:
 ```sh
 WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle palette_fixtures_match_pinned_reference
 ```
+
+`PaletteSpatial` inputs are `(method, width, height, ARGB stride, color count)`,
+then sorted palette words and image pixels (excluding final-row padding).
+Methods 0–4 correspond to `PaletteSorting` in the pinned header. The output is
+exactly the reordered palette. The adapter calls the original `PaletteSort`;
+no algorithms are duplicated in the C harness. There are 1,170 seeded cases
+covering all five methods, 1–256 colors, skinny/padded images and six adjacency
+patterns. `fixtures/spatial_palette.txt` records every 31st case (38 fixtures).
+After reviewing the pin and provenance, regenerate with:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle spatial_palette_fixtures_match_pinned_reference
+```
+
+Independent Rust checks compare spatial counts to a hand-computed graph and
+MinLA's best insertion slots to brute-force complete arrangement costs, using
+zero, seeded and maximum-u32 edge weights. Image tests directly sum adjacent
+palette-index distances before/after refinement and check color preservation.

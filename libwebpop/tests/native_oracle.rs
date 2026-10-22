@@ -474,3 +474,47 @@ fn palette_fixtures_match_pinned_reference() {
         .unwrap();
     }
 }
+
+#[test]
+fn spatial_palette_fixtures_match_pinned_reference() {
+    let cases: Vec<_> = support::palette::spatial_cases()
+        .into_iter()
+        .step_by(31)
+        .collect();
+    let outputs = native::run("spatial-palette-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C spatial palette fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/spatial_palette.txt"
+            ),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn spatial_palette_orders_match_pinned_reference() {
+    let cases = support::palette::spatial_cases();
+    for (case, expected) in cases.iter().zip(native::run("spatial-palette", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} spatial palette cases", cases.len());
+}

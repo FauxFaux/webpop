@@ -89,3 +89,82 @@ pub fn cases() -> Vec<Case> {
     }
     cases
 }
+
+pub fn spatial_evaluate(case: &Case) -> Vec<u32> {
+    let a = &case.input;
+    let n = a[4] as usize;
+    let method = match a[0] {
+        0 => PaletteSorting::kSortedDefault,
+        1 => PaletteSorting::kMinimizeDelta,
+        2 => PaletteSorting::kModifiedZeng,
+        3 => PaletteSorting::kMinLAFromZeng,
+        4 => PaletteSorting::kMinLAFromDelta,
+        _ => unreachable!(),
+    };
+    let mut out = vec![0; n];
+    PaletteSort(
+        method,
+        &a[5 + n..],
+        a[1] as usize,
+        a[2] as usize,
+        a[3] as usize,
+        &a[5..5 + n],
+        &mut out,
+    )
+    .unwrap();
+    out
+}
+
+pub fn spatial_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    let mut state = super::SEED;
+    for n in [1usize, 2, 3, 4, 5, 16, 17, 18, 32, 64, 224, 225, 256] {
+        for width in [1, 7, n] {
+            for pattern in 0..6 {
+                let height = (n * 3).div_ceil(width) + 1;
+                let stride = width + 2;
+                let colors: Vec<u32> = (0..n)
+                    .map(|i| {
+                        if i == 0 {
+                            0
+                        } else {
+                            0xff000000 | (i as u32 * 65793)
+                        }
+                    })
+                    .collect();
+                let mut pixels = Vec::new();
+                for y in 0..height {
+                    for x in 0..stride {
+                        state ^= state << 13;
+                        state ^= state >> 17;
+                        state ^= state << 5;
+                        let pos = y * width + x;
+                        // Ensure every palette color occurs before varying adjacency.
+                        let index = if pos < n {
+                            pos
+                        } else {
+                            match pattern {
+                                0 => pos % n,
+                                1 => (pos / 3) % n,
+                                2 => (x + y) % n,
+                                3 => (x * y) % n,
+                                4 => (state as usize) % n,
+                                _ => ((state as usize) % 3).min(n - 1),
+                            }
+                        };
+                        pixels.push(if x < width { colors[index] } else { 0xdeadbeef });
+                    }
+                }
+                pixels.truncate((height - 1) * stride + width);
+                for method in 0..5 {
+                    let mut input =
+                        vec![method, width as u32, height as u32, stride as u32, n as u32];
+                    input.extend_from_slice(&colors);
+                    input.extend_from_slice(&pixels);
+                    cases.push(Case::new("PaletteSpatial", input));
+                }
+            }
+        }
+    }
+    cases
+}

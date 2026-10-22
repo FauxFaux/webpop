@@ -70,8 +70,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   not implemented. Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
-  main-image encoding with cache/LZ77 trials. Milestone 7 palette foundations are now implemented; spatial palette
-  ordering and transform selection remain.
+  main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction, mapping foundations and all sorting
+  methods are implemented; packed mapping and transform selection remain.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -168,9 +168,22 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   the monotonic shortcut before transparent relocation. Missing-color lookup
   returns `None` rather than entering C's unbounded internal search. The full
   portable suite (including Wasm), all 18 native-oracle tests, release palette
-  tests, formatting and the production library build pass with no divergence. Spatial
-  co-occurrence ordering/MinLA, packed mapping integration, predictor/residual
-  search, cross-color search and transform writers remain in milestone 7.
+  tests, formatting and the production library build pass with no divergence.
+  Spatial ordering now adds `CoOccurrenceBuild`, `CoOccurrenceFindMax`, modified
+  Zeng construction, `MinLACutProfile`, `MinLABestSlot`, `PaletteMinLARefine`,
+  and the full `PaletteSort` entry point. All five sorting methods match scalar
+  C in 1,170 further image cases with the same seed, covering 1–256 colors,
+  narrow/padded rows, uniform adjacency ties, runs, grids and random neighbors.
+  Thirty-eight further portable C fixtures preserve spatial sorting coverage.
+  Independent checks verify four-connected counts, palette permutations,
+  non-increasing full edge costs, and every candidate insertion against a
+  brute-force full arrangement cost (including zero and maximum-u32 weights).
+  The original-position tie rule and the 40-sweep limit are preserved. Rust
+  uses one owned index row instead of C's two rows; allocation failures return
+  `Result`. The full portable suite (including Wasm), all 20 native-oracle
+  tests, release palette/unit tests, formatting and the production library
+  build pass. Packed mapping integration, predictor/residual search, cross-color
+  search and transform writers remain in milestone 7.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

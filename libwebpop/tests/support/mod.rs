@@ -32,6 +32,7 @@ impl Case {
         let a = &self.input;
         match self.function.as_str() {
             "PaletteLeaves" => palette::evaluate(self),
+            "PaletteSpatial" => palette::spatial_evaluate(self),
             "EncodeImageInternal" => main_images::evaluate(self),
             "VP8LClustering" | "VP8LOptimizeSampling" => clustering::evaluate(self),
             "TokenStream" => token_streams::evaluate(self),
