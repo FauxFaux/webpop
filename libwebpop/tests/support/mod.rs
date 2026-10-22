@@ -3,6 +3,7 @@
 pub mod entropy_coding;
 pub mod matches;
 pub mod references;
+pub mod token_streams;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
 use libwebpop::utils::{color_cache_utils::*, utils::*};
@@ -27,6 +28,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "TokenStream" => token_streams::evaluate(self),
             "VP8LCostEstimates" | "VP8LTrace" | "VP8LGetBackwardReferences" | "VP8LMatches" => {
                 matches::evaluate(self)
             }

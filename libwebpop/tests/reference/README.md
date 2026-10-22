@@ -252,3 +252,21 @@ trailing bit count from 0 through 31. The adapter collects the actual C writer
 callback output. Portable tests independently check packed header bits, RIFF and
 chunk lengths, padding, invalid dimensions and size overflow. Auxiliary decode
 tests now use the production Rust header/container helpers.
+
+Direct `TokenStream` requests contain width, height, tile bits, cache bits,
+group count, prefix bit count, tile count, packed tile symbols, then
+(mode, payload, length) triples (literal=0, cache=1, copy=2). Distances are
+already plane codes; synthetic references exercise serialization without
+requiring a semantically replayable image. The adapter partitions tokens by
+starting tile, builds each histogram with original `VP8LHistogramStoreRefs`,
+then calls the original Huffman glue and token writer. Responses contain, for
+each of five alphabets per group, its size and packed length | (code << 8),
+followed by header/token bytes and the 11-bit sentinel. All 324 cases compare
+exactly. Non-group bits of tile symbols are deliberately nonzero.
+
+`fixtures/token_streams.txt` preserves 12 requests/responses from
+`target/native-oracle/token-streams.{requests,responses}.txt`: zero-based cases
+144..179 where i % 3 == (i / 3) % 3 (integer division). This selects geometry
+17x33, tile bits 2, all four cache sizes and three offsets, alternating the three
+token patterns. The seed remains `6d2b79f5`. The portable token test also checks
+a hand-computed group transition after a copy crosses multiple rows.

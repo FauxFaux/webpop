@@ -67,3 +67,56 @@ unsigned WebpopImageHeaders(const uint32_t* in, uint32_t* out) {
   VP8LBitWriterWipeOut(&bw);
   return (unsigned)i;
 }
+
+extern void VP8LBackwardRefsCursorAdd(VP8LBackwardRefs*, PixOrCopy);
+
+unsigned WebpopTokenStream(const uint32_t* in, unsigned n, uint32_t* out) {
+  const unsigned width = in[0], bits = in[2], groups = in[4], tiles = in[6];
+  const uint32_t* symbols = in + 7;
+  const unsigned tile_width = bits ? VP8LSubSampleSize(width, bits) : 1;
+  VP8LHistogramSet* histograms = VP8LAllocateHistogramSet(groups, in[3]);
+  VP8LBackwardRefs refs, *group_refs = calloc(groups, sizeof(*group_refs));
+  HuffmanTreeCode* codes = calloc(5 * groups, sizeof(*codes));
+  VP8LBitWriter bw;
+  WebPPicture pic;
+  unsigned i, j, position = 0, count = 0;
+  if (!histograms || !group_refs || !codes || !WebPPictureInit(&pic) || !VP8LBitWriterInit(&bw, 0)) abort();
+  VP8LHistogramSetClear(histograms);
+  VP8LBackwardRefsInit(&refs, 256);
+  for (i = 0; i < groups; ++i) VP8LBackwardRefsInit(group_refs + i, 256);
+  for (i = 7 + tiles; i < n; i += 3) {
+    PixOrCopy v = in[i] == 0 ? PixOrCopyCreateLiteral(in[i+1]) :
+                 in[i] == 1 ? PixOrCopyCreateCacheIdx(in[i+1]) :
+                              PixOrCopyCreateCopy(in[i+1], in[i+2]);
+    unsigned tile = bits ? ((position / width) >> bits) * tile_width + ((position % width) >> bits) : 0;
+    unsigned group = (symbols[tile] >> 8) & 0xffff;
+    VP8LBackwardRefsCursorAdd(&refs, v);
+    VP8LBackwardRefsCursorAdd(group_refs + group, v);
+    position += PixOrCopyLength(&v);
+  }
+  if (position != width * in[1]) abort();
+  for (i = 0; i < groups; ++i) VP8LHistogramStoreRefs(group_refs + i, NULL, 0, histograms->histograms[i]);
+  if (!GetHuffBitLengthsAndCodes(histograms, codes)) abort();
+  for (i = 0; i < 5 * groups; ++i) {
+    out[count++] = codes[i].num_symbols;
+    for (j = 0; j < (unsigned)codes[i].num_symbols; ++j)
+      out[count++] = codes[i].code_lengths[j] | ((uint32_t)codes[i].codes[j] << 8);
+  }
+  VP8LPutBits(&bw, 5 & ((1u << in[5]) - 1), in[5]);
+  for (i = 0; i < 5 * groups; ++i) {
+    WebpopStoreHuffmanCode(&bw, codes + i);
+    ClearHuffmanTreeIfOnlyOneSymbol(codes + i);
+  }
+  if (!StoreImageToBitMask(&bw, width, bits, &refs, symbols, codes, &pic)) abort();
+  VP8LPutBits(&bw, 0x5ad, 11);
+  VP8LBitWriterFinish(&bw);
+  for (i = 0; i < VP8LBitWriterNumBytes(&bw); ++i) out[count++] = bw.buf[i];
+  WebPSafeFree(codes[0].codes);
+  free(codes);
+  VP8LFreeHistogramSet(histograms);
+  for (i = 0; i < groups; ++i) VP8LBackwardRefsClear(group_refs + i);
+  free(group_refs);
+  VP8LBackwardRefsClear(&refs);
+  VP8LBitWriterWipeOut(&bw);
+  return count;
+}

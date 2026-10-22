@@ -23,6 +23,7 @@
 void WebpopStoreHuffmanCode(VP8LBitWriter*, const HuffmanTreeCode*);
 void WebpopClearHuffmanTree(HuffmanTreeCode*);
 void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
+unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
@@ -76,7 +77,10 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(ImageHeaders)) {
+    if (IS(TokenStream)) {
+      REQUIRE(n >= 7 && n < 50000 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] <= 9 && in[3] <= 10 && in[4] > 0 && in[4] <= 16 && in[5] <= 31 && in[6] < n - 6 && (n - 7 - in[6]) % 3 == 0);
+      count = WebpopTokenStream(in, n, out);
+    } else if (IS(ImageHeaders)) {
       REQUIRE(n == 5 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383 && in[2] <= 1 && in[4] <= 31);
       count = WebpopImageHeaders(in, out);
     } else if (IS(EncodeImageNoHuffman)) {

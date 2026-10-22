@@ -57,7 +57,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1–4 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–5 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
@@ -67,9 +67,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   cost estimation. Milestone 4 adds packed hash chains, RLE/standard/box LZ77,
   cache selection and rewriting, fixed-point traceback with bounded interval
   maintenance, and full reference trial selection. The public Rust encoder is
-  not implemented. Milestone 5 auxiliary-image integration is implemented;
-  reusable RIFF/image header helpers are implemented. Direct multi-group/cache
-  token-writer comparisons remain before closing that milestone.
+  not implemented. Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
+  and direct multi-group/cache token-writer comparisons are complete.
+  Histogram clustering and main-image encoding are next (milestone 6).
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -108,7 +108,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   Prefix lookup entry zero is retained for the traceback length-cost cache.
   No numerical divergence was observed. Debug and release suites, including the
   existing Wasm regression, pass.
-- Milestone 5 (in progress) adds `GetHuffBitLengthsAndCodes`,
+- Milestone 5 (complete) adds `GetHuffBitLengthsAndCodes`,
   `StoreImageToBitMask`, and `EncodeImageNoHuffman`. Complete auxiliary streams
   passed 720 exact scalar C comparisons with seed `6d2b79f5`, covering six pixel
   patterns, five geometries, four qualities, both hash-chain effort modes, and
@@ -122,7 +122,14 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   header/container comparisons, including all trailing bit counts from 0 to 31,
   dimension boundaries and padding. Independent tests check invalid geometry,
   size overflow and container lengths; the 75 decode cases use these helpers.
-  Direct cache/multi-group token serialization coverage remains unfinished.
+  Direct token serialization passes 324 exact C comparisons of every generated
+  Huffman length/code and complete stream, covering cache bits 0/1/4/10,
+  one/four groups, tile bits 0/2/4, three initial bit offsets, single-symbol and
+  mixed trees, length-4095 copies, large plane distances and copies crossing
+  tiles/rows. Twelve committed fixtures preserve this coverage without C.
+  A hand-computed bit test independently checks group selection after a copy
+  crosses multiple rows. Debug tests including Wasm, release integration tests,
+  formatting and the production library build pass; no divergence was observed.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -463,7 +470,7 @@ milestone implements just one part of a file.
 | 2 (complete) | Lossless bit writer `[B]`; Huffman tree generation, compression, and serialization `[C]` except histogram-driven glue | 1 | Exact output bits across flush boundaries, clone/reset trials, degenerate and depth-limited trees; 11,852 native comparisons and portable round trips pass |
 | 3 (complete) | `PixOrCopy`, reference storage/cursors; histogram initialization, accumulation and cost estimation `[D/E foundations]` | 1 | Matching tokens, histograms, metadata and costs in 27,919 native comparisons; 40 portable C fixtures; cursor/storage boundaries and independent replay exercised |
 | 4 (complete) | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | 32,212 exact native comparisons of matches, tokens, cache choices, costs and chosen paths; independent replay, portable fixtures and interval stress checks pass |
-| 5 | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
+| 5 (complete) | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
 | 6 | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | Matching cluster maps, Huffman groups, and main-image streams, including multi-group images and trial resets |
 | 7 | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Matching palette orders and packed indices, residuals, selected transforms and auxiliary images on forced branch cases |
 | 8 | `AnalyzeEntropy`, sizing heuristics, `EncoderAnalyze` `[H]`; encoder storage and `EncodeStreamHook`; `VP8LEncodeStream` | 6, 7 | Matching analysis decisions, tried configurations, and selected stream; full palette trial selection included |

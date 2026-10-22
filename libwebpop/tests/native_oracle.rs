@@ -300,3 +300,12 @@ fn image_headers_match_pinned_reference() {
     }
     eprintln!("Compared {} image headers/containers", cases.len());
 }
+
+#[test]
+fn token_streams_match_pinned_reference() {
+    let cases = support::token_streams::cases();
+    for (case, expected) in cases.iter().zip(native::run("token-streams", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} token streams and Huffman groups", cases.len());
+}
