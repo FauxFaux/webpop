@@ -2,6 +2,11 @@
 name = "libwebpop"
 version = "0.1.0"
 edition = "2024"
+license = "BSD-3-Clause"
+
+[features]
+# Build and run the pinned scalar C implementation only in the oracle tests.
+native-oracle = []
 
 [dependencies]
 thiserror = "2"
@@ -13,4 +18,9 @@ wasmtime = { version = "49", default-features = false, features = ["anyhow", "cr
 [[test]]
 name = "integration"
 path = "tests/integration/main.rs"
+
+[[test]]
+name = "native_oracle"
+path = "tests/native_oracle.rs"
+required-features = ["native-oracle"]
 

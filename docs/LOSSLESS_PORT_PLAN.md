@@ -57,14 +57,22 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- The `libwebpop` crate's only Rust source is currently a hello-world binary.
+- `libwebpop` is now a library with endian/bit helpers, checked positive-stride
+  RGBA geometry, pixel lane arithmetic, prefix coding, hash/color-cache
+  primitives, subtract-green, and cross-color kernels. Predictors and entropy
+  DSP remain in milestone 1; the public Rust encoder is not implemented.
+- [The native oracle guide](../libwebpop/tests/reference/README.md) describes
+  the selected scalar C backend, pinned build, committed fixtures, seeded
+  comparisons, provenance, and mismatch replay. It is opt-in via
+  `cargo test --features native-oracle`; normal builds never compile C.
 - [`tests/integration/main.rs`](../libwebpop/tests/integration/main.rs) already
   invokes a bundled C encoder in Wasmtime and decodes its output using `image`.
   Keep this working while developing the Rust encoder.
 - That Wasm binary is documented as a scalar, lossless-only v1.6.0 build from
   another repository. It is useful existing evidence, but is not established as
   an exact oracle for the current upstream commit. The current checkout includes
-  additional palette and transform-selection code.
+  additional palette and transform-selection code. Both reference backends
+  now use the same synthetic image cases and independent decoding checks.
 - [`ALGORITHM.md`](ALGORITHM.md) concerns lossy encoding and is background, not
   the implementation plan for this target.
 

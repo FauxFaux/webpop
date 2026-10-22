@@ -7,3 +7,10 @@ Initially focused on simple encoding, then complex encoding, then decoding.
 See the [lossless encoder porting plan](docs/LOSSLESS_PORT_PLAN.md) for the
 `WebPEncodeLosslessRGBA` dependency map, implementation order, and testing strategy.
 
+The crate now contains the first lossless leaf functions. Run `cargo test` for
+portable fixtures and the Wasm regression, or
+`cargo test --features native-oracle` to compare leaves with the pinned scalar
+C implementation. See the [oracle guide](libwebpop/tests/reference/README.md)
+for setup, fixture regeneration, and mismatch replay. The Rust public image
+encoder is not implemented yet.
+
