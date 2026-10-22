@@ -57,14 +57,15 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1 and 2 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–3 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
   packing, fixed-point log/entropy/streak/vector DSP, the lossless bit writer,
-  and Huffman construction, compression, and serialization. The public Rust
-  encoder is not implemented; tokens/reference storage and histogram primitives
-  (milestone 3) are next.
+  Huffman construction, compression, and serialization, token/reference storage
+  and cursors, spatial distance coding, and histogram accumulation and fixed-point
+  cost estimation. The public Rust encoder is not implemented; hash chains,
+  LZ77 strategies, cache selection, and traceback (milestone 4) are next.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -78,6 +79,18 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   independent bit-sequence and Huffman header/symbol round trips. Allocation
   failures propagate through Rust `Result`; scratch buffers and tree arrays are
   owned. Histogram-driven Huffman glue and image token writing remain milestone 5.
+- Milestone 3 passed 27,919 exact native C comparisons with seed `6d2b79f5`
+  and the same recorded scalar toolchain. These cover literal/copy/cache tokens,
+  cursor boundaries, clone/swap/clear/reuse trials, spatial distances, all cache
+  alphabet sizes, repeated histogram accumulation, create/init/copy/set-clear
+  state, entropy refinement branches, and cached versus estimated costs. There
+  are 40 additional portable C fixtures and six independent Rust tests, including
+  hand-computed histograms, overlapping-copy/cache replay, and allocation-size
+  overflow errors. Reference sequences use owned vectors instead of C linked
+  blocks; allocation failures return `Result`. Histograms start with initialized
+  counts in Rust, and C's distinct initialization/reset metadata is preserved.
+  Debug and release suites, including the Wasm regression, pass without numerical
+  divergence. Histogram clustering remains milestone 6.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -416,7 +429,7 @@ milestone implements just one part of a file.
 | 0 | Rename crate; add `lib.rs`; record pin; oracle backend spike; reusable fixtures and comparison harness | — | Existing Wasm regression passes; one wrapped leaf and one public encoding compared using the chosen pinned-source backend |
 | 1 | Constants, endian helpers, checked geometry, pixel arithmetic, prefix codes, hash/cache primitives, scalar predictor/color kernels and log/entropy DSP `[A]` | 0 | Differential edge cases, small-domain exhaustive checks, fixed-seed arrays; lookup and slow paths covered |
 | 2 (complete) | Lossless bit writer `[B]`; Huffman tree generation, compression, and serialization `[C]` except histogram-driven glue | 1 | Exact output bits across flush boundaries, clone/reset trials, degenerate and depth-limited trees; 11,852 native comparisons and portable round trips pass |
-| 3 | `PixOrCopy`, reference storage/cursors; histogram initialization, accumulation and cost estimation `[D/E foundations]` | 1 | Hand-built literal/copy/cache streams yield matching histograms and costs; cursor/storage boundaries exercised |
+| 3 (complete) | `PixOrCopy`, reference storage/cursors; histogram initialization, accumulation and cost estimation `[D/E foundations]` | 1 | Matching tokens, histograms, metadata and costs in 27,919 native comparisons; 40 portable C fixtures; cursor/storage boundaries and independent replay exercised |
 | 4 | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | Matching tokens, match lengths/distances, cache choices, and chosen paths; replay reconstructs the source pixels |
 | 5 | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
 | 6 | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | Matching cluster maps, Huffman groups, and main-image streams, including multi-group images and trial resets |

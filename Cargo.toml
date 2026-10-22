@@ -1,3 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["libwebpop"]
+
+[profile.dev]
+opt-level = 1
+
+# Optimize dependencies such as image codecs and Wasmtime for native tests.
+[profile.dev.package."*"]
+opt-level = 3

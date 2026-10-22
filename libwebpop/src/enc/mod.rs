@@ -1,2 +1,4 @@
+pub mod backward_references_enc;
+pub mod histogram_enc;
 pub mod picture_csp_enc;
 pub mod vp8l_enc;

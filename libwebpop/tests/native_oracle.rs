@@ -4,6 +4,21 @@ mod support;
 
 use std::fmt::Write;
 use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases};
+use support::references::{foundation_cases, foundation_fixture_cases};
+
+#[test]
+fn reference_and_histogram_foundations_match_pinned_reference() {
+    let cases = foundation_cases();
+    let outputs = native::run("foundations", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} reference/histogram cases (seed {:08x})",
+        cases.len(),
+        support::SEED
+    );
+}
 
 #[test]
 fn entropy_coding_matches_pinned_reference() {
@@ -57,6 +72,7 @@ fn committed_fixtures_match_reference() {
         for case in support::dsp_fixture_cases()
             .into_iter()
             .chain(entropy_coding_fixture_cases())
+            .chain(foundation_fixture_cases())
         {
             if !cases
                 .iter()

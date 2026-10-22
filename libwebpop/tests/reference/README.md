@@ -98,6 +98,44 @@ Milestone 2 adds these requests:
   serialization helpers directly; its external encoder entry points are renamed
   so public encoding tests still use the normally built library.
 
+Milestone 3 adds these requests, with layouts shared by
+`tests/support/references.rs` and the native backend:
+
+- `VP8LBackwardRefs`: block size followed by `(op, value, length)` triples.
+  Operations append a literal (0), cache index (1), or copy (2); recycle (3),
+  clone to saved refs (4), swap (5), release (6), spatially map distances using
+  width `value` (7), or inspect (8). Inspection returns token count, then
+  `(mode, length, payload)` per token, with modes 0/1/2. Both active and saved
+  refs are inspected at the end. No capacity or linked-block addresses are
+  compared; cursor sequences span C's 256-entry minimum and larger blocks.
+- `VP8LDistanceToPlaneCode`: width and raw distance; returns the spatial code.
+- `PopulationCost`: population counts; returns refined entropy, population
+  cost (each low/high word), trivial symbol, and used flag. Exhaustive short
+  populations cover each entropy refinement branch and streak threshold;
+  seeded larger populations exercise log fallbacks and unsigned cost wrapping.
+- `VP8LHistogram`: cache bits, width (0 disables the distance modifier), then
+  `(op, value, length)` triples. Append tokens (0–2), store buffered refs without
+  reset (3), create from buffered refs (4, value 0 preserves cache bits, 1 sets
+  them), init (5, value resets arrays), compute cached costs (6), inspect (7),
+  set a flattened population bin (8, index/value in the remaining two words),
+  set bin id (9), copy saved histogram (10), or save current histogram (11).
+  Inspections, including one implicit final inspection, return cache bits,
+  all five populations in literal/red/blue/alpha/distance order, five trivial
+  symbols, cached total cost, five costs, five used flags, bin id, and estimated
+  total cost. All costs use low/high word pairs. Cached costs exclude copy
+  extra bits; estimates include them. Raw copy distances are bounded by
+  `LZ77_WINDOW_SIZE = (1 << 20) - 120`, leaving room for spatial mapping.
+- `VP8LHistogramSet`: size and cache bits. Dirty every histogram, shrink the
+  active size, then clear; return size, maximum size, and every histogram in
+  the inspection format above. Set clearing zeroes metadata, whereas individual
+  histogram initialization uses nontrivial-symbol sentinels and used flags.
+
+`references.c` and `histogram.c` include the pinned translation units to access
+static helpers, renaming external definitions so the public encoder still uses
+the library normally. C allocations are explicitly initialized before reading
+their populations. Rust uses initialized owned vectors, retains storage across
+recycled trials, and propagates allocation failures with `Result`.
+
 Differential cases exhaust byte arithmetic and signed color coefficient/channel
 pairs, exercise all prefix entries and both lookup/slow paths, test prefix
 boundaries, and run seeded arrays and cache traces for every legal cache size.
@@ -137,7 +175,7 @@ version, CMake cache, exact compilation commands, Rust host/toolchain, pin, and
 seed in `target/native-oracle/provenance.txt`. Build and protocol failures fail
 the test rather than silently skipping comparisons.
 
-Milestones 1–2 are implemented, with 129 additional compact DSP fixtures and
+Milestones 1–3 are implemented, with 129 additional compact DSP fixtures and
 100 bit-writer/Huffman fixtures generated on the same toolchain/configuration
 as the initial fixtures. Milestone 2 adds 11,852 native comparisons: every
 pending offset 0–63 and next-write width 0–32, C buffer growth, clone/reset/swap
@@ -145,8 +183,13 @@ trials, exhaustive short populations, seeded histograms up to the 2328-symbol
 literal/length/cache alphabet, depth-limit retries, RLE boundaries, and both
 trimmed-length encodings. Portable tests independently pack bits, expand RLE,
 decode serialized headers and symbols, and check padding. No divergence was
-observed. The Rust public encoder and higher-level subgraphs remain
-unimplemented. Checked RGBA geometry and the
+observed. Milestone 3 adds 27,919 native comparisons, 40 portable C fixtures,
+and six independent Rust tests covering hand-computed populations, storage and
+cursor boundaries, histogram reset state, distance modifier equivalence,
+allocation-size overflow, and token replay with overlapping copies and cache
+updates. All comparisons pass in debug and release on the recorded toolchain.
+Hash chains, LZ77 generation and traceback, histogram clustering, and the Rust
+public encoder remain unimplemented. Checked RGBA geometry and the
 overflow-safe extension of `VP8LSubSampleSize` have portable Rust boundary tests; the C oracle
 is invoked only on its defined domain. In particular, zero-bit scans and NoLUT
 prefix distances below 3 are invalid upstream inputs.

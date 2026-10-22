@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod entropy_coding;
+pub mod references;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
 use libwebpop::utils::{color_cache_utils::*, utils::*};
@@ -25,6 +26,11 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8LBackwardRefs"
+            | "PopulationCost"
+            | "VP8LHistogram"
+            | "VP8LHistogramSet"
+            | "VP8LDistanceToPlaneCode" => references::evaluate(self),
             "VP8LBitWriter"
             | "VP8LCreateHuffmanTree"
             | "VP8LCreateCompressedHuffmanTree"

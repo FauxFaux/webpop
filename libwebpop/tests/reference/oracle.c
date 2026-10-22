@@ -23,6 +23,11 @@
 void WebpopStoreHuffmanCode(VP8LBitWriter*, const HuffmanTreeCode*);
 void WebpopClearHuffmanTree(HuffmanTreeCode*);
 void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
+unsigned WebpopRefs(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopPopulationCost(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopHistogram(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopHistogramSet(const uint32_t*, uint32_t*);
+extern int VP8LDistanceToPlaneCode(int, int);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -65,7 +70,22 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8LBitWriter)) {
+    if (IS(VP8LBackwardRefs)) {
+      REQUIRE(n >= 1 && (n - 1) % 3 == 0 && n < 10000 && in[0] < 10000);
+      count = WebpopRefs(in, n, out);
+    } else if (IS(PopulationCost)) {
+      REQUIRE(n > 0 && n <= 2328);
+      count = WebpopPopulationCost(in, n, out);
+    } else if (IS(VP8LHistogram)) {
+      REQUIRE(n >= 2 && (n - 2) % 3 == 0 && n < 10000 && in[0] <= 11 && in[1] <= 16383);
+      count = WebpopHistogram(in, n, out);
+    } else if (IS(VP8LHistogramSet)) {
+      REQUIRE(n == 2 && in[0] > 0 && in[0] <= 16 && in[1] <= 11);
+      count = WebpopHistogramSet(in, out);
+    } else if (IS(VP8LDistanceToPlaneCode)) {
+      REQUIRE(n == 2 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 0x7fffffff - 120);
+      out[count++] = VP8LDistanceToPlaneCode((int)in[0], (int)in[1]);
+    } else if (IS(VP8LBitWriter)) {
       VP8LBitWriter bw, saved;
       REQUIRE(n >= 1 && in[0] <= LIMIT && (n - 1) % 3 == 0);
       REQUIRE(VP8LBitWriterInit(&bw, in[0]));
