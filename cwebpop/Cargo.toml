@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+libwebpop = { path = "../libwebpop" }
 
 [dependencies.image]
 version = "0.25.1"
 default-features = false
-features = ["jpeg", "png", "pnm", "tga", "tiff", "bmp"]
+features = ["jpeg", "png", "pnm", "tga", "tiff", "bmp", "webp"]

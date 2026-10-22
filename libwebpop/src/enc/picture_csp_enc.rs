@@ -1,4 +1,4 @@
-//! Checked positive-stride geometry for the planned RGBA importer.
+//! Checked positive-stride geometry for RGBA import.
 //! Corresponds to upstream's Import / CheckStride / WebPValidatePicture checks.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]

@@ -1,15 +1,22 @@
 #![forbid(unsafe_code)]
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    fs,
+    io::{self, Cursor, Read, Write},
+    path::PathBuf,
+    process::ExitCode,
+    time::Instant,
+};
 
-use clap::Parser;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
+use libwebpop::{LosslessOptions, encode_lossless_rgba};
 
-/// Rust WebP encoder CLI scaffold, based on upstream/examples/cwebp.c.
+/// Lossless WebP encoder, with options based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "WebP encoder CLI scaffold",
-    after_help = "Encoding is not implemented yet. All encoding options are parsed only.\nUse --long_option for upstream's -long_option flags; -h/--help and -V/--version work."
+    about = "Lossless WebP encoder",
+    after_help = "Lossless encoding is the default; -o is required.\nUse --long_option for upstream's -long_option flags; -h/--help and -V/--version work."
 )]
 struct Args {
     /// Input image (or - for stdin).
@@ -20,7 +27,7 @@ struct Args {
     #[arg(short = 'o', long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
 
-    /// Quality factor, 0..100 (upstream default: 75).
+    /// Lossless compression effort, 0..100 (default: 70).
     #[arg(short = 'q', long)]
     quality: Option<f32>,
 
@@ -172,7 +179,7 @@ struct Args {
     #[arg(long = "noalpha")]
     noalpha: bool,
 
-    /// Encode losslessly.
+    /// Encode losslessly (the default).
     #[arg(long = "lossless")]
     lossless: bool,
 
@@ -206,15 +213,126 @@ struct Args {
 }
 
 fn main() -> ExitCode {
-    let _args = Args::parse();
-    eprintln!("cwebpop: encoding is not implemented yet; no output was written");
-    ExitCode::FAILURE
+    match run(&Args::command().get_matches()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("cwebpop: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+type Error = Box<dyn std::error::Error>;
+
+fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions, Error> {
+    // Keep the existing option inventory, but reject unimplemented operations
+    // before opening files instead of silently ignoring requested behavior.
+    const SUPPORTED: &[&str] = &[
+        "input",
+        "output",
+        "quality",
+        "method",
+        "exact",
+        "noalpha",
+        "lossless",
+        "quiet",
+        "short",
+        "verbose",
+        "noasm",
+        "near_lossless",
+    ];
+    let command = Args::command();
+    for id in matches.ids() {
+        if matches.value_source(id.as_str()) == Some(ValueSource::CommandLine)
+            && !SUPPORTED.contains(&id.as_str())
+        {
+            let arg = command.get_arguments().find(|a| a.get_id() == id).unwrap();
+            let flag = if let Some(long) = arg.get_long() {
+                format!("--{long}")
+            } else {
+                format!("-{}", arg.get_short().unwrap())
+            };
+            return Err(format!("{flag} is not implemented").into());
+        }
+    }
+    if args.near_lossless.is_some_and(|q| q != 100) {
+        return Err(
+            "near-lossless encoding is not implemented; --near_lossless must be 100".into(),
+        );
+    }
+    let quality = args.quality.unwrap_or(70.0);
+    if !quality.is_finite() || !(0.0..=100.0).contains(&quality) {
+        return Err("quality must be a finite number in 0..=100".into());
+    }
+    let method = args.method.unwrap_or(4);
+    if method > 6 {
+        return Err("method must be in 0..=6".into());
+    }
+    Ok(LosslessOptions {
+        quality: quality as u32,
+        method: u32::from(method),
+        exact: args.exact,
+    })
+}
+
+fn run(matches: &ArgMatches) -> Result<(), Error> {
+    let args = Args::from_arg_matches(matches)?;
+    let options = encoder_options(&args, matches)?;
+    let output = args.output.as_ref().ok_or("-o OUTPUT is required")?;
+    let started = Instant::now();
+    let bytes = if args.input.as_os_str() == "-" {
+        let mut bytes = Vec::new();
+        io::stdin().lock().read_to_end(&mut bytes)?;
+        bytes
+    } else {
+        fs::read(&args.input).map_err(|e| format!("cannot read {}: {e}", args.input.display()))?
+    };
+    let mut reader = image::ImageReader::new(Cursor::new(bytes));
+    // TGA has no reliable magic bytes. Retain the filename's format as a
+    // fallback while still sniffing content for other formats and stdin.
+    if let Ok(format) = image::ImageFormat::from_path(&args.input) {
+        reader.set_format(format);
+    }
+    let mut rgba = reader
+        .with_guessed_format()?
+        .decode()
+        .map_err(|e| format!("cannot decode {}: {e}", args.input.display()))?
+        .into_rgba8();
+    if args.noalpha {
+        for pixel in rgba.pixels_mut() {
+            pixel.0[3] = 255;
+        }
+    }
+    let (width, height) = rgba.dimensions();
+    let encoded = encode_lossless_rgba(rgba.as_raw(), width, height, width as usize * 4, &options)?;
+    if output.as_os_str() == "-" {
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(&encoded)?;
+        stdout.flush()?;
+    } else {
+        fs::write(output, &encoded)
+            .map_err(|e| format!("cannot write {}: {e}", output.display()))?;
+    }
+    if !args.quiet {
+        if args.short {
+            eprintln!("{}", encoded.len());
+        } else {
+            eprintln!(
+                "Encoded {width}x{height} lossless WebP: {} bytes",
+                encoded.len()
+            );
+        }
+        if args.verbose {
+            eprintln!("Elapsed: {:.3}s", started.elapsed().as_secs_f64());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::{CommandFactory, error::ErrorKind};
+    use clap::error::ErrorKind;
 
     #[test]
     fn command_is_consistent() {
