@@ -602,3 +602,12 @@ fn predictor_foundations_match_pinned_reference() {
     }
     eprintln!("Compared {} predictor foundation cases", cases.len());
 }
+
+#[test]
+fn predictor_search_matches_pinned_reference() {
+    let cases = support::predictors::search_cases();
+    for (case, expected) in cases.iter().zip(native::run("predictor-search", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} automatic predictor search cases", cases.len());
+}

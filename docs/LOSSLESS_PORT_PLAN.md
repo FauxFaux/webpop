@@ -72,9 +72,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
   main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction,
   all sorting methods, packed mapping and the palette transform writer are
-  implemented. Predictor cost/mask helpers and supplied-map lossless residual
-  conversion are implemented; automatic predictor selection and predictor/
-  cross-color transform writers remain.
+  implemented. Predictor cost/mask helpers, automatic tile-mode/sampling search
+  and lossless residual conversion are implemented; cross-color search and
+  predictor/cross-color transform writers remain.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -213,10 +213,26 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   low-effort conversions). Scratch rows are owned and allocation failures
   propagate. The full portable suite (including Wasm), all 24 native-oracle
   tests, release predictor tests, formatting and the production library build
-  pass without divergence. Conversion currently supports max quantization 1; standalone
-  near-lossless preprocessing remains separate. Automatic tile-mode and
-  sampling search, cross-color search and their transform writers remain in
-  milestone 7.
+  pass without divergence.
+  Automatic selection now adds `ComputeResidualsForTile`,
+  `GetBestPredictorForTile`, `GetBestPredictorsAndSubSampling` and
+  `VP8LResidualImage`, preserving the Z traversal, active-plane histograms,
+  accumulated entropy, neighbor biases and first-minimum ties. The owned API
+  returns tile bits and a compact predictor map, with allocation failures
+  propagated. Transform bits cover the full upstream range 2–9, including
+  sampling optimization beyond the requested search maximum; low effort keeps
+  mode 11 at the requested maximum. There are 5,290 additional exact scalar C
+  comparisons spanning all plane masks, exact/transparent cleanup, all search
+  levels, mixed maps, 512-pixel tiles, partial edges and one-dimensional images.
+  Twenty additional fixtures bring the predictor total to 58. Independent
+  reconstruction covers 5,280 automatically selected residual images and
+  constant-image tie/compaction checks. Complete-file decoding now covers 336
+  supplied/selected predictor maps with alpha and visible/exact RGB preserved.
+  The full portable suite (including Wasm), all 25 native-oracle tests, release
+  predictor tests, formatting and the production library build pass.
+  Conversion supports max quantization 1; standalone near-lossless preprocessing
+  remains separate. Cross-color search and predictor/cross-color transform
+  writers remain in milestone 7.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

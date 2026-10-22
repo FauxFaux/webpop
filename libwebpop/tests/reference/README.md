@@ -382,7 +382,7 @@ Portable tests independently unpack mapped indices, check destination padding,
 assert each lookup strategy is reached, and decode 200 complete palette files
 using the main-image encoder. They require exact RGBA, including hidden RGB.
 
-### Predictor foundations
+### Predictor foundations and automatic selection
 
 `PredictorFoundations` uses the original static functions included by
 `predictor.c`, with external entry points renamed to retain the normal public
@@ -398,15 +398,26 @@ encoder. Its opcode determines the input and output:
 - 4: plane mask, 1024 initial counts, residual words; returns updated counts.
 - 5: `(zero weight, exponential value)`, 256 counts; returns bias as signed
   low/high words.
+- 6: `(width, height, minimum bits, maximum bits, low effort, exact)`, pixels;
+  returns selected bits, compact predictor map, and converted pixels. Uses
+  `VP8LResidualImage` at near-lossless quality 100.
+- 7: the same input as opcode 6 (low effort ignored); returns selected bits
+  and compact map from `GetBestPredictorsAndSubSampling` without conversion.
 
-There are 4,758 seeded comparisons and 38 committed fixtures selected per
-opcode. Review the pin and recorded toolchain provenance before regeneration:
+There are 4,758 foundation comparisons and 5,290 automatic-selection comparisons,
+with 58 committed fixtures. Search cases cover all plane masks, eight sampling
+levels (bits 2–9), both residual-histogram accumulation strategies, Z traversal,
+partial right/bottom tiles, one-dimensional images, mixed predictor maps,
+transparent cleanup, exact RGB, and low-effort mode 11. The maximum transform
+size is 512 pixels (9 bits); uniform maps can optimize beyond the requested
+search maximum. Review the pin and recorded toolchain provenance before regeneration:
 
 ```sh
 WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle predictor_fixtures_match_pinned_reference
 ```
 
-Portable independent tests reconstruct 3,456 supplied-map cases, check plane
-eligibility/histogram counts and fixed-point bias identities, and decode 192
-complete files containing a supplied predictor map. Near-lossless residual
-quantization and automatic predictor-map selection are not part of this batch.
+Portable independent tests reconstruct 3,456 supplied-map and 5,280 selected-map
+cases, check plane eligibility/histogram counts, fixed-point bias identities,
+constant-image ties and uniform-map compaction, and decode 336 complete files
+containing supplied or selected predictor maps. Near-lossless residual
+quantization and the production predictor-transform writer remain separate.
