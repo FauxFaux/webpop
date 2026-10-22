@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use libwebpop::dsp::{lossless::VP8LMultipliers, lossless_common::*, lossless_enc::*};
+use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
 use libwebpop::utils::{color_cache_utils::*, utils::*};
 
 pub const UPSTREAM_REVISION: &str = "1844042d1ca751e62e61df7617dba19c98588339";
@@ -86,9 +86,117 @@ impl Case {
                 VP8LTransformColor_C(&m, &mut data);
                 data
             }
+            "VP8LFastLog2" => vec![VP8LFastLog2(a[0])],
+            "VP8LFastSLog2" => words64(VP8LFastSLog2(a[0])),
+            "FastLog2Slow_C" => vec![FastLog2Slow_C(a[0])],
+            "FastSLog2Slow_C" => words64(FastSLog2Slow_C(a[0])),
+            "RightShiftRound" => words64(RightShiftRound(read64(a), a[2])),
+            "DivRound" => words64(DivRound(read64(a) as i64, read64(&a[2..]) as i64) as u64),
+            "VP8LPredictors" => vec![VP8LPredictors[a[0] as usize](
+                a[1],
+                a[2..5].try_into().unwrap(),
+            )],
+            "VP8LPredictorsSub" => {
+                let len = (a.len() - 4) / 2;
+                let mut out = vec![0; len];
+                VP8LPredictorsSub[a[0] as usize](&a[1..len + 2], &a[len + 2..], &mut out);
+                out
+            }
+            "ShannonEntropy_C" => words64(ShannonEntropy_C(a)),
+            "CombinedShannonEntropy_C" => words64(CombinedShannonEntropy_C(
+                a[..256].try_into().unwrap(),
+                a[256..].try_into().unwrap(),
+            )),
+            "VP8LBitEntropyInit"
+            | "VP8LBitsEntropyUnrefined"
+            | "GetEntropyUnrefined_C"
+            | "GetCombinedEntropyUnrefined_C" => {
+                // Dirty initial state verifies that every output field resets.
+                let mut e = VP8LBitEntropy {
+                    entropy: 999,
+                    sum: 999,
+                    nonzeros: 999,
+                    max_val: 999,
+                    nonzero_code: 999,
+                };
+                let mut stats = VP8LStreaks {
+                    counts: [999; 2],
+                    streaks: [[999; 2]; 2],
+                };
+                match self.function.as_str() {
+                    "VP8LBitEntropyInit" => VP8LBitEntropyInit(&mut e),
+                    "VP8LBitsEntropyUnrefined" => VP8LBitsEntropyUnrefined(a, &mut e),
+                    "GetEntropyUnrefined_C" => GetEntropyUnrefined_C(a, &mut e, &mut stats),
+                    _ => GetCombinedEntropyUnrefined_C(
+                        &a[..a.len() / 2],
+                        &a[a.len() / 2..],
+                        &mut e,
+                        &mut stats,
+                    ),
+                }
+                let mut out = words64(e.entropy);
+                out.extend([e.sum, e.nonzeros as u32, e.max_val, e.nonzero_code]);
+                if self.function.starts_with("Get") {
+                    out.extend(stats.counts.map(|v| v as u32));
+                    out.extend(stats.streaks.into_iter().flatten().map(|v| v as u32));
+                }
+                out
+            }
+            "ExtraCost_C" => vec![ExtraCost_C(a)],
+            "AddVector_C" | "AddVectorEq_C" | "VectorMismatch_C" => {
+                let (a, b) = a.split_at(a.len() / 2);
+                if self.function == "VectorMismatch_C" {
+                    vec![VectorMismatch_C(a, b) as u32]
+                } else {
+                    let mut out = b.to_vec();
+                    if self.function == "AddVector_C" {
+                        AddVector_C(a, b, &mut out);
+                    } else {
+                        AddVectorEq_C(a, &mut out);
+                    }
+                    out
+                }
+            }
+            "VP8LBundleColorMap_C" => {
+                let row: Vec<_> = a[1..].iter().map(|&v| v as u8).collect();
+                let mut out = vec![0; row.len().div_ceil(1 << a[0])];
+                VP8LBundleColorMap_C(&row, a[0], &mut out);
+                out
+            }
+            "VP8LCollectColorRedTransforms_C" | "VP8LCollectColorBlueTransforms_C" => {
+                let mut histo: [u32; 256] = a[5..261].try_into().unwrap();
+                if self.function == "VP8LCollectColorRedTransforms_C" {
+                    VP8LCollectColorRedTransforms_C(
+                        &a[261..],
+                        a[0] as usize,
+                        a[1] as usize,
+                        a[2] as usize,
+                        a[3] as i32,
+                        &mut histo,
+                    );
+                } else {
+                    VP8LCollectColorBlueTransforms_C(
+                        &a[261..],
+                        a[0] as usize,
+                        a[1] as usize,
+                        a[2] as usize,
+                        a[3] as i32,
+                        a[4] as i32,
+                        &mut histo,
+                    );
+                }
+                histo.to_vec()
+            }
             name => panic!("no Rust implementation for {name}"),
         }
     }
+}
+
+pub fn words64(v: u64) -> Vec<u32> {
+    vec![v as u32, (v >> 32) as u32]
+}
+fn read64(a: &[u32]) -> u64 {
+    u64::from(a[0]) | (u64::from(a[1]) << 32)
 }
 
 pub fn fixtures() -> Vec<(Case, Vec<u32>)> {
@@ -226,6 +334,307 @@ pub fn differential_cases() -> Vec<Case> {
         }
         push("VP8LColorCache", input);
     }
+    cases
+}
+
+/// Milestone 1 scalar DSP coverage, shared by fixtures and the native backend.
+pub fn dsp_cases() -> Vec<Case> {
+    let mut cases = dsp_fixture_cases();
+    let mut push = |name: &str, input: Vec<u32>| cases.push(Case::new(name, input));
+    let mut state = SEED;
+    // Every lookup entry and every value in both integer approximation ranges.
+    for v in 0..=65536 {
+        push("VP8LFastLog2", vec![v]);
+        push("VP8LFastSLog2", vec![v]);
+    }
+    for bit in 8..=28 {
+        for v in [(1 << bit) - 1, 1 << bit, (1 << bit) + 1] {
+            if v >= 256 {
+                push("FastLog2Slow_C", vec![v]);
+                push("FastSLog2Slow_C", vec![v]);
+            }
+        }
+    }
+    for _ in 0..4096 {
+        let v = random(&mut state) % (1 << 28);
+        push("VP8LFastLog2", vec![v]);
+        push("VP8LFastSLog2", vec![v]);
+    }
+    for shift in 0..64 {
+        for v in [0, 1, u64::MAX, 1_u64 << shift, (1_u64 << shift) - 1] {
+            let mut a = words64(v);
+            a.push(shift);
+            push("RightShiftRound", a);
+        }
+    }
+    for a in -128_i64..=128 {
+        for b in -16_i64..=16 {
+            if b == 0 {
+                continue;
+            }
+            let mut input = words64(a as u64);
+            input.extend(words64(b as u64));
+            push("DivRound", input);
+        }
+    }
+    // Exhaust the byte-pair domain for averaging and signed half prediction.
+    for a in 0..256 {
+        for b in 0..256 {
+            let a = a * 0x01010101;
+            let b = b * 0x01010101;
+            push("VP8LPredictors", vec![7, a, b, b, b]);
+            push("VP8LPredictors", vec![13, a, b, a, b]);
+        }
+    }
+    // Boundary triples cover clamp saturation, odd/negative half differences,
+    // select ties and nested average rounding in every lane.
+    let bytes = [0_u32, 1, 2, 3, 127, 128, 254, 255];
+    for a in bytes {
+        for b in bytes {
+            for c in bytes {
+                for mode in 0..14 {
+                    push(
+                        "VP8LPredictors",
+                        vec![
+                            mode,
+                            a * 0x01010101,
+                            b * 0x01010101,
+                            c * 0x01010101,
+                            (255 - a) * 0x01010101,
+                        ],
+                    );
+                }
+            }
+        }
+    }
+    for _ in 0..1024 {
+        let neighbors: Vec<_> = (0..4).map(|_| random(&mut state)).collect();
+        for mode in 0..14 {
+            let mut input = vec![mode];
+            input.extend_from_slice(&neighbors);
+            push("VP8LPredictors", input);
+        }
+    }
+    for len in [0, 1, 2, 3, 7, 16, 31, 256, 1025] {
+        for mode in 0..14 {
+            let mut input = vec![mode];
+            input.extend((0..2 * len + 3).map(|_| random(&mut state)));
+            push("VP8LPredictorsSub", input);
+        }
+        let a: Vec<_> = (0..len).map(|_| random(&mut state)).collect();
+        let b: Vec<_> = (0..len).map(|_| random(&mut state)).collect();
+        let mut both = a.clone();
+        both.extend_from_slice(&b);
+        push("AddVector_C", both.clone());
+        push("AddVectorEq_C", both);
+        // First mismatch at every position, plus an entirely equal vector.
+        for position in 0..=len {
+            let mut b = a.clone();
+            if position < len {
+                b[position] ^= 1;
+            }
+            let mut both = a.clone();
+            both.extend(b);
+            push("VectorMismatch_C", both);
+        }
+    }
+    // All short 3-valued distributions: zero/single symbols and repeated bins.
+    for len in 1..=7 {
+        for mut pattern in 0..3_usize.pow(len) {
+            let mut a = Vec::new();
+            for _ in 0..len {
+                a.push((pattern % 3) as u32);
+                pattern /= 3;
+            }
+            push("ShannonEntropy_C", a.clone());
+            push("VP8LBitsEntropyUnrefined", a.clone());
+            push("GetEntropyUnrefined_C", a.clone());
+            a.extend((0..len).map(|_| random(&mut state) % 3));
+            push("GetCombinedEntropyUnrefined_C", a);
+        }
+    }
+    for len in [1, 2, 3, 4, 5, 16, 256, 280, 512, 2328] {
+        for kind in 0..8 {
+            let a: Vec<_> = (0..len)
+                .map(|i| match kind {
+                    0 => 0,
+                    1 => 1,
+                    2 => 65536,
+                    3 => {
+                        if i % 8 < 4 {
+                            0
+                        } else {
+                            7
+                        }
+                    }
+                    4 => (i / 3 % 5) as u32,
+                    5 => (i / 4 % 5) as u32,
+                    6 => {
+                        if i == len - 1 {
+                            1 << 27
+                        } else {
+                            0
+                        }
+                    }
+                    _ => random(&mut state) % 10000,
+                })
+                .collect();
+            push("ShannonEntropy_C", a.clone());
+            push("VP8LBitsEntropyUnrefined", a.clone());
+            push("GetEntropyUnrefined_C", a.clone());
+            if len >= 6 && len % 2 == 0 {
+                push("ExtraCost_C", a.clone());
+            }
+            let mut both = a;
+            both.extend((0..len).map(|_| random(&mut state) % 1000));
+            if len == 256 {
+                push("CombinedShannonEntropy_C", both.clone());
+            }
+            push("GetCombinedEntropyUnrefined_C", both);
+        }
+    }
+    for _ in 0..128 {
+        push(
+            "CombinedShannonEntropy_C",
+            (0..512).map(|_| random(&mut state) % 100000).collect(),
+        );
+        push("ExtraCost_C", (0..40).map(|_| random(&mut state)).collect());
+    }
+    for xbits in 0..=3 {
+        let limit = 1 << (8 >> xbits);
+        for len in 0..=65 {
+            for kind in 0..3 {
+                let mut input = vec![xbits];
+                input.extend((0..len).map(|i| match kind {
+                    0 => limit - 1,
+                    1 => i % limit,
+                    _ => random(&mut state) % limit,
+                }));
+                push("VP8LBundleColorMap_C", input);
+            }
+        }
+    }
+    // All signed coefficients and channels, padded rectangular tiles, initial
+    // nonzero bins and wraparound verify accumulation rather than replacement.
+    for coeff in 0..256 {
+        let pixels: Vec<_> = (0..272)
+            .map(|i| 0x800000ff | ((i % 256) << 8) | ((255 - i % 256) << 16))
+            .collect();
+        for (name, c0, c1) in [
+            ("VP8LCollectColorRedTransforms_C", coeff, 0),
+            ("VP8LCollectColorBlueTransforms_C", coeff, 0),
+            ("VP8LCollectColorBlueTransforms_C", 0, coeff),
+        ] {
+            let mut input = vec![17, 16, 16, c0, c1];
+            input.extend((0..256).map(|i| if i % 2 == 0 { u32::MAX } else { i }));
+            input.extend_from_slice(&pixels);
+            push(name, input);
+        }
+    }
+    for (width, height, stride) in [
+        (0, 0, 0),
+        (0, 3, 4),
+        (3, 0, 4),
+        (1, 1, 1),
+        (7, 5, 11),
+        (16, 17, 16),
+    ] {
+        for _ in 0..16 {
+            let mut input = vec![
+                stride,
+                width,
+                height,
+                random(&mut state) % 256,
+                random(&mut state) % 256,
+            ];
+            input.extend((0..256).map(|_| random(&mut state)));
+            input.extend((0..stride * height).map(|_| random(&mut state)));
+            push("VP8LCollectColorRedTransforms_C", input.clone());
+            push("VP8LCollectColorBlueTransforms_C", input);
+        }
+    }
+    cases
+}
+
+/// Compact edge cases whose C outputs are also committed for portable tests.
+pub fn dsp_fixture_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    let mut push = |name: &str, a: Vec<u32>| cases.push(Case::new(name, a));
+    for v in [
+        0, 1, 2, 3, 255, 256, 257, 4095, 4096, 4097, 65535, 65536, 65537, 268435456,
+    ] {
+        push("VP8LFastLog2", vec![v]);
+        push("VP8LFastSLog2", vec![v]);
+        if v >= 256 {
+            push("FastLog2Slow_C", vec![v]);
+            push("FastSLog2Slow_C", vec![v]);
+        }
+    }
+    for mode in 0..14 {
+        push(
+            "VP8LPredictors",
+            vec![mode, 0x00ff0181, 0xff8002fe, 0x7f030080, 0x01027fff],
+        );
+        push(
+            "VP8LPredictors",
+            vec![mode, 0x02020202, 0x01010101, 0, 0xffffffff],
+        );
+        push(
+            "VP8LPredictorsSub",
+            vec![
+                mode, 0x01234567, 0xff00ff00, 0x8901fecd, 0x10203040, 0xabcdef98, 0x98765432,
+                0x99887766, 0x12345678, 0x13579bdf,
+            ],
+        );
+    }
+    push("VP8LBitEntropyInit", vec![]);
+    for a in [
+        vec![],
+        vec![0],
+        vec![0; 8],
+        vec![0, 0, 7, 7, 7, 7, 7, 0, 1, 1, 1],
+        vec![65535, 65536, 65537, 3, 1, 0],
+        vec![0, 0, 1 << 27, 0],
+        vec![1, 2, 3, 4],
+    ] {
+        push("ShannonEntropy_C", a.clone());
+        push("VP8LBitsEntropyUnrefined", a.clone());
+        if !a.is_empty() {
+            push("GetEntropyUnrefined_C", a.clone());
+            let mut both = a.clone();
+            both.extend(a.into_iter().rev());
+            push("GetCombinedEntropyUnrefined_C", both);
+        }
+    }
+    let mut combined = vec![0; 512];
+    combined[0] = 65536;
+    combined[255] = 1;
+    combined[256] = 7;
+    combined[257] = 65535;
+    push("CombinedShannonEntropy_C", combined);
+    for xbits in 0..=3 {
+        let mut input = vec![xbits];
+        input.extend((0..11).map(|i| i % (1 << (8 >> xbits))));
+        push("VP8LBundleColorMap_C", input);
+    }
+    for name in ["AddVector_C", "AddVectorEq_C", "VectorMismatch_C"] {
+        push(name, vec![0, u32::MAX, 1, 7, 1, 1, u32::MAX, 7]);
+    }
+    push("ExtraCost_C", (0..40).map(|v| v * 10000).collect());
+    for name in [
+        "VP8LCollectColorRedTransforms_C",
+        "VP8LCollectColorBlueTransforms_C",
+    ] {
+        let mut input = vec![3, 2, 2, 255, 128];
+        input.extend((0..256).map(|i| if i % 2 == 0 { u32::MAX } else { i }));
+        input.extend([0xff00ffff, 0x0180ff00, 0xdeadbeef, 0x807f8081, 0xffffffff]);
+        push(name, input);
+    }
+    push("RightShiftRound", vec![u32::MAX, 0, 1]);
+    push("RightShiftRound", vec![u32::MAX, u32::MAX, 63]);
+    let mut div = words64((-7_i64) as u64);
+    div.extend(words64(2));
+    push("DivRound", div);
     cases
 }
 

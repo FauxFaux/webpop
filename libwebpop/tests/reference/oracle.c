@@ -18,11 +18,29 @@
 #define REQUIRE(x) do { if (!(x)) { fprintf(stderr, "invalid request: %s\n", name); return 1; } } while (0)
 #define IS(x) (strcmp(name, #x) == 0)
 
+static uint64_t Read64(const uint32_t* words) {
+  return words[0] | ((uint64_t)words[1] << 32);
+}
+static void Write64(uint32_t* out, uint64_t v) {
+  out[0] = (uint32_t)v;
+  out[1] = (uint32_t)(v >> 32);
+}
+static unsigned WriteEntropy(uint32_t* out, const VP8LBitEntropy* e) {
+  Write64(out, e->entropy);
+  out[2] = e->sum;
+  out[3] = (uint32_t)e->nonzeros;
+  out[4] = e->max_val;
+  out[5] = e->nonzero_code;
+  return 6;
+}
+
 int main(void) {
   char name[80];
   uint32_t *in = (uint32_t*)malloc(LIMIT * sizeof(*in));
   uint32_t *out = (uint32_t*)malloc(LIMIT * sizeof(*out));
   if (in == NULL || out == NULL) return 1;
+  VP8LDspInit();
+  VP8LEncDspInit();
   while (scanf("%79s", name) == 1) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
@@ -98,6 +116,90 @@ int main(void) {
       VP8LTransformColor_C(&m, in + 3, (int)n - 3);
       count = n - 3;
       memcpy(out, in + 3, count * sizeof(*in));
+    } else if (IS(VP8LFastLog2) || IS(VP8LFastSLog2) || IS(FastLog2Slow_C) || IS(FastSLog2Slow_C)) {
+      REQUIRE(n == 1);
+      if (IS(FastLog2Slow_C) || IS(FastSLog2Slow_C)) REQUIRE(in[0] >= 256);
+      if (IS(VP8LFastLog2) || IS(FastLog2Slow_C)) {
+        out[count++] = IS(VP8LFastLog2) ? VP8LFastLog2(in[0]) : VP8LFastLog2Slow(in[0]);
+      } else {
+        Write64(out, IS(VP8LFastSLog2) ? VP8LFastSLog2(in[0]) : VP8LFastSLog2Slow(in[0]));
+        count = 2;
+      }
+    } else if (IS(RightShiftRound)) {
+      REQUIRE(n == 3 && in[2] < 64);
+      Write64(out, RightShiftRound(Read64(in), in[2]));
+      count = 2;
+    } else if (IS(DivRound)) {
+      REQUIRE(n == 4 && Read64(in + 2) != 0);
+      Write64(out, (uint64_t)DivRound((int64_t)Read64(in), (int64_t)Read64(in + 2)));
+      count = 2;
+    } else if (IS(VP8LPredictors)) {
+      REQUIRE(n == 5 && in[0] < 14);
+      out[count++] = VP8LPredictors[in[0]](in + 1, in + 3);
+    } else if (IS(VP8LPredictorsSub)) {
+      unsigned len;
+      REQUIRE(n >= 4 && in[0] < 14 && (n - 4) % 2 == 0);
+      len = (n - 4) / 2;
+      VP8LPredictorsSub[in[0]](in + 2, in + len + 3, (int)len, out);
+      count = len;
+    } else if (IS(ShannonEntropy_C) || IS(CombinedShannonEntropy_C)) {
+      if (IS(ShannonEntropy_C)) Write64(out, VP8LShannonEntropy(in, (int)n));
+      else {
+        REQUIRE(n == 512);
+        Write64(out, VP8LCombinedShannonEntropy(in, in + 256));
+      }
+      count = 2;
+    } else if (IS(VP8LBitEntropyInit) || IS(VP8LBitsEntropyUnrefined) ||
+               IS(GetEntropyUnrefined_C) || IS(GetCombinedEntropyUnrefined_C)) {
+      VP8LBitEntropy e;
+      VP8LStreaks stats;
+      if (IS(VP8LBitEntropyInit)) { REQUIRE(n == 0); VP8LBitEntropyInit(&e); }
+      else if (IS(VP8LBitsEntropyUnrefined)) VP8LBitsEntropyUnrefined(in, (int)n, &e);
+      else if (IS(GetEntropyUnrefined_C)) {
+        REQUIRE(n > 0);
+        VP8LGetEntropyUnrefined(in, (int)n, &e, &stats);
+      } else {
+        REQUIRE(n > 0 && n % 2 == 0);
+        VP8LGetCombinedEntropyUnrefined(in, in + n/2, (int)n/2, &e, &stats);
+      }
+      count = WriteEntropy(out, &e);
+      if (IS(GetEntropyUnrefined_C) || IS(GetCombinedEntropyUnrefined_C)) {
+        for (i = 0; i < 2; ++i) out[count++] = (uint32_t)stats.counts[i];
+        for (i = 0; i < 4; ++i) out[count++] = (uint32_t)stats.streaks[i/2][i%2];
+      }
+    } else if (IS(ExtraCost_C)) {
+      REQUIRE(n >= 6 && n % 2 == 0);
+      out[count++] = VP8LExtraCost(in, (int)n);
+    } else if (IS(AddVector_C) || IS(AddVectorEq_C) || IS(VectorMismatch_C)) {
+      REQUIRE(n % 2 == 0);
+      if (IS(VectorMismatch_C)) out[count++] = VP8LVectorMismatch(in, in + n/2, (int)n/2);
+      else {
+        count = n/2;
+        if (IS(AddVector_C)) VP8LAddVector(in, in + count, out, (int)count);
+        else {
+          memcpy(out, in + count, count * sizeof(*out));
+          VP8LAddVectorEq(in, out, (int)count);
+        }
+      }
+    } else if (IS(VP8LBundleColorMap_C)) {
+      uint8_t* row;
+      REQUIRE(n >= 1 && in[0] <= 3);
+      row = (uint8_t*)malloc(n);
+      REQUIRE(row != NULL);
+      for (i = 1; i < n; ++i) { REQUIRE(in[i] <= 255); row[i-1] = (uint8_t)in[i]; }
+      count = (n - 1 + (1u << in[0]) - 1) >> in[0];
+      VP8LBundleColorMap_C(row, (int)n - 1, (int)in[0], out);
+      free(row);
+    } else if (IS(VP8LCollectColorRedTransforms_C) || IS(VP8LCollectColorBlueTransforms_C)) {
+      uint64_t required;
+      REQUIRE(n >= 261 && in[0] >= in[1] && in[3] <= 255 && in[4] <= 255);
+      required = (in[2] == 0) ? 0 : (uint64_t)(in[2] - 1) * in[0] + in[1];
+      REQUIRE(required <= n - 261);
+      memcpy(out, in + 5, 256 * sizeof(*out));
+      if (IS(VP8LCollectColorRedTransforms_C))
+        VP8LCollectColorRedTransforms_C(in + 261, (int)in[0], (int)in[1], (int)in[2], (int)in[3], out);
+      else VP8LCollectColorBlueTransforms_C(in + 261, (int)in[0], (int)in[1], (int)in[2], (int)in[3], (int)in[4], out);
+      count = 256;
     } else if (IS(WebPEncodeLosslessRGBA)) {
       uint8_t *allocation, *rgba, *encoded = NULL;
       size_t size;

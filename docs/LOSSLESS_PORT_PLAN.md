@@ -57,10 +57,17 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- `libwebpop` is now a library with endian/bit helpers, checked positive-stride
-  RGBA geometry, pixel lane arithmetic, prefix coding, hash/color-cache
-  primitives, subtract-green, and cross-color kernels. Predictors and entropy
-  DSP remain in milestone 1; the public Rust encoder is not implemented.
+- Milestone 1 is complete: `libwebpop` has endian/bit helpers, checked
+  positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
+  hash/color-cache primitives, all 14 scalar predictors and residual kernels,
+  subtract-green/cross-color kernels and histogram collectors, palette index
+  packing, and fixed-point log/entropy/streak/vector DSP. The public Rust
+  encoder is not implemented; bit writer and Huffman construction are next.
+- The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
+  seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
+  floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
+  selector ties, and seeded arrays. Compact C outputs are committed as portable
+  fixtures. No numerical divergence was observed on the recorded toolchain.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

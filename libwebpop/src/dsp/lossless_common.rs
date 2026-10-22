@@ -80,3 +80,38 @@ pub const fn VP8LSubPixels(a: u32, b: u32) -> u32 {
         .wrapping_sub(b & 0x00ff00ff);
     (alpha_and_green & 0xff00ff00) | (red_and_blue & 0x00ff00ff)
 }
+
+pub const LOG_2_PRECISION_BITS: u32 = 23;
+pub const LOG_2_RECIPROCAL_FIXED: u64 = 12102203;
+pub const LOG_2_RECIPROCAL_FIXED_DOUBLE: f64 = 12102203.161561485;
+pub const LOG_LOOKUP_IDX_MAX: u32 = 256;
+pub const APPROX_LOG_MAX: u32 = 4096;
+pub const APPROX_LOG_WITH_CORRECTION_MAX: u32 = 65536;
+
+pub fn VP8LFastLog2(v: u32) -> u32 {
+    if v < LOG_LOOKUP_IDX_MAX {
+        super::lossless_enc::kLog2Table[v as usize]
+    } else {
+        super::lossless_enc::FastLog2Slow_C(v)
+    }
+}
+pub fn VP8LFastSLog2(v: u32) -> u64 {
+    if v < LOG_LOOKUP_IDX_MAX {
+        super::lossless_enc::kSLog2Table[v as usize]
+    } else {
+        super::lossless_enc::FastSLog2Slow_C(v)
+    }
+}
+pub const fn RightShiftRound(v: u64, shift: u32) -> u64 {
+    assert!(shift < 64);
+    v.wrapping_add((1_u64 << shift) >> 1) >> shift
+}
+/// C's signed nearest-integer division, with ties away from zero.
+/// The denominator and intermediate arithmetic must be representable.
+pub const fn DivRound(a: i64, b: i64) -> i64 {
+    if (a < 0) == (b < 0) {
+        (a + b / 2) / b
+    } else {
+        (a - b / 2) / b
+    }
+}

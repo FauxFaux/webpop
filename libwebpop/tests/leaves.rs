@@ -104,3 +104,56 @@ fn checked_geometry_boundaries() {
         assert!(VP8LColorCacheInit(bits).is_none());
     }
 }
+
+#[test]
+fn palette_bundles_recover_indices() {
+    use libwebpop::dsp::lossless_enc::VP8LBundleColorMap_C;
+    for xbits in 0..=3 {
+        let bits_per_index = 8 >> xbits;
+        let mask = (1 << bits_per_index) - 1;
+        for width in 0..=65_usize {
+            let row: Vec<_> = (0..width).map(|x| ((x * 37) & mask) as u8).collect();
+            let mut packed = vec![0; width.div_ceil(1 << xbits)];
+            VP8LBundleColorMap_C(&row, xbits, &mut packed);
+            for (x, &index) in row.iter().enumerate() {
+                let pixel = packed[x >> xbits];
+                assert_eq!(pixel >> 24, 255);
+                assert_eq!(pixel & 0x00ff00ff, 0);
+                let shift = 8 + bits_per_index * (x % (1 << xbits));
+                assert_eq!((pixel >> shift) & mask as u32, u32::from(index));
+            }
+            // Unused high index bits in a partial final bundle must be zero.
+            if width % (1 << xbits) != 0 {
+                let used_bits = bits_per_index * (width % (1 << xbits));
+                assert_eq!(
+                    (packed.last().unwrap() >> (8 + used_bits)) & (255 >> used_bits),
+                    0
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn entropy_streaks_track_run_starts_and_reset() {
+    use libwebpop::dsp::lossless::{VP8LBitEntropy, VP8LStreaks};
+    use libwebpop::dsp::lossless_enc::{GetEntropyUnrefined_C, VP8LBitsEntropyUnrefined};
+    let population = [0, 0, 0, 7, 7, 7, 7, 0, 0, 0, 0, 1, 1, 1];
+    let mut e = VP8LBitEntropy::default();
+    let mut stats = VP8LStreaks::default();
+    GetEntropyUnrefined_C(&population, &mut e, &mut stats);
+    assert_eq!(
+        (e.sum, e.nonzeros, e.max_val, e.nonzero_code),
+        (31, 7, 7, 11)
+    );
+    assert_eq!(stats.counts, [1, 1]);
+    assert_eq!(stats.streaks, [[3, 4], [3, 4]]);
+    let entropy = e.entropy;
+    VP8LBitsEntropyUnrefined(&population, &mut e);
+    assert_eq!(e.entropy, entropy);
+    assert_eq!(e.nonzero_code, 13);
+    GetEntropyUnrefined_C(&[0; 4], &mut e, &mut stats);
+    assert_eq!(e, VP8LBitEntropy::default());
+    assert_eq!(stats.counts, [1, 0]);
+    assert_eq!(stats.streaks, [[0, 4], [0, 0]]);
+}

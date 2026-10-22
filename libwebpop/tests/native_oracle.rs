@@ -19,9 +19,35 @@ fn leaves_match_pinned_scalar_reference() {
 }
 
 #[test]
+fn scalar_dsp_matches_pinned_reference() {
+    let cases = support::dsp_cases();
+    let outputs = native::run("dsp", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} scalar DSP cases (seed {:08x})",
+        cases.len(),
+        support::SEED
+    );
+}
+
+#[test]
 fn committed_fixtures_match_reference() {
     let fixtures = support::fixtures();
-    let cases: Vec<_> = fixtures.iter().map(|(case, _)| case.clone()).collect();
+    let mut cases: Vec<_> = fixtures.iter().map(|(case, _)| case.clone()).collect();
+    // Include new compact cases when regenerating, without duplicating them on
+    // subsequent runs. Committed outputs must always come from the C oracle.
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        for case in support::dsp_fixture_cases() {
+            if !cases
+                .iter()
+                .any(|c| c.function == case.function && c.input == case.input)
+            {
+                cases.push(case);
+            }
+        }
+    }
     let outputs = native::run("fixtures", &cases);
     if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
         let mut text = format!(

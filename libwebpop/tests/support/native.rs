@@ -112,9 +112,17 @@ pub fn run(label: &str, cases: &[Case]) -> Vec<Vec<u32>> {
     if !exe.is_file() {
         exe = build.join("Release").join(executable);
     }
-    let result =
-        checked_output(Command::new(exe).stdin(Stdio::from(File::open(input_path).unwrap())));
+    let result = Command::new(exe)
+        .stdin(Stdio::from(File::open(&input_path).unwrap()))
+        .output()
+        .expect("run native oracle");
     fs::write(build.join(format!("{label}.responses.txt")), &result.stdout).unwrap();
+    assert!(
+        result.status.success(),
+        "oracle failed for {}: {}",
+        input_path.display(),
+        String::from_utf8_lossy(&result.stderr)
+    );
     let response = String::from_utf8(result.stdout).unwrap();
     let outputs: Vec<_> = response
         .lines()

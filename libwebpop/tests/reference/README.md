@@ -35,9 +35,11 @@ decoder; the old Wasm compressed bytes are not required to match the pin.
 `tests/support/mod.rs` defines logical requests and the Rust evaluator separately
 from `tests/support/native.rs`, which handles builds and transport. Add a
 function to the evaluator and to `oracle.c`, then add fixtures and deterministic
-cases. Header inline functions compile in the wrapper translation unit; current
-transform functions are already exported upstream. Future static helpers should
-get wrappers in a translation unit including their original `.c` file.
+cases. Header inline functions compile in the wrapper translation unit. Exported
+kernels and scalar DSP dispatch tables expose the current remaining leaves;
+initialization selects the scalar implementation because SIMD is disabled.
+Future static helpers without a dispatch entry should get wrappers in a
+translation unit including their original `.c` file.
 
 The protocol uses text lines:
 
@@ -58,9 +60,30 @@ lookup-in-copy 6. Unused fields are zero. Contains uses `ffffffff` for absent.
 Responses contain query results followed by the complete active and copied
 tables, exposing collisions and copy independence.
 
+64-bit values use two words, low word first, with signed values represented in
+two's complement. `VP8LPredictors` takes `(mode, left, top-left, top, top-right)`.
+`VP8LPredictorsSub` takes mode, the input including a preceding pixel, then the
+upper row including top-left and a trailing top-right pixel (2*n+4 words total).
+Entropy results are `(entropy-low, entropy-high, sum, nonzeros, max_val,
+nonzero_code)`, followed by two counts and four row-major streak counters for
+the streak functions. Combined entropy inputs concatenate equal-sized X/Y
+arrays (256 each for combined Shannon entropy); combined Shannon reports the
+sum of entropies of X and X+Y. `VP8LBundleColorMap_C` takes xbits then indices.
+Color collectors take `(stride, width, height, coefficient0, coefficient1)`,
+256 initial histogram bins, then pixels; stride is in pixels and the second
+coefficient is unused for red. Vector operations concatenate equal-sized
+arrays. These layouts expose logical fields and accumulated output buffers.
+
 Differential cases exhaust byte arithmetic and signed color coefficient/channel
 pairs, exercise all prefix entries and both lookup/slow paths, test prefix
 boundaries, and run seeded arrays and cache traces for every legal cache size.
+The additional scalar DSP batch has 317,625 cases: every log input through
+65536, large-value floating-point fallbacks, byte-pair averaging/half predictors,
+boundary triples and selector ties across all modes, residual batches, short
+exhaustive histograms, zero/nonzero streaks around lengths 3/4, all signed color
+coefficients, padded tiles, accumulating/wrapping bins, vector mismatch positions,
+and every palette packing depth with incomplete bundles. Rounding tests cover
+signed operands and all legal right shifts, including unsigned wraparound.
 The xorshift32 seed is `6d2b79f5`; failures report the function and first differing
 output word. Full batches, responses, and `mismatch.request.txt` are retained in
 the build directory. Replay a mismatch with:
@@ -90,8 +113,10 @@ version, CMake cache, exact compilation commands, Rust host/toolchain, pin, and
 seed in `target/native-oracle/provenance.txt`. Build and protocol failures fail
 the test rather than silently skipping comparisons.
 
-The Rust public encoder, predictors, entropy DSP, bit writer, and higher-level
-subgraphs remain unimplemented. Checked RGBA geometry and the overflow-safe
-extension of `VP8LSubSampleSize` have portable Rust boundary tests; the C oracle
+Milestone 1's scalar leaves are implemented, with 129 additional compact DSP
+fixtures generated on the same toolchain/configuration as the initial fixtures.
+No numerical divergence was observed. The Rust public encoder, bit writer, and
+higher-level subgraphs remain unimplemented. Checked RGBA geometry and the
+overflow-safe extension of `VP8LSubSampleSize` have portable Rust boundary tests; the C oracle
 is invoked only on its defined domain. In particular, zero-bit scans and NoLUT
 prefix distances below 3 are invalid upstream inputs.
