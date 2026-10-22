@@ -5,9 +5,12 @@
 
 const ARGB_BLACK: u32 = 0xff000000;
 
-use crate::dsp::lossless::VP8LPredictors;
+use crate::dsp::lossless::{VP8LMultipliers, VP8LPredictors};
 use crate::dsp::lossless_common::{DivRound, LOG_2_PRECISION_BITS, VP8LSubPixels};
-use crate::dsp::lossless_enc::{VP8LCombinedShannonEntropy, VP8LShannonEntropy};
+use crate::dsp::lossless_enc::{
+    VP8LCollectColorBlueTransforms, VP8LCollectColorRedTransforms, VP8LCombinedShannonEntropy,
+    VP8LShannonEntropy, VP8LTransformColor,
+};
 use crate::webp::format_constants::{MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS};
 use std::collections::TryReserveError;
 
@@ -595,4 +598,361 @@ pub fn VP8LResidualImage(
     };
     CopyImageWithPrediction(width, height, bits, &modes, argb, low_effort, exact)?;
     Ok((bits, modes))
+}
+
+pub fn ColorCodeToMultipliers(color_code: u32) -> VP8LMultipliers {
+    VP8LMultipliers {
+        green_to_red: color_code as u8,
+        green_to_blue: (color_code >> 8) as u8,
+        red_to_blue: (color_code >> 16) as u8,
+    }
+}
+
+pub fn MultipliersToColorCode(m: &VP8LMultipliers) -> u32 {
+    ARGB_BLACK
+        | (u32::from(m.red_to_blue) << 16)
+        | (u32::from(m.green_to_blue) << 8)
+        | u32::from(m.green_to_red)
+}
+
+pub fn PredictionCostCrossColor(accumulated: &[u32; 256], counts: &[u32; 256]) -> i64 {
+    VP8LCombinedShannonEntropy(counts, accumulated) as i64 + PredictionCostBias(counts, 3, 240)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn GetPredictionCostCrossColorRed(
+    argb: &[u32],
+    stride: usize,
+    tile_width: usize,
+    tile_height: usize,
+    prev_x: VP8LMultipliers,
+    prev_y: VP8LMultipliers,
+    green_to_red: i32,
+    accumulated: &[u32; 256],
+) -> i64 {
+    let mut histo = [0; 256];
+    VP8LCollectColorRedTransforms(
+        argb,
+        stride,
+        tile_width,
+        tile_height,
+        green_to_red,
+        &mut histo,
+    );
+    let mut cost = PredictionCostCrossColor(accumulated, &histo);
+    for previous in [prev_x, prev_y] {
+        if green_to_red as u8 == previous.green_to_red {
+            cost -= 3i64 << LOG_2_PRECISION_BITS;
+        }
+    }
+    if green_to_red == 0 {
+        cost -= 3i64 << LOG_2_PRECISION_BITS;
+    }
+    cost
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn GetBestGreenToRed(
+    argb: &[u32],
+    stride: usize,
+    tile_width: usize,
+    tile_height: usize,
+    prev_x: VP8LMultipliers,
+    prev_y: VP8LMultipliers,
+    quality: u32,
+    accumulated: &[u32; 256],
+) -> u8 {
+    assert!(quality <= 100);
+    let mut best = 0;
+    let mut best_cost = GetPredictionCostCrossColorRed(
+        argb,
+        stride,
+        tile_width,
+        tile_height,
+        prev_x,
+        prev_y,
+        best,
+        accumulated,
+    );
+    for iter in 0..4 + ((7 * quality) >> 8) {
+        let delta = 32 >> iter;
+        for offset in [-delta, delta] {
+            // Each candidate uses the current best, including an improvement
+            // from the preceding candidate in the same iteration.
+            let candidate = best + offset;
+            let cost = GetPredictionCostCrossColorRed(
+                argb,
+                stride,
+                tile_width,
+                tile_height,
+                prev_x,
+                prev_y,
+                candidate,
+                accumulated,
+            );
+            if cost < best_cost {
+                best_cost = cost;
+                best = candidate;
+            }
+        }
+    }
+    best as u8
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn GetPredictionCostCrossColorBlue(
+    argb: &[u32],
+    stride: usize,
+    tile_width: usize,
+    tile_height: usize,
+    prev_x: VP8LMultipliers,
+    prev_y: VP8LMultipliers,
+    green_to_blue: i32,
+    red_to_blue: i32,
+    accumulated: &[u32; 256],
+) -> i64 {
+    let mut histo = [0; 256];
+    VP8LCollectColorBlueTransforms(
+        argb,
+        stride,
+        tile_width,
+        tile_height,
+        green_to_blue,
+        red_to_blue,
+        &mut histo,
+    );
+    let mut cost = PredictionCostCrossColor(accumulated, &histo);
+    for previous in [prev_x, prev_y] {
+        if green_to_blue as u8 == previous.green_to_blue {
+            cost -= 3i64 << LOG_2_PRECISION_BITS;
+        }
+        if red_to_blue as u8 == previous.red_to_blue {
+            cost -= 3i64 << LOG_2_PRECISION_BITS;
+        }
+    }
+    if green_to_blue == 0 {
+        cost -= 3i64 << LOG_2_PRECISION_BITS;
+    }
+    if red_to_blue == 0 {
+        cost -= 3i64 << LOG_2_PRECISION_BITS;
+    }
+    cost
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn GetBestGreenRedToBlue(
+    argb: &[u32],
+    stride: usize,
+    tile_width: usize,
+    tile_height: usize,
+    prev_x: VP8LMultipliers,
+    prev_y: VP8LMultipliers,
+    quality: u32,
+    accumulated: &[u32; 256],
+) -> (u8, u8) {
+    assert!(quality <= 100);
+    const OFFSETS: [(i32, i32); 8] = [
+        (0, -1),
+        (0, 1),
+        (-1, 0),
+        (1, 0),
+        (-1, -1),
+        (-1, 1),
+        (1, -1),
+        (1, 1),
+    ];
+    const DELTAS: [i32; 7] = [16, 16, 8, 4, 2, 2, 2];
+    let iters = if quality < 25 {
+        1
+    } else if quality > 50 {
+        7
+    } else {
+        4
+    };
+    let (mut best_green, mut best_red) = (0, 0);
+    let mut skip_delta = -1;
+    let mut best_cost = GetPredictionCostCrossColorBlue(
+        argb,
+        stride,
+        tile_width,
+        tile_height,
+        prev_x,
+        prev_y,
+        best_green,
+        best_red,
+        accumulated,
+    );
+    for &delta in &DELTAS[..iters] {
+        if delta == skip_delta {
+            continue;
+        }
+        skip_delta = delta;
+        for (green, red) in OFFSETS {
+            let candidate_green = best_green + green * delta;
+            let candidate_red = best_red + red * delta;
+            let cost = GetPredictionCostCrossColorBlue(
+                argb,
+                stride,
+                tile_width,
+                tile_height,
+                prev_x,
+                prev_y,
+                candidate_green,
+                candidate_red,
+                accumulated,
+            );
+            if cost < best_cost {
+                best_cost = cost;
+                best_green = candidate_green;
+                best_red = candidate_red;
+                skip_delta = -1;
+            }
+        }
+        if delta == 2 && best_green == 0 && best_red == 0 {
+            break;
+        }
+    }
+    (best_green as u8, best_red as u8)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn GetBestColorTransformForTile(
+    tile_x: usize,
+    tile_y: usize,
+    bits: u32,
+    prev_x: VP8LMultipliers,
+    prev_y: VP8LMultipliers,
+    quality: u32,
+    width: usize,
+    height: usize,
+    accumulated_red: &[u32; 256],
+    accumulated_blue: &[u32; 256],
+    argb: &[u32],
+) -> VP8LMultipliers {
+    let x = tile_x << bits;
+    let y = tile_y << bits;
+    let tile_width = (1 << bits).min(width - x);
+    let tile_height = (1 << bits).min(height - y);
+    let tile = &argb[y * width + x..];
+    let green_to_red = GetBestGreenToRed(
+        tile,
+        width,
+        tile_width,
+        tile_height,
+        prev_x,
+        prev_y,
+        quality,
+        accumulated_red,
+    );
+    let (green_to_blue, red_to_blue) = GetBestGreenRedToBlue(
+        tile,
+        width,
+        tile_width,
+        tile_height,
+        prev_x,
+        prev_y,
+        quality,
+        accumulated_blue,
+    );
+    VP8LMultipliers {
+        green_to_red,
+        green_to_blue,
+        red_to_blue,
+    }
+}
+
+/// Tile coordinates are pixel offsets here, unlike the search helper above.
+pub fn CopyTileWithColorTransform(
+    width: usize,
+    height: usize,
+    tile_x: usize,
+    tile_y: usize,
+    max_tile_size: usize,
+    transform: VP8LMultipliers,
+    argb: &mut [u32],
+) {
+    let tile_width = max_tile_size.min(width - tile_x);
+    for y in tile_y..(tile_y + max_tile_size).min(height) {
+        let start = y * width + tile_x;
+        VP8LTransformColor(&transform, &mut argb[start..start + tile_width]);
+    }
+}
+
+/// Select cross-color multipliers, transform pixels in place, and return
+/// (optimized tile bits, compact multiplier map). Alpha/green stay unchanged;
+/// inversion restores all RGB, including hidden RGB. Allocation failures
+/// propagate before any pixels are modified.
+pub fn VP8LColorSpaceTransform(
+    width: usize,
+    height: usize,
+    bits: u32,
+    quality: u32,
+    argb: &mut [u32],
+) -> Result<(u32, Vec<u32>), TryReserveError> {
+    assert!(
+        width > 0
+            && height > 0
+            && (MIN_TRANSFORM_BITS..=MAX_TRANSFORM_BITS).contains(&bits)
+            && quality <= 100
+    );
+    assert_eq!(
+        argb.len(),
+        width.checked_mul(height).expect("image geometry")
+    );
+    let tile_size = 1 << bits;
+    let map_width = width.div_ceil(tile_size);
+    let map_height = height.div_ceil(tile_size);
+    let mut image = zeroed(map_width.checked_mul(map_height).expect("map geometry"))?;
+    let mut accumulated_red = [0u32; 256];
+    let mut accumulated_blue = [0u32; 256];
+    // prev_x intentionally carries across tile-row boundaries, as in C.
+    let mut prev_x = VP8LMultipliers::default();
+    let mut prev_y = VP8LMultipliers::default();
+    for tile_y in 0..map_height {
+        for tile_x in 0..map_width {
+            let offset = tile_y * map_width + tile_x;
+            if tile_y != 0 {
+                prev_y = ColorCodeToMultipliers(image[offset - map_width]);
+            }
+            prev_x = GetBestColorTransformForTile(
+                tile_x,
+                tile_y,
+                bits,
+                prev_x,
+                prev_y,
+                quality,
+                width,
+                height,
+                &accumulated_red,
+                &accumulated_blue,
+                argb,
+            );
+            image[offset] = MultipliersToColorCode(&prev_x);
+            let x_start = tile_x * tile_size;
+            let y_start = tile_y * tile_size;
+            CopyTileWithColorTransform(width, height, x_start, y_start, tile_size, prev_x, argb);
+            for y in y_start..(y_start + tile_size).min(height) {
+                for ix in y * width + x_start..y * width + (x_start + tile_size).min(width) {
+                    let pixel = argb[ix];
+                    if ix >= 2 && pixel == argb[ix - 2] && pixel == argb[ix - 1] {
+                        continue;
+                    }
+                    if ix >= width + 2
+                        && argb[ix - 2] == argb[ix - width - 2]
+                        && argb[ix - 1] == argb[ix - width - 1]
+                        && pixel == argb[ix - width]
+                    {
+                        continue;
+                    }
+                    let red = ((pixel >> 16) & 255) as usize;
+                    let blue = (pixel & 255) as usize;
+                    accumulated_red[red] = accumulated_red[red].wrapping_add(1);
+                    accumulated_blue[blue] = accumulated_blue[blue].wrapping_add(1);
+                }
+            }
+        }
+    }
+    let best_bits = VP8LOptimizeSampling(&mut image, width, height, bits, MAX_TRANSFORM_BITS);
+    image.truncate(width.div_ceil(1 << best_bits) * height.div_ceil(1 << best_bits));
+    Ok((best_bits, image))
 }

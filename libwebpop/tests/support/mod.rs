@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod clustering;
+pub mod cross_color;
 pub mod entropy_coding;
 pub mod main_images;
 pub mod matches;
@@ -32,6 +33,8 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "CrossColor" => cross_color::evaluate(self),
+            "CrossColorTransform" => cross_color::transform_evaluate(self),
             "ClampBits" | "PredictorTransform" => predictors::transform_evaluate(self),
             "PredictorFoundations" => predictors::evaluate(self),
             "PaletteTransform" => palette::transform_evaluate(self),

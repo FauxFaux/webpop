@@ -775,6 +775,49 @@ pub fn ApplyPredictFilter(
     Ok(bits)
 }
 
+/// Write and apply the subtract-green transform to a prepared image.
+pub fn ApplySubtractGreen(bw: &mut VP8LBitWriter, argb: &mut [u32]) -> Result<(), TryReserveError> {
+    VP8LPutBits(bw, 1, 1)?; // TRANSFORM_PRESENT
+    VP8LPutBits(bw, 2, 2)?; // SUBTRACT_GREEN_TRANSFORM
+    crate::dsp::lossless_enc::VP8LSubtractGreenFromBlueAndRed(argb);
+    Ok(())
+}
+
+/// Select and apply cross-color multipliers, then write the transform header
+/// and auxiliary map. Inputs may already contain predictor residuals.
+/// Returns optimized tile bits; hash-chain/reference scratch is reusable as
+/// for ApplyPredictFilter. Quality controls both search and auxiliary coding.
+#[allow(clippy::too_many_arguments)]
+pub fn ApplyCrossColorFilter(
+    bw: &mut VP8LBitWriter,
+    argb: &mut [u32],
+    hash_chain: &mut super::backward_references_enc::VP8LHashChain,
+    refs: &mut [super::backward_references_enc::VP8LBackwardRefs],
+    width: usize,
+    height: usize,
+    min_bits: u32,
+    quality: u32,
+    low_effort: bool,
+) -> Result<u32, TryReserveError> {
+    use crate::webp::format_constants::{MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS};
+    let (bits, map) =
+        super::predictor_enc::VP8LColorSpaceTransform(width, height, min_bits, quality, argb)?;
+    VP8LPutBits(bw, 1, 1)?; // TRANSFORM_PRESENT
+    VP8LPutBits(bw, 1, 2)?; // CROSS_COLOR_TRANSFORM
+    VP8LPutBits(bw, bits - MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS)?;
+    EncodeImageNoHuffman(
+        bw,
+        &map,
+        hash_chain,
+        refs,
+        width.div_ceil(1 << bits),
+        height.div_ceil(1 << bits),
+        quality,
+        low_effort,
+    )?;
+    Ok(bits)
+}
+
 #[cfg(test)]
 mod palette_tests {
     use super::*;

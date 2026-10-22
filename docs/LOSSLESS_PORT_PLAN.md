@@ -57,7 +57,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1–6 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–7 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
@@ -74,7 +74,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   all sorting methods, packed mapping and the palette transform writer are
   implemented. Predictor cost/mask helpers, automatic tile-mode/sampling search
   and lossless residual conversion are implemented, including the predictor
-  transform writer. Cross-color search and its transform writer remain.
+  transform writer. Cross-color multiplier search and all four transform
+  writers are complete. Encoder analysis/state and the public API remain in
+  milestones 8–9.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -159,8 +161,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   and tie order. Allocation failures propagate through `Result`. No numerical
   divergence was observed. The full portable and native-oracle suites, release
   clustering/main-image/Wasm tests, formatting and the production library build
-  pass. The public encoder still awaits milestones 7–9.
-- Milestone 7 (in progress) adds `GetColorPalette`, `SearchColorNoIdx`,
+  pass. The public encoder still awaits milestones 8–9.
+- Milestone 7 (complete) adds `GetColorPalette`, `SearchColorNoIdx`,
   `PrepareMapToPalette`, and the default and greedy delta branches of
   `PaletteSort` in `utils/palette.rs`. These pass 552 exact scalar C comparisons
   with seed `6d2b79f5`, including the 17/18-color transparent relocation boundary,
@@ -246,7 +248,29 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   supports max quantization 1; standalone near-lossless preprocessing remains
   separate. The full portable suite (including Wasm), all 26 native-oracle
   tests, release predictor tests, formatting and the production library build
-  pass. Cross-color search and its transform writer remain in milestone 7.
+  pass.
+  Cross-color now adds multiplier packing/unpacking,
+  `PredictionCostCrossColor`, red/blue candidate costs, `GetBestGreenToRed`,
+  `GetBestGreenRedToBlue`, `GetBestColorTransformForTile`,
+  `CopyTileWithColorTransform`, `VP8LColorSpaceTransform`,
+  `ApplyCrossColorFilter` and `ApplySubtractGreen`. The port preserves signed
+  coefficient bytes, quality-dependent iteration counts, live best-candidate
+  updates, strict first-minimum ties, repeated-delta skipping, the cross-row
+  previous-tile multiplier, repeated-pixel histogram exclusions and uniform
+  map compaction through 9 bits. All 6,126 leaf comparisons, 6,480 complete
+  searches and 4,624 complete transform streams match pinned scalar C with
+  the same seed. Ninety-eight new fixtures preserve these results without C.
+  Independent checks build byte histograms, distinguish zero from wrapped
+  zero coefficients in biases, verify tile boundaries, and reproduce/invert
+  all 6,480 selected maps with exact ARGB, including hidden RGB. Another 768
+  complete-file decodes cover both effort/exact modes and every preceding
+  subtract-green/predictor combination, optionally after packed palettes,
+  including all four transforms in sequence. The owned map allocation is
+  fallible and happens before pixels are modified. Encoder-state integration
+  remains in milestone 8; transform writers accept explicit settings and
+  reusable hash-chain/reference scratch. The complete `libwebpop` portable
+  suite (including Wasm), all 30 native-oracle tests, release cross-color and
+  predictor tests, workspace formatting and the production library build pass.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -589,7 +613,7 @@ milestone implements just one part of a file.
 | 4 (complete) | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | 32,212 exact native comparisons of matches, tokens, cache choices, costs and chosen paths; independent replay, portable fixtures and interval stress checks pass |
 | 5 (complete) | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
 | 6 (complete) | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | 4,388 exact staged clustering/sampling comparisons and 1,068 main streams match C; 31 portable fixtures and 168 exact RGBA decodes cover caches, multi-group images, sampling and trial resets |
-| 7 | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Matching palette orders and packed indices, residuals, selected transforms and auxiliary images on forced branch cases |
+| 7 (complete) | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Palette orders/packed indices, predictor and cross-color maps, transformed pixels and complete auxiliary streams match pinned C; portable fixtures, independent replay and complete-file decoding cover all four transforms |
 | 8 | `AnalyzeEntropy`, sizing heuristics, `EncoderAnalyze` `[H]`; encoder storage and `EncodeStreamHook`; `VP8LEncodeStream` | 6, 7 | Matching analysis decisions, tried configurations, and selected stream; full palette trial selection included |
 | 9 | Picture/config/import/writer glue; `WebPEncode`, `VP8LEncodeImage`, and public `WebPEncodeLosslessRGBA` | 8, header helpers | All public corpus cases match the pinned reference and independently decode; invalid inputs fail without panic |
 

@@ -87,3 +87,73 @@ unsigned WebpopPredictor(const uint32_t* in, unsigned n, uint32_t* out) {
   } else { abort(); }
   return count;
 }
+
+unsigned WebpopCrossColor(const uint32_t* in, unsigned n, uint32_t* out) {
+  unsigned count = 0, i;
+  const unsigned op = in[0];
+  if (op == 0) {
+    VP8LMultipliers m;
+    if (n != 2) abort();
+    ColorCodeToMultipliers(in[1], &m);
+    out[count++] = m.green_to_red;
+    out[count++] = m.green_to_blue;
+    out[count++] = m.red_to_blue;
+    out[count++] = MultipliersToColorCode(&m);
+  } else if (op == 1) {
+    int64_t cost;
+    if (n != 513) abort();
+    cost = PredictionCostCrossColor(in + 1, in + 257);
+    out[count++] = (uint32_t)cost;
+    out[count++] = (uint32_t)((uint64_t)cost >> 32);
+  } else if (op >= 2 && op <= 4) {
+    const unsigned header = op == 3 ? 8 : 7;
+    const unsigned histos = op == 4 ? 512 : 256;
+    VP8LMultipliers prev_x, prev_y;
+    int64_t cost;
+    if (n != header + histos + (in[3] - 1) * in[1] + in[2]) abort();
+    ColorCodeToMultipliers(in[4], &prev_x);
+    ColorCodeToMultipliers(in[5], &prev_y);
+    if (op == 2) {
+      cost = GetPredictionCostCrossColorRed(in + header + histos, in[1], in[2], in[3],
+          prev_x, prev_y, (int32_t)in[6], in + header);
+    } else if (op == 3) {
+      cost = GetPredictionCostCrossColorBlue(in + header + histos, in[1], in[2], in[3],
+          prev_x, prev_y, (int32_t)in[6], (int32_t)in[7], in + header);
+    } else {
+      VP8LMultipliers best;
+      MultipliersClear(&best);
+      GetBestGreenToRed(in + header + histos, in[1], in[2], in[3], prev_x, prev_y,
+          in[6], in + header, &best);
+      GetBestGreenRedToBlue(in + header + histos, in[1], in[2], in[3], prev_x, prev_y,
+          in[6], in + header + 256, &best);
+      out[count++] = MultipliersToColorCode(&best);
+      return count;
+    }
+    out[count++] = (uint32_t)cost;
+    out[count++] = (uint32_t)((uint64_t)cost >> 32);
+  } else if (op == 5 || op == 6) {
+    const unsigned w = in[1], h = in[2], header = op == 5 ? 5 : 7;
+    uint32_t* pixels = (uint32_t*)malloc(w * h * sizeof(*pixels));
+    if (n != header + w * h || !pixels) abort();
+    memcpy(pixels, in + header, w * h * sizeof(*pixels));
+    if (op == 5) {
+      const unsigned map_size = VP8LSubSampleSize(w, in[3]) * VP8LSubSampleSize(h, in[3]);
+      uint32_t* map = (uint32_t*)malloc(map_size * sizeof(*map));
+      WebPPicture pic;
+      int percent = 0, bits = 0;
+      if (!map || !WebPPictureInit(&pic)) abort();
+      if (!WebpopIncludedColorSpaceTransform(w, h, in[3], in[4], pixels, map, &pic, 0, &percent, &bits)) abort();
+      out[count++] = bits;
+      for (i = 0; i < (unsigned)(VP8LSubSampleSize(w, bits) * VP8LSubSampleSize(h, bits)); ++i) out[count++] = map[i];
+      WebPPictureFree(&pic);
+      free(map);
+    } else {
+      VP8LMultipliers m;
+      ColorCodeToMultipliers(in[6], &m);
+      CopyTileWithColorTransform(w, h, in[3], in[4], in[5], m, pixels);
+    }
+    for (i = 0; i < w * h; ++i) out[count++] = pixels[i];
+    free(pixels);
+  } else { abort(); }
+  return count;
+}

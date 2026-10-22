@@ -626,3 +626,65 @@ fn predictor_transforms_match_pinned_reference() {
         cases.len()
     );
 }
+
+#[test]
+fn cross_color_leaves_match_pinned_reference() {
+    let cases = support::cross_color::leaf_cases();
+    for (case, expected) in cases.iter().zip(native::run("cross-color-leaves", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} cross-color leaf cases", cases.len());
+}
+
+#[test]
+fn cross_color_search_matches_pinned_reference() {
+    let cases = support::cross_color::search_cases();
+    for (case, expected) in cases.iter().zip(native::run("cross-color-search", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} cross-color search cases", cases.len());
+}
+
+#[test]
+fn cross_color_transforms_match_pinned_reference() {
+    let cases = support::cross_color::transform_cases();
+    for (case, expected) in cases
+        .iter()
+        .zip(native::run("cross-color-transform", &cases))
+    {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!("Compared {} cross-color transform streams", cases.len());
+}
+
+#[test]
+fn cross_color_fixtures_match_pinned_reference() {
+    let cases = support::cross_color::fixture_cases();
+    let outputs = native::run("cross-color-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C cross-color fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED,
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/cross_color.txt"
+            ),
+            text,
+        )
+        .unwrap();
+    }
+}

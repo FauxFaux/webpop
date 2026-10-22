@@ -441,3 +441,56 @@ independently checks clamping. Another 576 complete-file decodes exercise the
 production writer alone and after subtract-green or packed 2/4/16/17-color
 palette transforms, reusing hash/reference scratch. Near-lossless residual
 quantization remains separate.
+
+### Cross-color transform
+
+`CrossColor` uses the original static helpers included by `predictor.c`, with
+the same renamed external entry points as the predictor adapter. Opcodes are:
+
+- 0: one color code; returns the three multiplier bytes (green-to-red,
+  green-to-blue, red-to-blue) and the normalized color code.
+- 1: 256 accumulated counts, 256 local counts; returns signed cost low/high.
+- 2: `(stride, tile width, tile height, previous-x code, previous-y code,
+  green-to-red)`, 256 accumulated counts, strided tile pixels; returns red cost.
+- 3: as opcode 2 with `(green-to-blue, red-to-blue)` in place of green-to-red;
+  returns blue cost. Coefficient candidates are signed i32 encoded as u32.
+- 4: `(stride, tile width, tile height, previous-x code, previous-y code,
+  quality)`, 256 accumulated red counts, 256 accumulated blue counts, strided
+  tile pixels; returns the selected multiplier color code.
+- 5: `(width, height, bits, quality)`, pixels; returns optimized bits, compact
+  multiplier map and the complete transformed pixels.
+- 6: `(width, height, pixel x, pixel y, tile size, multiplier color code)`,
+  pixels; returns all pixels after transforming only the given tile.
+
+There are 6,126 leaf comparisons and 6,480 complete searches. The corpus covers
+signed-byte boundaries, negative/wrapped candidates, neighbor/zero biases,
+strided tiles without final-row padding, partial tiles, 512-pixel tiles,
+one-dimensional images, varying/transparent alpha, correlated colors, runs,
+row repetitions and mixed maps. Qualities 0/24/25/36/37/50/51/73/74/100 straddle
+every red/blue search iteration threshold. Original candidate order and
+first-minimum ties, repeated-delta skipping and cross-row previous multipliers
+are retained.
+
+`CrossColorTransform` takes `(width, height, bits, quality, low effort, exact,
+preceding transforms, prefix bit count)`, then prepared pixels. Preceding
+transforms use bit 0 for subtract-green and bit 1 for prediction. The wrapper
+in `huffman.c` calls the original `ApplySubtractGreen`, `ApplyPredictFilter`
+(method 6, requested bits 6, near-lossless quality 100) and
+`ApplyCrossColorFilter`. Outputs are selected cross-color bits, all transformed
+pixels, and stream bytes including the 0/5/97-bit prefix and 11-bit `0x5ad`
+sentinel. All 4,624 streams match exactly, including both effort/exact modes,
+every preceding-transform combination and quality-dependent auxiliary coding.
+
+Ninety-eight committed fixtures cover helpers, complete searches and streams.
+Review the pinned source and recorded toolchain before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle cross_color_fixtures_match_pinned_reference
+```
+
+Portable independent checks rebuild byte histograms, check bias identities and
+tile boundaries, and reproduce/invert all 6,480 selected maps with exact ARGB
+(including hidden RGB). Uniform zero-coefficient maps must compact to 9 bits.
+Another 768 complete-file decodes cover cross-color alone and after every
+subtract-green/predictor combination, optionally preceded by packed palettes.
+They exercise all four transforms in sequence and reused hash/reference scratch.
