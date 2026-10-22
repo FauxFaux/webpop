@@ -3,6 +3,21 @@ mod native;
 mod support;
 
 use std::fmt::Write;
+use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases};
+
+#[test]
+fn entropy_coding_matches_pinned_reference() {
+    let cases = entropy_coding_cases();
+    let outputs = native::run("entropy-coding", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} entropy coding cases (seed {:08x})",
+        cases.len(),
+        support::SEED
+    );
+}
 
 #[test]
 fn leaves_match_pinned_scalar_reference() {
@@ -39,7 +54,10 @@ fn committed_fixtures_match_reference() {
     // Include new compact cases when regenerating, without duplicating them on
     // subsequent runs. Committed outputs must always come from the C oracle.
     if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
-        for case in support::dsp_fixture_cases() {
+        for case in support::dsp_fixture_cases()
+            .into_iter()
+            .chain(entropy_coding_fixture_cases())
+        {
             if !cases
                 .iter()
                 .any(|c| c.function == case.function && c.input == case.input)

@@ -11,12 +11,32 @@
 #include "src/dsp/lossless.h"
 #include "src/dsp/lossless_common.h"
 #include "src/utils/color_cache_utils.h"
+#include "src/utils/bit_writer_utils.h"
+#include "src/utils/huffman_encode_utils.h"
 #include "src/utils/utils.h"
 #include "src/webp/encode.h"
 
 #define LIMIT (1u << 20)
 #define REQUIRE(x) do { if (!(x)) { fprintf(stderr, "invalid request: %s\n", name); return 1; } } while (0)
 #define IS(x) (strcmp(name, #x) == 0)
+
+void WebpopStoreHuffmanCode(VP8LBitWriter*, const HuffmanTreeCode*);
+void WebpopClearHuffmanTree(HuffmanTreeCode*);
+void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
+
+static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
+  VP8LBitWriter copy;
+  size_t i, size;
+  if (!VP8LBitWriterInit(&copy, 0) || !VP8LBitWriterClone(bw, &copy)) abort();
+  out[0] = (uint32_t)VP8LBitWriterNumBytes(bw);
+  VP8LBitWriterFinish(&copy);
+  if (copy.error) abort();
+  size = VP8LBitWriterNumBytes(&copy);
+  out[1] = (uint32_t)size;
+  for (i = 0; i < size; ++i) out[2 + i] = copy.buf[i];
+  VP8LBitWriterWipeOut(&copy);
+  return (unsigned)size + 2;
+}
 
 static uint64_t Read64(const uint32_t* words) {
   return words[0] | ((uint64_t)words[1] << 32);
@@ -45,7 +65,102 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(PutLE32)) {
+    if (IS(VP8LBitWriter)) {
+      VP8LBitWriter bw, saved;
+      REQUIRE(n >= 1 && in[0] <= LIMIT && (n - 1) % 3 == 0);
+      REQUIRE(VP8LBitWriterInit(&bw, in[0]));
+      REQUIRE(VP8LBitWriterInit(&saved, 0));
+      for (i = 1; i < n; i += 3) {
+        const uint32_t op = in[i], value = in[i + 1], bits = in[i + 2];
+        if (op == 0) {
+          REQUIRE(bits <= 32 && (bits == 0 || bits == 32 || value < (1u << bits)));
+          VP8LPutBits(&bw, value, (int)bits);
+        } else if (op == 1) { REQUIRE(VP8LBitWriterClone(&bw, &saved)); }
+        else if (op == 2) {
+          REQUIRE(saved.cur - saved.buf <= bw.cur - bw.buf);
+          VP8LBitWriterReset(&saved, &bw);
+        } else if (op == 3) VP8LBitWriterSwap(&bw, &saved);
+        else if (op == 4) VP8LBitWriterFinish(&bw);
+        else if (op == 5) {
+          REQUIRE(count + VP8LBitWriterNumBytes(&bw) + 2 <= LIMIT);
+          count += InspectWriter(&bw, out + count);
+        } else if (op == 6) {
+          REQUIRE(value <= LIMIT);
+          VP8LBitWriterWipeOut(&bw);
+          REQUIRE(VP8LBitWriterInit(&bw, value));
+        } else REQUIRE(0);
+        REQUIRE(!bw.error && !saved.error);
+      }
+      REQUIRE(count + VP8LBitWriterNumBytes(&bw) + 2 <= LIMIT);
+      count += InspectWriter(&bw, out + count);
+      VP8LBitWriterWipeOut(&bw);
+      VP8LBitWriterWipeOut(&saved);
+    } else if (IS(VP8LCreateHuffmanTree) || IS(StoreHuffmanCode)) {
+      const int store = IS(StoreHuffmanCode);
+      uint32_t *histogram;
+      uint8_t *lengths, *rle;
+      uint16_t* codes;
+      HuffmanTree* scratch;
+      HuffmanTreeCode code;
+      unsigned size, start, limit;
+      REQUIRE(n >= (store ? 4u : 1u));
+      start = store ? 4 : 1;
+      size = store ? in[3] : n - 1;
+      limit = store ? in[2] : in[0];
+      REQUIRE(limit >= 1 && limit <= 15 && size <= 4096 && start + size <= n);
+      REQUIRE(!store || (in[1] <= 31 && (in[1] == 0 || in[0] < (1u << in[1])) && (n - start - size) % 3 == 0));
+      histogram = (uint32_t*)calloc(size + 1, sizeof(*histogram));
+      lengths = (uint8_t*)calloc(size + 1, 1);
+      rle = (uint8_t*)calloc(size + 1, 1);
+      codes = (uint16_t*)calloc(size + 1, sizeof(*codes));
+      scratch = (HuffmanTree*)calloc(3 * (size + 1), sizeof(*scratch));
+      REQUIRE(histogram && lengths && rle && codes && scratch);
+      memcpy(histogram, in + start, size * sizeof(*histogram));
+      code.num_symbols = (int)size;
+      code.code_lengths = lengths;
+      code.codes = codes;
+      VP8LCreateHuffmanTree(histogram, (int)limit, rle, scratch, &code);
+      if (store) {
+        VP8LBitWriter bw;
+        REQUIRE(VP8LBitWriterInit(&bw, 0));
+        VP8LPutBits(&bw, in[0], (int)in[1]);
+        WebpopStoreHuffmanCode(&bw, &code);
+        WebpopClearHuffmanTree(&code);
+        for (i = start + size; i < n; i += 3) {
+          REQUIRE(in[i] < size && in[i + 2] <= 16 && (in[i + 2] == 0 || in[i + 1] < (1u << in[i + 2])));
+          WebpopWriteHuffmanCodeWithExtraBits(&bw, &code, (int)in[i], (int)in[i + 1], (int)in[i + 2]);
+        }
+        VP8LPutBits(&bw, 0x5ad, 11);  // Expose exact bit length before padding.
+        count = InspectWriter(&bw, out);
+        for (i = 0; i < size; ++i) out[count++] = lengths[i];
+        for (i = 0; i < size; ++i) out[count++] = codes[i];
+        VP8LBitWriterWipeOut(&bw);
+      } else {
+        for (i = 0; i < size; ++i) out[count++] = histogram[i];
+        for (i = 0; i < size; ++i) out[count++] = lengths[i];
+        for (i = 0; i < size; ++i) out[count++] = codes[i];
+      }
+      free(histogram); free(lengths); free(rle); free(codes); free(scratch);
+    } else if (IS(VP8LCreateCompressedHuffmanTree)) {
+      HuffmanTreeCode code;
+      HuffmanTreeToken* tokens;
+      uint8_t* lengths;
+      int num_tokens;
+      REQUIRE(n <= 4096);
+      lengths = (uint8_t*)malloc(n + 1);
+      tokens = (HuffmanTreeToken*)calloc(n + 1, sizeof(*tokens));
+      REQUIRE(lengths && tokens);
+      for (i = 0; i < n; ++i) { REQUIRE(in[i] <= 15); lengths[i] = (uint8_t)in[i]; }
+      code.num_symbols = (int)n;
+      code.code_lengths = lengths;
+      code.codes = NULL;
+      num_tokens = VP8LCreateCompressedHuffmanTree(&code, tokens, (int)n);
+      for (i = 0; i < (unsigned)num_tokens; ++i) {
+        out[count++] = tokens[i].code;
+        out[count++] = tokens[i].extra_bits;
+      }
+      free(lengths); free(tokens);
+    } else if (IS(PutLE32)) {
       uint8_t bytes[4];
       REQUIRE(n == 1);
       PutLE32(bytes, in[0]);

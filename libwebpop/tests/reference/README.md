@@ -74,6 +74,30 @@ Color collectors take `(stride, width, height, coefficient0, coefficient1)`,
 coefficient is unused for red. Vector operations concatenate equal-sized
 arrays. These layouts expose logical fields and accumulated output buffers.
 
+Milestone 2 adds these requests:
+
+- `VP8LBitWriter`: initial capacity hint followed by `(op, value, n_bits)`
+  triples. Operations are put bits (0), clone into a saved writer (1), reset to
+  the saved cursor/accumulator (2), swap writers (3), finish (4), inspect (5),
+  and wipe/reinitialize with `value` as the capacity hint (6). Reset preserves
+  the destination's flushed prefix, following C. Each inspection, including an
+  implicit final inspection, returns the pre-finish byte count, finished byte
+  count, and finished bytes from a clone. Capacity and accumulator layout are
+  deliberately excluded.
+- `VP8LCreateHuffmanTree`: depth limit followed by histogram counts. Returns
+  the mutated histogram, code lengths, and canonical reversed codes, in that
+  order. This exposes histogram smoothing as well as tree construction.
+- `VP8LCreateCompressedHuffmanTree`: code lengths; returns `(code, extra_bits)`
+  pairs. The initial repeat value is 8, including across zero runs.
+- `StoreHuffmanCode`: `(prefix_value, prefix_n_bits, depth_limit, alphabet_size)`,
+  histogram counts, then optional `(symbol, extra_value, extra_n_bits)` triples.
+  Stores the header, clears singleton codes, writes those symbols with extra
+  bits, and appends an 11-bit `0x5ad` marker to expose the precise bit length.
+  Returns a writer inspection followed by the cleared lengths and codes.
+  `huffman.c` includes the pinned encoder translation unit to call its static
+  serialization helpers directly; its external encoder entry points are renamed
+  so public encoding tests still use the normally built library.
+
 Differential cases exhaust byte arithmetic and signed color coefficient/channel
 pairs, exercise all prefix entries and both lookup/slow paths, test prefix
 boundaries, and run seeded arrays and cache traces for every legal cache size.
@@ -113,10 +137,16 @@ version, CMake cache, exact compilation commands, Rust host/toolchain, pin, and
 seed in `target/native-oracle/provenance.txt`. Build and protocol failures fail
 the test rather than silently skipping comparisons.
 
-Milestone 1's scalar leaves are implemented, with 129 additional compact DSP
-fixtures generated on the same toolchain/configuration as the initial fixtures.
-No numerical divergence was observed. The Rust public encoder, bit writer, and
-higher-level subgraphs remain unimplemented. Checked RGBA geometry and the
+Milestones 1–2 are implemented, with 129 additional compact DSP fixtures and
+100 bit-writer/Huffman fixtures generated on the same toolchain/configuration
+as the initial fixtures. Milestone 2 adds 11,852 native comparisons: every
+pending offset 0–63 and next-write width 0–32, C buffer growth, clone/reset/swap
+trials, exhaustive short populations, seeded histograms up to the 2328-symbol
+literal/length/cache alphabet, depth-limit retries, RLE boundaries, and both
+trimmed-length encodings. Portable tests independently pack bits, expand RLE,
+decode serialized headers and symbols, and check padding. No divergence was
+observed. The Rust public encoder and higher-level subgraphs remain
+unimplemented. Checked RGBA geometry and the
 overflow-safe extension of `VP8LSubSampleSize` have portable Rust boundary tests; the C oracle
 is invoked only on its defined domain. In particular, zero-bit scans and NoLUT
 prefix distances below 3 are invalid upstream inputs.

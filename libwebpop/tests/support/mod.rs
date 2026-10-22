@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod entropy_coding;
+
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
 use libwebpop::utils::{color_cache_utils::*, utils::*};
 
@@ -23,6 +25,10 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8LBitWriter"
+            | "VP8LCreateHuffmanTree"
+            | "VP8LCreateCompressedHuffmanTree"
+            | "StoreHuffmanCode" => entropy_coding::evaluate(self),
             "PutLE32" => {
                 let mut bytes = [0; 4];
                 PutLE32(&mut bytes, a[0]);

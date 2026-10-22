@@ -57,17 +57,27 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestone 1 is complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1 and 2 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
-  packing, and fixed-point log/entropy/streak/vector DSP. The public Rust
-  encoder is not implemented; bit writer and Huffman construction are next.
+  packing, fixed-point log/entropy/streak/vector DSP, the lossless bit writer,
+  and Huffman construction, compression, and serialization. The public Rust
+  encoder is not implemented; tokens/reference storage and histogram primitives
+  (milestone 3) are next.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
   selector ties, and seeded arrays. Compact C outputs are committed as portable
   fixtures. No numerical divergence was observed on the recorded toolchain.
+- Milestone 2 passed 11,852 exact native C comparisons with the same seed and
+  toolchain, covering writer flush/growth boundaries, clone/reset/swap trials,
+  empty/single-symbol trees, comparator ties, histogram smoothing, depth-limit
+  retries, RLE boundaries, simple/full headers, both trimmed-length forms, and
+  code/extra-bit writes. There are 100 additional portable C fixtures, plus
+  independent bit-sequence and Huffman header/symbol round trips. Allocation
+  failures propagate through Rust `Result`; scratch buffers and tree arrays are
+  owned. Histogram-driven Huffman glue and image token writing remain milestone 5.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -405,7 +415,7 @@ milestone implements just one part of a file.
 | --- | --- | --- | --- |
 | 0 | Rename crate; add `lib.rs`; record pin; oracle backend spike; reusable fixtures and comparison harness | — | Existing Wasm regression passes; one wrapped leaf and one public encoding compared using the chosen pinned-source backend |
 | 1 | Constants, endian helpers, checked geometry, pixel arithmetic, prefix codes, hash/cache primitives, scalar predictor/color kernels and log/entropy DSP `[A]` | 0 | Differential edge cases, small-domain exhaustive checks, fixed-seed arrays; lookup and slow paths covered |
-| 2 | Lossless bit writer `[B]`; Huffman tree generation, compression, and serialization `[C]` except histogram-driven glue | 1 | Exact output bits across flush boundaries, clone/reset trials, degenerate and depth-limited trees |
+| 2 (complete) | Lossless bit writer `[B]`; Huffman tree generation, compression, and serialization `[C]` except histogram-driven glue | 1 | Exact output bits across flush boundaries, clone/reset trials, degenerate and depth-limited trees; 11,852 native comparisons and portable round trips pass |
 | 3 | `PixOrCopy`, reference storage/cursors; histogram initialization, accumulation and cost estimation `[D/E foundations]` | 1 | Hand-built literal/copy/cache streams yield matching histograms and costs; cursor/storage boundaries exercised |
 | 4 | Hash chains; RLE, standard and box LZ77; cache-size selection; traceback cost model/interval machinery `[D]` | 3 | Matching tokens, match lengths/distances, cache choices, and chosen paths; replay reconstructs the source pixels |
 | 5 | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
