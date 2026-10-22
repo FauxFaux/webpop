@@ -73,8 +73,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   main-image encoding with cache/LZ77 trials. Milestone 7 palette extraction,
   all sorting methods, packed mapping and the palette transform writer are
   implemented. Predictor cost/mask helpers, automatic tile-mode/sampling search
-  and lossless residual conversion are implemented; cross-color search and
-  predictor/cross-color transform writers remain.
+  and lossless residual conversion are implemented, including the predictor
+  transform writer. Cross-color search and its transform writer remain.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -230,9 +230,23 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   supplied/selected predictor maps with alpha and visible/exact RGB preserved.
   The full portable suite (including Wasm), all 25 native-oracle tests, release
   predictor tests, formatting and the production library build pass.
-  Conversion supports max quantization 1; standalone near-lossless preprocessing
-  remains separate. Cross-color search and predictor/cross-color transform
-  writers remain in milestone 7.
+  `ClampBits` and lossless `ApplyPredictFilter` now connect method-dependent
+  predictor search to the transform header and auxiliary-image writer. The
+  internal API accepts encoder settings and reusable hash-chain/reference
+  scratch explicitly, mutates prepared pixels to residuals and returns the
+  selected bits. There are 4,040 exact C comparisons of selected bits,
+  residuals and complete transform streams, including 0/5/97-bit prefixes,
+  both effort modes, exact/transparent cleanup, quality-dependent auxiliary
+  coding, method-dependent search ranges and the 16,384-entry map limit.
+  Another 1,920 comparisons cover clamping, with an independent exhaustive
+  sampling-size check. Forty-four additional fixtures bring the predictor
+  total to 102. The production writer also passes 576 complete-file decodes,
+  including subtract-green and 2/4/16/17-color palettes before prediction,
+  exercising packed widths and reused hash/reference scratch. Conversion
+  supports max quantization 1; standalone near-lossless preprocessing remains
+  separate. The full portable suite (including Wasm), all 26 native-oracle
+  tests, release predictor tests, formatting and the production library build
+  pass. Cross-color search and its transform writer remain in milestone 7.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

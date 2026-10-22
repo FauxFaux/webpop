@@ -611,3 +611,18 @@ fn predictor_search_matches_pinned_reference() {
     }
     eprintln!("Compared {} automatic predictor search cases", cases.len());
 }
+
+#[test]
+fn predictor_transforms_match_pinned_reference() {
+    let cases: Vec<_> = support::predictors::clamp_cases()
+        .into_iter()
+        .chain(support::predictors::transform_cases())
+        .collect();
+    for (case, expected) in cases.iter().zip(native::run("predictor-transform", &cases)) {
+        native::compare(case, &expected, &case.rust());
+    }
+    eprintln!(
+        "Compared {} predictor transform/clamping cases",
+        cases.len()
+    );
+}

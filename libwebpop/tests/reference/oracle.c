@@ -28,6 +28,8 @@ unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
 unsigned WebpopPredictor(const uint32_t*, unsigned, uint32_t*);
+int WebpopClampBits(const uint32_t*);
+unsigned WebpopPredictorTransform(const uint32_t*, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopMainImage(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
@@ -84,7 +86,16 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(PredictorFoundations)) {
+    if (IS(ClampBits)) {
+      REQUIRE(n == 6 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
+      REQUIRE(in[3] <= in[4] && in[4] <= 9);
+      out[count++] = WebpopClampBits(in);
+    } else if (IS(PredictorTransform)) {
+      REQUIRE(n >= 9 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383);
+      REQUIRE(in[3] <= 6 && in[4] <= 100 && in[5] <= 1 && in[6] <= 1 && in[7] <= 97);
+      REQUIRE((uint64_t)in[0] * in[1] == n - 8);
+      count = WebpopPredictorTransform(in, out);
+    } else if (IS(PredictorFoundations)) {
       REQUIRE(n > 0);
       count = WebpopPredictor(in, n, out);
     } else if (IS(EncodeImageInternal)) {

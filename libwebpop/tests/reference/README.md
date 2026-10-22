@@ -382,7 +382,7 @@ Portable tests independently unpack mapped indices, check destination padding,
 assert each lookup strategy is reached, and decode 200 complete palette files
 using the main-image encoder. They require exact RGBA, including hidden RGB.
 
-### Predictor foundations and automatic selection
+### Predictor transform
 
 `PredictorFoundations` uses the original static functions included by
 `predictor.c`, with external entry points renamed to retain the normal public
@@ -404,13 +404,30 @@ encoder. Its opcode determines the input and output:
 - 7: the same input as opcode 6 (low effort ignored); returns selected bits
   and compact map from `GetBestPredictorsAndSubSampling` without conversion.
 
-There are 4,758 foundation comparisons and 5,290 automatic-selection comparisons,
-with 58 committed fixtures. Search cases cover all plane masks, eight sampling
+There are 4,758 foundation comparisons and 5,290 automatic-selection comparisons.
+Search cases cover all plane masks, eight sampling
 levels (bits 2–9), both residual-histogram accumulation strategies, Z traversal,
 partial right/bottom tiles, one-dimensional images, mixed predictor maps,
 transparent cleanup, exact RGB, and low-effort mode 11. The maximum transform
 size is 512 pixels (9 bits); uniform maps can optimize beyond the requested
-search maximum. Review the pin and recorded toolchain provenance before regeneration:
+search maximum.
+
+`ClampBits` takes `(width, height, requested bits, minimum bits, maximum bits,
+image size limit)` and returns clamped bits. Requested bits use signed i32
+encoded as u32. There are 1,920 comparisons, including negative/out-of-range
+requests, dimensions through 16,383, single-tile images and size-limit boundaries.
+
+`PredictorTransform` takes `(width, height, requested bits, method, quality,
+low effort, exact, prefix bit count)`, then prepared pixels. It returns selected
+bits, all residual pixels, then finalized stream bytes. The stream contains the
+requested 0/5/97-bit prefix, the original `ApplyPredictFilter` header and map,
+and an 11-bit `0x5ad` sentinel. The wrapper in `huffman.c` calls the original
+static function with near-lossless quality 100. All 4,040 comparisons match,
+including the 16,384-entry map limit, partial tiles, methods 0/4/5/6, both effort
+modes, transparent cleanup and exact RGB, and qualities 0/25/50/75/100.
+
+The combined predictor fixture file has 102 cases. Review the pin and recorded
+toolchain provenance before regeneration:
 
 ```sh
 WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle predictor_fixtures_match_pinned_reference
@@ -419,5 +436,8 @@ WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test
 Portable independent tests reconstruct 3,456 supplied-map and 5,280 selected-map
 cases, check plane eligibility/histogram counts, fixed-point bias identities,
 constant-image ties and uniform-map compaction, and decode 336 complete files
-containing supplied or selected predictor maps. Near-lossless residual
-quantization and the production predictor-transform writer remain separate.
+containing supplied or selected predictor maps. An exhaustive size search
+independently checks clamping. Another 576 complete-file decodes exercise the
+production writer alone and after subtract-green or packed 2/4/16/17-color
+palette transforms, reusing hash/reference scratch. Near-lossless residual
+quantization remains separate.

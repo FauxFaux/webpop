@@ -1,5 +1,5 @@
 // Copyright 2012 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/vp8l_enc.c (image streams and Huffman storage).
+// Derived from upstream/src/enc/vp8l_enc.c (streams, transforms and Huffman storage).
 // See COPYING and PATENTS.
 
 use std::collections::TryReserveError;
@@ -10,6 +10,33 @@ use crate::utils::huffman_encode_utils::{
 };
 use crate::utils::utils::BitsLog2Floor;
 use crate::webp::format_constants::CODE_LENGTH_CODES;
+
+/// Clamp a histogram/transform sampling size, respecting the auxiliary-image
+/// size limit and choosing the smallest tile size when only one tile remains.
+pub fn ClampBits(
+    width: usize,
+    height: usize,
+    bits: i32,
+    min_bits: u32,
+    max_bits: u32,
+    image_size_max: usize,
+) -> u32 {
+    assert!(width > 0 && height > 0 && min_bits <= max_bits && max_bits < usize::BITS);
+    let image_size = |bits: u32| {
+        width
+            .div_ceil(1 << bits)
+            .checked_mul(height.div_ceil(1 << bits))
+            .expect("auxiliary image geometry")
+    };
+    let mut bits = bits.clamp(min_bits as i32, max_bits as i32) as u32;
+    while bits < max_bits && image_size(bits) > image_size_max {
+        bits += 1;
+    }
+    while bits > min_bits && image_size(bits - 1) == 1 {
+        bits -= 1;
+    }
+    bits
+}
 
 fn StoreHuffmanTreeOfHuffmanTreeToBitMask(
     bw: &mut VP8LBitWriter,
@@ -688,6 +715,64 @@ pub fn EncodePalette(
         20,
         low_effort,
     )
+}
+
+/// Apply the lossless predictor transform and write its header and auxiliary
+/// map. Encoder-state fields and reusable hash/reference scratch are explicit.
+/// `method` selects the search range as in upstream; near-lossless residual
+/// quantization and progress callbacks remain outside this internal API.
+/// Returns the selected transform bits. The hash chain needs capacity for the
+/// auxiliary map, and `refs` needs at least two reusable reference lists.
+#[allow(clippy::too_many_arguments)]
+pub fn ApplyPredictFilter(
+    bw: &mut VP8LBitWriter,
+    argb: &mut [u32],
+    hash_chain: &mut super::backward_references_enc::VP8LHashChain,
+    refs: &mut [super::backward_references_enc::VP8LBackwardRefs],
+    width: usize,
+    height: usize,
+    predictor_transform_bits: i32,
+    method: u32,
+    quality: u32,
+    low_effort: bool,
+    exact: bool,
+) -> Result<u32, TryReserveError> {
+    use super::predictor_enc::{MAX_TRANSFORM_BITS, VP8LResidualImage};
+    use crate::webp::format_constants::{MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS};
+    const MAX_PREDICTOR_IMAGE_SIZE: usize = 1 << 14;
+    assert!(method <= 6 && quality <= 100);
+    let max_bits = ClampBits(
+        width,
+        height,
+        predictor_transform_bits,
+        MIN_TRANSFORM_BITS,
+        MAX_TRANSFORM_BITS,
+        MAX_PREDICTOR_IMAGE_SIZE,
+    );
+    let min_bits = ClampBits(
+        width,
+        height,
+        max_bits as i32 - 2 * method.saturating_sub(4) as i32,
+        MIN_TRANSFORM_BITS,
+        MAX_TRANSFORM_BITS,
+        MAX_PREDICTOR_IMAGE_SIZE,
+    );
+    let (bits, modes) =
+        VP8LResidualImage(width, height, min_bits, max_bits, low_effort, argb, exact)?;
+    VP8LPutBits(bw, 1, 1)?; // TRANSFORM_PRESENT
+    VP8LPutBits(bw, 0, 2)?; // PREDICTOR_TRANSFORM
+    VP8LPutBits(bw, bits - MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS)?;
+    EncodeImageNoHuffman(
+        bw,
+        &modes,
+        hash_chain,
+        refs,
+        width.div_ceil(1 << bits),
+        height.div_ceil(1 << bits),
+        quality,
+        low_effort,
+    )?;
+    Ok(bits)
 }
 
 #[cfg(test)]

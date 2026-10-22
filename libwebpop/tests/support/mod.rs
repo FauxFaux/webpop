@@ -32,6 +32,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "ClampBits" | "PredictorTransform" => predictors::transform_evaluate(self),
             "PredictorFoundations" => predictors::evaluate(self),
             "PaletteTransform" => palette::transform_evaluate(self),
             "PaletteLeaves" => palette::evaluate(self),

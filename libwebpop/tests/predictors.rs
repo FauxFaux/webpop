@@ -246,6 +246,142 @@ fn uniform_predictor_ties_compact_to_the_largest_tile_size() {
 }
 
 #[test]
+fn clamping_matches_an_exhaustive_auxiliary_size_search() {
+    use libwebpop::enc::vp8l_enc::ClampBits;
+    for case in support::predictors::clamp_cases() {
+        let a = &case.input;
+        let count =
+            |bits: u32| (a[0] as usize).div_ceil(1 << bits) * (a[1] as usize).div_ceil(1 << bits);
+        let start = (a[2] as i32).clamp(a[3] as i32, a[4] as i32) as u32;
+        let limited = (start..=a[4])
+            .find(|&b| count(b) <= a[5] as usize)
+            .unwrap_or(a[4]);
+        let expected = if count(limited) == 1 {
+            (a[3]..=limited).find(|&b| count(b) == 1).unwrap()
+        } else {
+            limited
+        };
+        assert_eq!(
+            ClampBits(
+                a[0] as usize,
+                a[1] as usize,
+                a[2] as i32,
+                a[3],
+                a[4],
+                a[5] as usize
+            ),
+            expected
+        );
+    }
+    assert_eq!(ClampBits(513, 513, 2, 2, 9, 1 << 14), 3);
+    assert_eq!(ClampBits(17, 19, 9, 2, 9, 1 << 14), 5);
+}
+
+#[test]
+fn production_predictor_writer_decodes_with_preceding_transforms() {
+    use libwebpop::dsp::lossless_enc::VP8LSubtractGreenFromBlueAndRed;
+    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::utils::bit_writer_utils::*;
+    let mut count = 0;
+    for case in support::predictors::transform_cases()
+        .into_iter()
+        .filter(|c| c.input[0] == 17 && c.input[1] == 19 && c.input[7] == 0)
+    {
+        let a = &case.input;
+        let (width, height, quality, low, exact) = (17usize, 19usize, a[4], a[5] != 0, a[6] != 0);
+        for preceding in 0..3 {
+            let mut source = a[8..].to_vec();
+            // A small palette with hidden RGB exercises packing before the
+            // predictor, including the changed current width and map geometry.
+            let palette_size = [2, 4, 16, 17][(quality / 25) as usize % 4];
+            let palette: Vec<_> = (0..palette_size)
+                .map(|i| {
+                    let rgb = i * 65793;
+                    if i % 3 == 0 { rgb } else { 0xff000000 | rgb }
+                })
+                .collect();
+            if preceding == 2 {
+                for pixel in &mut source {
+                    *pixel = palette[(*pixel as usize) % palette.len()];
+                }
+            }
+            let mut pixels = source.clone();
+            let mut current_width = width;
+            let mut bw = VP8LBitWriterInit(0).unwrap();
+            WriteImageSize(&mut bw, width as u32, height as u32).unwrap();
+            WriteRealAlphaAndVersion(&mut bw, source.iter().any(|p| p >> 24 != 255)).unwrap();
+            let mut chain = VP8LHashChainInit(width * height).unwrap();
+            let mut refs = std::array::from_fn::<_, 4, _>(|_| VP8LBackwardRefsInit(256));
+            if preceding == 1 {
+                VP8LPutBits(&mut bw, 1, 1).unwrap();
+                VP8LPutBits(&mut bw, 2, 2).unwrap(); // SUBTRACT_GREEN_TRANSFORM
+                VP8LSubtractGreenFromBlueAndRed(&mut pixels);
+            } else if preceding == 2 {
+                (current_width, pixels) =
+                    MapImageFromPalette(&source, width, &palette, width, height).unwrap();
+                EncodePalette(&mut bw, &palette, &mut chain, &mut refs[..2], low).unwrap();
+            }
+            ApplyPredictFilter(
+                &mut bw,
+                &mut pixels,
+                &mut chain,
+                &mut refs[..2],
+                current_width,
+                height,
+                a[2] as i32,
+                a[3],
+                quality,
+                low,
+                exact,
+            )
+            .unwrap();
+            VP8LPutBits(&mut bw, 0, 1).unwrap();
+            let initial = VP8LBitWriterNumBytes(&bw);
+            let mut cache = 0;
+            EncodeImageInternal(
+                &mut bw,
+                &pixels,
+                &mut chain,
+                &mut refs,
+                current_width,
+                height,
+                quality,
+                low,
+                &[CrunchSubConfig {
+                    lz77: kLZ77Standard | kLZ77RLE,
+                    do_no_cache: false,
+                }],
+                &mut cache,
+                2,
+                initial,
+            )
+            .unwrap();
+            let file = WriteImage(&mut bw).unwrap();
+            let decoded = image::load_from_memory_with_format(&file, image::ImageFormat::WebP)
+                .unwrap()
+                .to_rgba8();
+            assert_eq!(decoded.dimensions(), (width as u32, height as u32));
+            for (actual, &pixel) in decoded.pixels().zip(&source) {
+                assert_eq!(actual.0[3], (pixel >> 24) as u8);
+                if pixel >> 24 != 0 || low || exact || preceding == 2 {
+                    assert_eq!(
+                        actual.0,
+                        [
+                            (pixel >> 16) as u8,
+                            (pixel >> 8) as u8,
+                            pixel as u8,
+                            (pixel >> 24) as u8
+                        ]
+                    );
+                }
+            }
+            count += 1;
+        }
+    }
+    assert_eq!(count, 576);
+}
+
+#[test]
 fn selected_and_supplied_predictor_maps_decode_in_complete_files() {
     use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
     use libwebpop::utils::bit_writer_utils::*;
@@ -287,8 +423,8 @@ fn selected_and_supplied_predictor_maps_decode_in_complete_files() {
         let mut bw = VP8LBitWriterInit(0).unwrap();
         WriteImageSize(&mut bw, w as u32, h as u32).unwrap();
         WriteRealAlphaAndVersion(&mut bw, source.iter().any(|p| p >> 24 != 255)).unwrap();
-        // Test-only predictor-transform wrapper; the production transform
-        // writer remains a later integration step.
+        // Supplied/selected maps exercise the wire format directly; the test
+        // above also covers automatic selection through the production writer.
         VP8LPutBits(&mut bw, 1, 1).unwrap();
         VP8LPutBits(&mut bw, 0, 2).unwrap();
         VP8LPutBits(&mut bw, bits - 2, 3).unwrap();

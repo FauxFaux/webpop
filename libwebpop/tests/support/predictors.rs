@@ -235,7 +235,182 @@ pub fn fixture_cases() -> Vec<Case> {
         );
     }
     selected.extend(search_cases().into_iter().step_by(277));
+    selected.extend(clamp_cases().into_iter().step_by(97));
+    selected.extend(
+        transform_cases()
+            .into_iter()
+            .filter(|c| c.input.len() < 20000)
+            .step_by(173),
+    );
     selected
+}
+
+pub fn transform_evaluate(case: &Case) -> Vec<u32> {
+    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::utils::bit_writer_utils::*;
+    let a = &case.input;
+    if case.function == "ClampBits" {
+        return vec![ClampBits(
+            a[0] as usize,
+            a[1] as usize,
+            a[2] as i32,
+            a[3],
+            a[4],
+            a[5] as usize,
+        )];
+    }
+    let mut pixels = a[8..].to_vec();
+    let mut bw = VP8LBitWriterInit(0).unwrap();
+    let mut remaining = a[7];
+    while remaining > 0 {
+        let bits = remaining.min(32);
+        VP8LPutBits(&mut bw, 0x05ad5ad5 & (u32::MAX >> (32 - bits)), bits).unwrap();
+        remaining -= bits;
+    }
+    let mut chain = VP8LHashChainInit(pixels.len()).unwrap();
+    let mut refs = [VP8LBackwardRefsInit(256), VP8LBackwardRefsInit(256)];
+    let bits = ApplyPredictFilter(
+        &mut bw,
+        &mut pixels,
+        &mut chain,
+        &mut refs,
+        a[0] as usize,
+        a[1] as usize,
+        a[2] as i32,
+        a[3],
+        a[4],
+        a[5] != 0,
+        a[6] != 0,
+    )
+    .unwrap();
+    VP8LPutBits(&mut bw, 0x5ad, 11).unwrap();
+    let mut out = vec![bits];
+    out.extend(pixels);
+    out.extend(
+        VP8LBitWriterFinish(&mut bw)
+            .unwrap()
+            .iter()
+            .map(|&v| u32::from(v)),
+    );
+    out
+}
+
+pub fn clamp_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (w, h) in [
+        (1, 1),
+        (1, 16383),
+        (16383, 1),
+        (3, 5),
+        (7, 9),
+        (16, 16),
+        (17, 33),
+        (513, 513),
+        (1025, 257),
+        (16383, 16383),
+    ] {
+        for bits in [-8i32, -1, 0, 1, 2, 3, 4, 6, 8, 9, 10, 15] {
+            for (min, max) in [(2, 9), (2, 5), (4, 9), (6, 6)] {
+                for limit in [0, 1, 4, 16384] {
+                    cases.push(Case::new(
+                        "ClampBits",
+                        vec![w, h, bits as u32, min, max, limit],
+                    ));
+                }
+            }
+        }
+    }
+    cases
+}
+
+pub fn transform_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    let mut seed = SEED;
+    for (w, h) in [
+        (1usize, 1usize),
+        (1, 65),
+        (65, 1),
+        (7, 9),
+        (17, 19),
+        (65, 67),
+        (513, 17),
+    ] {
+        for pattern in 0..8 {
+            let pixels: Vec<_> = (0..w * h)
+                .map(|i| {
+                    let r = random(&mut seed);
+                    match pattern {
+                        0 => 0xff123456,
+                        1 => r,
+                        2 => r & 0xffffff,
+                        3 => {
+                            if i % 3 == 0 {
+                                r & 0xffffff
+                            } else {
+                                r | 0xff000000
+                            }
+                        }
+                        4 => 0xff000000 | ((i % w) as u32 * 65793),
+                        5 => 0xff000000 | ((i / w) as u32 * 65793),
+                        6 => {
+                            if (i % w / 4 + i / w / 4) % 2 == 0 {
+                                0
+                            } else {
+                                0xffffffff
+                            }
+                        }
+                        _ => {
+                            if i % w < w / 2 {
+                                0xff000000 | ((i / w) as u32 * 65793)
+                            } else {
+                                r
+                            }
+                        }
+                    }
+                })
+                .collect();
+            for (bits, method, quality) in [
+                (2i32, 0, 0),
+                (6, 4, 25),
+                (6, 5, 75),
+                (9, 6, 100),
+                (-3, 6, 50),
+                (12, 0, 100),
+            ] {
+                for low in 0..=1 {
+                    for exact in 0..=1 {
+                        for prefix in [0, 5, 97] {
+                            let mut a = vec![
+                                w as u32,
+                                h as u32,
+                                bits as u32,
+                                method,
+                                quality,
+                                low,
+                                exact,
+                                prefix,
+                            ];
+                            a.extend_from_slice(&pixels);
+                            cases.push(Case::new("PredictorTransform", a));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Force the predictor-map size limit, with right/bottom partial tiles.
+    for (w, h) in [(513usize, 513usize), (1025, 257)] {
+        for method in [4, 6] {
+            for low in 0..=1 {
+                let mut a = vec![w as u32, h as u32, 2, method, 75, low, 1, 5];
+                a.extend(
+                    (0..w * h).map(|i| 0xff000000 | (((i % w + i / w) as u32 * 65793) & 0xffffff)),
+                );
+                cases.push(Case::new("PredictorTransform", a));
+            }
+        }
+    }
+    cases
 }
 
 pub fn search_cases() -> Vec<Case> {

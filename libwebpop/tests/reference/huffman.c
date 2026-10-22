@@ -206,3 +206,53 @@ unsigned WebpopPaletteTransform(const uint32_t* in, uint32_t* out) {
   ClearTransformBuffer(&enc);
   return count;
 }
+
+int WebpopClampBits(const uint32_t* in) {
+  return ClampBits(in[0], in[1], (int32_t)in[2], in[3], in[4], in[5]);
+}
+
+// width, height, requested bits, method, quality, low effort, exact, prefix
+// bit count, then prepared ARGB. Return selected bits, residuals, stream bytes.
+unsigned WebpopPredictorTransform(const uint32_t* in, uint32_t* out) {
+  VP8LEncoder enc;
+  WebPPicture pic;
+  WebPConfig config;
+  VP8LBitWriter bw;
+  unsigned i, count = 0, remaining = in[7];
+  const unsigned pixel_count = in[0] * in[1];
+  int percent = 0, bits = 0;
+  size_t size;
+  memset(&enc, 0, sizeof(enc));
+  if (!WebPPictureInit(&pic) || !WebPConfigInit(&config) ||
+      !VP8LBitWriterInit(&bw, 0)) abort();
+  config.method = in[3]; config.exact = in[6]; config.near_lossless = 100;
+  pic.width = in[0]; pic.height = in[1];
+  enc.pic = &pic; enc.config = &config;
+  enc.predictor_transform_bits = (int32_t)in[2];
+  enc.argb = (uint32_t*)malloc(pixel_count * sizeof(*enc.argb));
+  enc.argb_scratch = (uint32_t*)calloc(4 * (in[0] + 1), sizeof(*enc.argb_scratch));
+  enc.transform_data = (uint32_t*)malloc(pixel_count * sizeof(*enc.transform_data));
+  if (!enc.argb || !enc.argb_scratch || !enc.transform_data ||
+      !VP8LHashChainInit(&enc.hash_chain, pixel_count)) abort();
+  memcpy(enc.argb, in + 8, pixel_count * sizeof(*enc.argb));
+  for (i = 0; i < 2; ++i) VP8LBackwardRefsInit(&enc.refs[i], 256);
+  while (remaining) {
+    const unsigned num_bits = remaining > 32 ? 32 : remaining;
+    const uint32_t mask = num_bits == 32 ? 0xffffffffu : (1u << num_bits) - 1;
+    VP8LPutBits(&bw, 0x05ad5ad5u & mask, num_bits);
+    remaining -= num_bits;
+  }
+  if (!ApplyPredictFilter(&enc, in[0], in[1], in[4], in[5], 0, &bw,
+                          0, &percent, &bits)) abort();
+  out[count++] = bits;
+  for (i = 0; i < pixel_count; ++i) out[count++] = enc.argb[i];
+  VP8LPutBits(&bw, 0x5ad, 11);
+  VP8LBitWriterFinish(&bw);
+  size = VP8LBitWriterNumBytes(&bw);
+  for (i = 0; i < size; ++i) out[count++] = bw.buf[i];
+  VP8LBitWriterWipeOut(&bw);
+  VP8LHashChainClear(&enc.hash_chain);
+  for (i = 0; i < 2; ++i) VP8LBackwardRefsClear(&enc.refs[i]);
+  free(enc.argb); free(enc.argb_scratch); free(enc.transform_data);
+  return count;
+}
