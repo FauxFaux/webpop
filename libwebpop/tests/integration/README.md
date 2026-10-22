@@ -1,7 +1,7 @@
 Run the lossless WASM round-trip example with:
 
 ```sh
-cargo test -p libwebop --test integration
+cargo test -p libwebpop --test integration
 ```
 
 `webp-encode-lossless.wasm` is copied unchanged from
