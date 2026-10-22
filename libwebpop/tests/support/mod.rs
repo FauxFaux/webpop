@@ -4,6 +4,7 @@ pub mod clustering;
 pub mod entropy_coding;
 pub mod main_images;
 pub mod matches;
+pub mod palette;
 pub mod references;
 pub mod token_streams;
 
@@ -30,6 +31,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "PaletteLeaves" => palette::evaluate(self),
             "EncodeImageInternal" => main_images::evaluate(self),
             "VP8LClustering" | "VP8LOptimizeSampling" => clustering::evaluate(self),
             "TokenStream" => token_streams::evaluate(self),

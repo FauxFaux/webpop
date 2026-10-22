@@ -70,8 +70,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   not implemented. Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
-  main-image encoding with cache/LZ77 trials. Palette and transform selection
-  are next (milestone 7).
+  main-image encoding with cache/LZ77 trials. Milestone 7 palette foundations are now implemented; spatial palette
+  ordering and transform selection remain.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -157,6 +157,20 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   divergence was observed. The full portable and native-oracle suites, release
   clustering/main-image/Wasm tests, formatting and the production library build
   pass. The public encoder still awaits milestones 7–9.
+- Milestone 7 (in progress) adds `GetColorPalette`, `SearchColorNoIdx`,
+  `PrepareMapToPalette`, and the default and greedy delta branches of
+  `PaletteSort` in `utils/palette.rs`. These pass 552 exact scalar C comparisons
+  with seed `6d2b79f5`, including the 17/18-color transparent relocation boundary,
+  256/257-color eligibility, monotonic deltas, mapping permutations and padded
+  ARGB rows without final-row padding. Forty-three committed C fixtures run
+  without native tooling. Independent checks compare extraction with ordered
+  sets, reconstruct mapping entries, preserve palette populations and check
+  the monotonic shortcut before transparent relocation. Missing-color lookup
+  returns `None` rather than entering C's unbounded internal search. The full
+  portable suite (including Wasm), all 18 native-oracle tests, release palette
+  tests, formatting and the production library build pass with no divergence. Spatial
+  co-occurrence ordering/MinLA, packed mapping integration, predictor/residual
+  search, cross-color search and transform writers remain in milestone 7.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via

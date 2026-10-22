@@ -326,3 +326,22 @@ saturating thresholds, and compare combined trial selection to individually
 encoded trials. `main_images` also independently decodes 168 untransformed
 files with exact RGBA equality, including hidden RGB: 34 use caches, 50 use
 multiple Huffman groups and 15 compact the group map to larger tiles.
+
+### Milestone 7 palette foundations
+
+`PaletteLeaves` compares the original public palette helpers in `palette.c`.
+Its first word selects mapping (0), default ordering (1), delta ordering (2),
+or extraction (3). Ordering/mapping inputs are the palette words; extraction
+inputs are `(width, height, ARGB stride)` followed by pixels, excluding final-row
+padding. Mapping returns sorted colors followed by the index map. Ordering
+returns palette words. Extraction returns the count followed by sorted colors,
+or just 257 for an ineligible image.
+
+The 552 seeded cases cover palette boundaries, monotonic and random colors,
+transparent relocation and padded rows. `fixtures/palette.txt` records every
+13th case (43 fixtures). Review the pin and `target/native-oracle/provenance.txt`
+before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle palette_fixtures_match_pinned_reference
+```
