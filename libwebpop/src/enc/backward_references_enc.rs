@@ -24,6 +24,7 @@ pub struct PixOrCopy {
     argb_or_distance: u32,
 }
 
+#[inline]
 pub fn PixOrCopyCreateLiteral(argb: u32) -> PixOrCopy {
     PixOrCopy {
         mode: Mode::Literal,
@@ -32,6 +33,7 @@ pub fn PixOrCopyCreateLiteral(argb: u32) -> PixOrCopy {
     }
 }
 
+#[inline]
 pub fn PixOrCopyCreateCacheIdx(idx: u32) -> PixOrCopy {
     assert!(idx < (1 << MAX_COLOR_CACHE_BITS));
     PixOrCopy {
@@ -41,6 +43,7 @@ pub fn PixOrCopyCreateCacheIdx(idx: u32) -> PixOrCopy {
     }
 }
 
+#[inline]
 pub fn PixOrCopyCreateCopy(distance: u32, len: u16) -> PixOrCopy {
     PixOrCopy {
         mode: Mode::Copy,
@@ -49,29 +52,36 @@ pub fn PixOrCopyCreateCopy(distance: u32, len: u16) -> PixOrCopy {
     }
 }
 
+#[inline]
 pub fn PixOrCopyIsLiteral(p: &PixOrCopy) -> bool {
     p.mode == Mode::Literal
 }
+#[inline]
 pub fn PixOrCopyIsCacheIdx(p: &PixOrCopy) -> bool {
     p.mode == Mode::CacheIdx
 }
+#[inline]
 pub fn PixOrCopyIsCopy(p: &PixOrCopy) -> bool {
     p.mode == Mode::Copy
 }
 
 /// Component order is blue, green, red, alpha, independent of host endianness.
+#[inline]
 pub fn PixOrCopyLiteral(p: &PixOrCopy, component: u32) -> u32 {
     assert!(PixOrCopyIsLiteral(p) && component < 4);
     (p.argb_or_distance >> (component * 8)) & 255
 }
 
+#[inline]
 pub fn PixOrCopyLength(p: &PixOrCopy) -> u32 {
     u32::from(p.len)
 }
+#[inline]
 pub fn PixOrCopyCacheIdx(p: &PixOrCopy) -> u32 {
     assert!(PixOrCopyIsCacheIdx(p));
     p.argb_or_distance
 }
+#[inline]
 pub fn PixOrCopyDistance(p: &PixOrCopy) -> u32 {
     assert!(PixOrCopyIsCopy(p));
     p.argb_or_distance
@@ -156,9 +166,11 @@ pub fn VP8LRefsCursorInit(refs: &VP8LBackwardRefs) -> VP8LRefsCursor<'_> {
         remaining,
     }
 }
+#[inline]
 pub fn VP8LRefsCursorOk(c: &VP8LRefsCursor<'_>) -> bool {
     c.cur_pos.is_some()
 }
+#[inline]
 pub fn VP8LRefsCursorNext(c: &mut VP8LRefsCursor<'_>) {
     assert!(VP8LRefsCursorOk(c));
     c.cur_pos = c.remaining.next();
@@ -222,14 +234,17 @@ pub fn VP8LHashChainClear(p: &mut VP8LHashChain) {
     p.offset_length = Vec::new();
 }
 
+#[inline]
 pub fn VP8LHashChainFindOffset(p: &VP8LHashChain, pos: usize) -> u32 {
     p.offset_length[pos] >> MAX_LENGTH_BITS
 }
 
+#[inline]
 pub fn VP8LHashChainFindLength(p: &VP8LHashChain, pos: usize) -> usize {
     (p.offset_length[pos] & ((1 << MAX_LENGTH_BITS) - 1)) as usize
 }
 
+#[inline]
 pub fn VP8LHashChainFindCopy(p: &VP8LHashChain, pos: usize) -> (u32, usize) {
     (
         VP8LHashChainFindOffset(p, pos),
@@ -237,6 +252,7 @@ pub fn VP8LHashChainFindCopy(p: &VP8LHashChain, pos: usize) -> (u32, usize) {
     )
 }
 
+#[inline]
 fn GetPixPairHash64(argb: &[u32]) -> usize {
     (argb[1]
         .wrapping_mul(0xc6a4a793)
@@ -264,10 +280,12 @@ fn GetWindowSizeForHashChain(quality: u32, xsize: usize) -> usize {
     window.min(LZ77_WINDOW_SIZE as usize)
 }
 
+#[inline]
 fn MaxFindCopyLength(len: usize) -> usize {
     len.min(MAX_LENGTH as usize)
 }
 
+#[inline]
 fn FindMatchLength(a: &[u32], b: &[u32], best: usize, limit: usize) -> usize {
     if a[best] != b[best] {
         return 0;
@@ -411,6 +429,7 @@ pub fn VP8LHashChainFill(
     Ok(())
 }
 
+#[inline]
 fn AddSingleLiteral(
     pixel: u32,
     cache: &mut Option<VP8LColorCache>,

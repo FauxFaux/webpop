@@ -71,10 +71,12 @@ pub fn GetColorPalette(
     count
 }
 
+#[inline]
 fn PaletteComponentDistance(v: u32) -> u32 {
     if v <= 128 { v } else { 256 - v }
 }
 
+#[inline]
 fn PaletteColorDistance(col1: u32, col2: u32) -> u32 {
     let diff = VP8LSubPixels(col1, col2);
     let rgb: u32 = [0, 8, 16]
@@ -234,6 +236,7 @@ fn MinLACutProfile(matrix: &[u32], order: &[usize], cut: &mut [i64; 257]) {
 }
 
 // Read the order after removing order[at] and appending it, without mutation.
+#[inline]
 fn ActualColorIdx(order: &[usize], at: usize, j: usize) -> usize {
     if j == order.len() - 1 {
         order[at]

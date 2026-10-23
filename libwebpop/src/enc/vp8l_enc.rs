@@ -43,6 +43,7 @@ fn AddSingleSubGreen(p: u32, histograms: &mut [[u32; 256]], red: usize, blue: us
     histograms[blue][(p.wrapping_sub(green) & 255) as usize] += 1;
 }
 
+#[inline]
 fn HashPix(pix: u32) -> usize {
     (pix.wrapping_add(pix >> 19).wrapping_mul(0x39c5fba7) >> 24) as usize
 }
@@ -773,6 +774,7 @@ pub fn StoreHuffmanCode(
     Ok(())
 }
 
+#[inline]
 pub fn WriteHuffmanCode(
     bw: &mut VP8LBitWriter,
     code: &HuffmanTreeCode,
@@ -785,6 +787,7 @@ pub fn WriteHuffmanCode(
     )
 }
 
+#[inline]
 pub fn WriteHuffmanCodeWithExtraBits(
     bw: &mut VP8LBitWriter,
     code: &HuffmanTreeCode,
@@ -1136,12 +1139,15 @@ pub fn WriteImage(bw: &mut VP8LBitWriter) -> Result<Vec<u8>, ImageWriteError> {
     Ok(output)
 }
 
+#[inline]
 fn ApplyPaletteHash0(color: u32) -> usize {
     ((color >> 8) & 255) as usize
 }
+#[inline]
 fn ApplyPaletteHash1(color: u32) -> usize {
     ((color & 0x00ffffff).wrapping_mul(4222244071) >> 21) as usize
 }
+#[inline]
 fn ApplyPaletteHash2(color: u32) -> usize {
     ((color & 0x00ffffff).wrapping_mul((1 << 31) - 1) >> 21) as usize
 }

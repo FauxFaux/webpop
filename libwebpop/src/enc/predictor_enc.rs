@@ -145,6 +145,7 @@ pub fn GetPlaneDiffMask(argb: &[u32], max_quantization: u32, exact: bool) -> (u3
 }
 
 /// Accumulate only active planes of a residual histogram (ARGB plane order).
+#[inline]
 pub fn UpdateHisto(histo: &mut [u32; 1024], residuals: &[u32], diff_mask: u32) {
     for plane in 0..4 {
         if diff_mask & (1 << plane) != 0 {
@@ -168,6 +169,7 @@ fn PredictPixel(mode: usize, x: usize, y: usize, current: &[u32], upper: &[u32])
 
 /// Subtract predictions with the image-edge rules, without modifying source
 /// pixels. Rows have an extra context word for right-edge wraparound.
+#[inline]
 pub fn PredictBatch(
     mode: usize,
     x_start: usize,
@@ -186,6 +188,7 @@ pub fn PredictBatch(
 /// Lossless (max_quantization=1) GetResidual. Transparent RGB cleanup mutates
 /// row context in the same order as C, including the right-edge wrap word.
 #[allow(clippy::too_many_arguments)]
+#[inline]
 pub fn GetResidual(
     width: usize,
     upper: &mut [u32],
@@ -600,6 +603,7 @@ pub fn VP8LResidualImage(
     Ok((bits, modes))
 }
 
+#[inline]
 pub fn ColorCodeToMultipliers(color_code: u32) -> VP8LMultipliers {
     VP8LMultipliers {
         green_to_red: color_code as u8,
@@ -608,6 +612,7 @@ pub fn ColorCodeToMultipliers(color_code: u32) -> VP8LMultipliers {
     }
 }
 
+#[inline]
 pub fn MultipliersToColorCode(m: &VP8LMultipliers) -> u32 {
     ARGB_BLACK
         | (u32::from(m.red_to_blue) << 16)

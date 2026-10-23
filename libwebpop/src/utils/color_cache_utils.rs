@@ -6,6 +6,7 @@ use crate::webp::format_constants::MAX_CACHE_BITS;
 
 const HASH_MUL: u32 = 0x1e35a7bd;
 
+#[inline]
 pub const fn VP8LHashPix(argb: u32, shift: u32) -> u32 {
     assert!(shift < 32);
     argb.wrapping_mul(HASH_MUL) >> shift
@@ -42,23 +43,28 @@ pub fn VP8LColorCacheTryInit(
     })
 }
 
+#[inline]
 pub fn VP8LColorCacheLookup(cc: &VP8LColorCache, key: u32) -> u32 {
     cc.colors[key as usize]
 }
 
+#[inline]
 pub fn VP8LColorCacheSet(cc: &mut VP8LColorCache, key: u32, argb: u32) {
     cc.colors[key as usize] = argb;
 }
 
+#[inline]
 pub fn VP8LColorCacheGetIndex(cc: &VP8LColorCache, argb: u32) -> u32 {
     VP8LHashPix(argb, cc.hash_shift)
 }
 
+#[inline]
 pub fn VP8LColorCacheInsert(cc: &mut VP8LColorCache, argb: u32) {
     let key = VP8LColorCacheGetIndex(cc, argb);
     VP8LColorCacheSet(cc, key, argb);
 }
 
+#[inline]
 pub fn VP8LColorCacheContains(cc: &VP8LColorCache, argb: u32) -> Option<u32> {
     let key = VP8LColorCacheGetIndex(cc, argb);
     (VP8LColorCacheLookup(cc, key) == argb).then_some(key)

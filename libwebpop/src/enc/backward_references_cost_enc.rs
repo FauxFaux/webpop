@@ -56,20 +56,24 @@ pub fn CostModelBuild(
     Ok(m)
 }
 
+#[inline]
 pub fn GetLiteralCost(m: &CostModel, v: u32) -> i64 {
     i64::from(m.alpha[(v >> 24) as usize])
         + i64::from(m.red[((v >> 16) & 255) as usize])
         + i64::from(m.literal[((v >> 8) & 255) as usize])
         + i64::from(m.blue[(v & 255) as usize])
 }
+#[inline]
 pub fn GetCacheCost(m: &CostModel, idx: u32) -> i64 {
     i64::from(m.literal[NUM_LITERAL_CODES + NUM_LENGTH_CODES + idx as usize])
 }
+#[inline]
 pub fn GetLengthCost(m: &CostModel, length: u32) -> i64 {
     let (code, bits) = VP8LPrefixEncodeBits(length);
     i64::from(m.literal[NUM_LITERAL_CODES + code as usize])
         + (i64::from(bits) << LOG_2_PRECISION_BITS)
 }
+#[inline]
 pub fn GetDistanceCost(m: &CostModel, distance: u32) -> i64 {
     let (code, bits) = VP8LPrefixEncodeBits(distance);
     i64::from(m.distance[code as usize]) + (i64::from(bits) << LOG_2_PRECISION_BITS)
@@ -151,6 +155,7 @@ impl CostManager {
         })
     }
 
+    #[inline]
     fn UpdateCost(&mut self, i: usize, position: usize, cost: i64) {
         let k = i - position;
         assert!(k < MAX_LENGTH as usize);
@@ -159,11 +164,13 @@ impl CostManager {
             self.dist_array[i] = (k + 1) as u16;
         }
     }
+    #[inline]
     fn UpdateCostPerInterval(&mut self, start: usize, end: usize, position: usize, cost: i64) {
         for i in start..end {
             self.UpdateCost(i, position, cost);
         }
     }
+    #[inline]
     fn ConnectIntervals(&mut self, prev: Option<usize>, next: Option<usize>) {
         if let Some(p) = prev {
             self.intervals[p].next = next;
@@ -174,12 +181,14 @@ impl CostManager {
             self.intervals[n].previous = prev;
         }
     }
+    #[inline]
     fn PopInterval(&mut self, i: usize) {
         let v = self.intervals[i];
         self.ConnectIntervals(v.previous, v.next);
         self.free.push(i);
         self.count -= 1;
     }
+    #[inline]
     fn UpdateCostAtIndex(&mut self, i: usize, clean: bool) {
         let mut cur = self.head;
         while let Some(idx) = cur {
@@ -197,6 +206,7 @@ impl CostManager {
             cur = v.next;
         }
     }
+    #[inline]
     fn PositionOrphanInterval(&mut self, cur: usize, mut prev: Option<usize>) {
         if prev.is_none() {
             prev = self.head;
@@ -220,6 +230,7 @@ impl CostManager {
         self.ConnectIntervals(Some(cur), next);
         self.ConnectIntervals(prev, Some(cur));
     }
+    #[inline]
     fn InsertInterval(
         &mut self,
         hint: Option<usize>,
@@ -247,6 +258,7 @@ impl CostManager {
         self.PositionOrphanInterval(idx, hint);
         self.count += 1;
     }
+    #[inline]
     fn PushInterval(&mut self, distance_cost: i64, position: usize, len: usize) {
         if len < 10 {
             for j in position..position + len {
@@ -304,6 +316,7 @@ impl CostManager {
     }
 }
 
+#[inline]
 fn AddSingleLiteralWithCostModel(
     argb: &[u32],
     cache: &mut Option<VP8LColorCache>,

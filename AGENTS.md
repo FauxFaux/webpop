@@ -22,6 +22,8 @@ Run commands from the repository root:
 
 Use rustfmt defaults, including four-space indentation. Follow existing module filenames that mirror upstream C translation units. Preserve upstream function names such as `VP8LSubPixels` for traceability; use descriptive `snake_case` for Rust-specific helpers and tests. The library forbids unsafe Rust. Keep C interoperability confined to test infrastructure and handle allocation failures consistently with existing `Result` APIs.
 
+Carry upstream `WEBP_INLINE` annotations across as `#[inline]` on the corresponding Rust functions, including helpers annotated through macros that expand to `WEBP_INLINE`. Apply this convention to new ports and updates; use plain `#[inline]`, not `#[inline(always)]`.
+
 ## Testing Guidelines
 
 Use Rust's built-in `#[test]` framework. Add deterministic edge cases and independent correctness checks alongside C differential comparisons. Extend shared evaluators and native wrappers when porting operations. Review source/toolchain changes before regenerating fixtures; follow `libwebpop/tests/reference/README.md`. No numeric coverage threshold is configured.

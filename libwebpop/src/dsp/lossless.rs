@@ -16,22 +16,28 @@ pub struct VP8LMultipliers {
 // top is [top-left, top, top-right]; left is the preceding pixel.
 pub type VP8LPredictorFunc = fn(u32, &[u32; 3]) -> u32;
 
+#[inline]
 fn Average2(a0: u32, a1: u32) -> u32 {
     (((a0 ^ a1) & 0xfefefefe) >> 1) + (a0 & a1)
 }
+#[inline]
 fn Average3(a0: u32, a1: u32, a2: u32) -> u32 {
     Average2(Average2(a0, a2), a1)
 }
+#[inline]
 fn Average4(a0: u32, a1: u32, a2: u32, a3: u32) -> u32 {
     Average2(Average2(a0, a1), Average2(a2, a3))
 }
+#[inline]
 fn AddSubtractComponentFull(a: i32, b: i32, c: i32) -> u32 {
     (a + b - c).clamp(0, 255) as u32
 }
+#[inline]
 fn AddSubtractComponentHalf(a: i32, b: i32) -> u32 {
     // Signed division must truncate toward zero, rather than shifting.
     (a + (a - b) / 2).clamp(0, 255) as u32
 }
+#[inline]
 fn ClampedAddSubtractFull(c0: u32, c1: u32, c2: u32) -> u32 {
     let mut out = 0;
     for shift in [0, 8, 16, 24] {
@@ -43,6 +49,7 @@ fn ClampedAddSubtractFull(c0: u32, c1: u32, c2: u32) -> u32 {
     }
     out
 }
+#[inline]
 fn ClampedAddSubtractHalf(c0: u32, c1: u32, c2: u32) -> u32 {
     let ave = Average2(c0, c1);
     let mut out = 0;
@@ -53,9 +60,11 @@ fn ClampedAddSubtractHalf(c0: u32, c1: u32, c2: u32) -> u32 {
     }
     out
 }
+#[inline]
 fn Sub3(a: i32, b: i32, c: i32) -> i32 {
     (b - c).abs() - (a - c).abs()
 }
+#[inline]
 fn Select(a: u32, b: u32, c: u32) -> u32 {
     let mut pa_minus_pb = 0;
     for shift in [0, 8, 16, 24] {

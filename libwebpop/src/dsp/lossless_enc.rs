@@ -20,10 +20,12 @@ pub fn VP8LSubtractGreenFromBlueAndRed_C(argb_data: &mut [u32]) {
     }
 }
 
+#[inline]
 fn ColorTransformDelta(color_pred: i8, color: i8) -> i32 {
     (i32::from(color_pred) * i32::from(color)) >> 5
 }
 
+#[inline]
 fn U32ToS8(v: u32) -> i8 {
     v as u8 as i8
 }
@@ -413,6 +415,7 @@ pub fn VP8LBitsEntropyUnrefined(array: &[u32], entropy: &mut VP8LBitEntropy) {
     entropy.entropy = VP8LFastSLog2(entropy.sum).wrapping_sub(entropy.entropy);
 }
 
+#[inline]
 fn GetEntropyUnrefinedHelper(
     val_prev: u32,
     i: usize,
@@ -526,9 +529,11 @@ pub fn VP8LBundleColorMap_C(row: &[u8], xbits: u32, dst: &mut [u32]) {
     }
 }
 
+#[inline]
 fn TransformColorRed(green_to_red: u8, argb: u32) -> u8 {
     ((argb >> 16) as i32 - ColorTransformDelta(green_to_red as i8, U32ToS8(argb >> 8))) as u8
 }
+#[inline]
 fn TransformColorBlue(green_to_blue: u8, red_to_blue: u8, argb: u32) -> u8 {
     ((argb & 255) as i32
         - ColorTransformDelta(green_to_blue as i8, U32ToS8(argb >> 8))

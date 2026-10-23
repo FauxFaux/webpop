@@ -29,6 +29,7 @@ pub struct VP8LHistogram {
     pub bin_id: u16,
 }
 
+#[inline]
 pub fn VP8LHistogramNumCodes(palette_code_bits: u32) -> usize {
     assert!(palette_code_bits <= MAX_CACHE_BITS);
     NUM_LITERAL_CODES
@@ -204,6 +205,7 @@ pub fn VP8LHistogramCreate(
     Ok(())
 }
 
+#[inline]
 pub fn BitsEntropyRefine(entropy: &VP8LBitEntropy) -> u64 {
     if entropy.nonzeros <= 1 {
         return 0;
@@ -270,6 +272,7 @@ pub fn PopulationCost(population: &[u32]) -> (u64, u16, u8) {
     )
 }
 
+#[inline]
 pub fn GetPopulationInfo(histo: &VP8LHistogram, index: usize) -> &[u32] {
     match index {
         0 => &histo.literal,
@@ -307,6 +310,7 @@ const NUM_PARTITIONS: usize = 4;
 const BIN_SIZE: usize = NUM_PARTITIONS * NUM_PARTITIONS * NUM_PARTITIONS;
 const MAX_HISTO_GREEDY: usize = 100;
 
+#[inline]
 pub fn GetCombinedEntropy(a: &VP8LHistogram, b: &VP8LHistogram, index: usize) -> u64 {
     let trivial = a.trivial_symbol[index] != VP8L_NON_TRIVIAL_SYM
         && a.trivial_symbol[index] == b.trivial_symbol[index];
@@ -328,6 +332,7 @@ pub fn GetCombinedEntropy(a: &VP8LHistogram, b: &VP8LHistogram, index: usize) ->
     BitsEntropyRefine(&entropy) + FinalHuffmanCost(&stats)
 }
 
+#[inline]
 fn SaturateAdd(a: u64, b: i64) -> i64 {
     b.saturating_add(i64::try_from(a).expect("histogram cost fits int64_t"))
 }
@@ -365,6 +370,7 @@ fn GetPopulationInfoMut(h: &mut VP8LHistogram, index: usize) -> &mut [u32] {
     }
 }
 
+#[inline]
 pub fn HistogramAdd(a: &VP8LHistogram, b: &VP8LHistogram, out: &mut VP8LHistogram) {
     assert_eq!(a.palette_code_bits, b.palette_code_bits);
     assert_eq!(a.palette_code_bits, out.palette_code_bits);

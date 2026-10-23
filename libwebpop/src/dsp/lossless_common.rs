@@ -6,11 +6,13 @@ use crate::utils::utils::BitsLog2Floor;
 
 /// Ceiling of size / 2^sampling_bits. Use a wider intermediate so even a
 /// full-range u32 size is handled without an overflow in the rounding step.
+#[inline]
 pub const fn VP8LSubSampleSize(size: u32, sampling_bits: u32) -> u32 {
     assert!(sampling_bits < 32);
     ((size as u64 + (1_u64 << sampling_bits) - 1) >> sampling_bits) as u32
 }
 
+#[inline]
 pub const fn VP8LNearLosslessBits(near_lossless_quality: u32) -> u32 {
     assert!(near_lossless_quality <= 100);
     5 - near_lossless_quality / 20
@@ -18,6 +20,7 @@ pub const fn VP8LNearLosslessBits(near_lossless_quality: u32) -> u32 {
 
 /// Return (code, extra_bits). The NoLUT helpers require distance >= 3;
 /// callers with distances 1 and 2 must use the table-backed entry points.
+#[inline]
 pub const fn VP8LPrefixEncodeBitsNoLUT(distance: u32) -> (u32, u32) {
     assert!(distance >= 3 && distance <= i32::MAX as u32);
     let distance = distance - 1;
@@ -27,6 +30,7 @@ pub const fn VP8LPrefixEncodeBitsNoLUT(distance: u32) -> (u32, u32) {
 }
 
 /// Return (code, extra_bits, extra_bits_value).
+#[inline]
 pub const fn VP8LPrefixEncodeNoLUT(distance: u32) -> (u32, u32, u32) {
     let (code, extra_bits) = VP8LPrefixEncodeBitsNoLUT(distance);
     (code, extra_bits, (distance - 1) & ((1 << extra_bits) - 1))
@@ -49,6 +53,7 @@ const fn prefix_table() -> [(u32, u32, u32); PREFIX_LOOKUP_IDX_MAX] {
 
 const PREFIX_TABLE: [(u32, u32, u32); PREFIX_LOOKUP_IDX_MAX] = prefix_table();
 
+#[inline]
 pub const fn VP8LPrefixEncode(distance: u32) -> (u32, u32, u32) {
     // Entry zero is used by the traceback length-cost cache.
     assert!(distance <= i32::MAX as u32);
@@ -59,12 +64,14 @@ pub const fn VP8LPrefixEncode(distance: u32) -> (u32, u32, u32) {
     }
 }
 
+#[inline]
 pub const fn VP8LPrefixEncodeBits(distance: u32) -> (u32, u32) {
     let (code, extra_bits, _) = VP8LPrefixEncode(distance);
     (code, extra_bits)
 }
 
 /// Sum each ARGB byte independently, modulo 256.
+#[inline]
 pub const fn VP8LAddPixels(a: u32, b: u32) -> u32 {
     let alpha_and_green = (a & 0xff00ff00).wrapping_add(b & 0xff00ff00);
     let red_and_blue = (a & 0x00ff00ff).wrapping_add(b & 0x00ff00ff);
@@ -72,6 +79,7 @@ pub const fn VP8LAddPixels(a: u32, b: u32) -> u32 {
 }
 
 /// Subtract each ARGB byte independently, modulo 256.
+#[inline]
 pub const fn VP8LSubPixels(a: u32, b: u32) -> u32 {
     let alpha_and_green = 0x00ff00ff_u32
         .wrapping_add(a & 0xff00ff00)
@@ -89,6 +97,7 @@ pub const LOG_LOOKUP_IDX_MAX: u32 = 256;
 pub const APPROX_LOG_MAX: u32 = 4096;
 pub const APPROX_LOG_WITH_CORRECTION_MAX: u32 = 65536;
 
+#[inline]
 pub fn VP8LFastLog2(v: u32) -> u32 {
     if v < LOG_LOOKUP_IDX_MAX {
         super::lossless_enc::kLog2Table[v as usize]
@@ -96,6 +105,7 @@ pub fn VP8LFastLog2(v: u32) -> u32 {
         super::lossless_enc::FastLog2Slow_C(v)
     }
 }
+#[inline]
 pub fn VP8LFastSLog2(v: u32) -> u64 {
     if v < LOG_LOOKUP_IDX_MAX {
         super::lossless_enc::kSLog2Table[v as usize]
@@ -103,12 +113,14 @@ pub fn VP8LFastSLog2(v: u32) -> u64 {
         super::lossless_enc::FastSLog2Slow_C(v)
     }
 }
+#[inline]
 pub const fn RightShiftRound(v: u64, shift: u32) -> u64 {
     assert!(shift < 64);
     v.wrapping_add((1_u64 << shift) >> 1) >> shift
 }
 /// C's signed nearest-integer division, with ties away from zero.
 /// The denominator and intermediate arithmetic must be representable.
+#[inline]
 pub const fn DivRound(a: i64, b: i64) -> i64 {
     if (a < 0) == (b < 0) {
         (a + b / 2) / b

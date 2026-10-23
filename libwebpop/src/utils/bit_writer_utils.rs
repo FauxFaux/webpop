@@ -20,6 +20,7 @@ pub fn VP8LBitWriterInit(expected_size: usize) -> Result<VP8LBitWriter, TryReser
     Ok(bw)
 }
 
+#[inline]
 pub fn VP8LBitWriterNumBytes(bw: &VP8LBitWriter) -> usize {
     bw.buf.len() + bw.used.div_ceil(8) as usize
 }
@@ -59,6 +60,7 @@ fn VP8LPutBitsFlushBits(bw: &mut VP8LBitWriter) -> Result<(), TryReserveError> {
 }
 
 /// Append up to 32 bits. Callers supply a value that fits in n_bits.
+#[inline]
 pub fn VP8LPutBits(bw: &mut VP8LBitWriter, bits: u32, n_bits: u32) -> Result<(), TryReserveError> {
     assert!(n_bits <= 32);
     if n_bits == 0 {
