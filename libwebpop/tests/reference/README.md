@@ -43,6 +43,7 @@ The [lossy reference record](LOSSY.md) describes scalar VP8 DSP, YUVA import,
 iterator borders/contexts, susceptibility analysis/segment assignment,
 segment quality/matrix/lambda setup and initial filter strengths,
 candidate reconstruction and chroma DC error diffusion,
+default rate-distortion mode selection and raster context propagation,
 boolean-writer state traces, residual costs/statistics, probability headers,
 paginated tokens and adaptive fitting,
 both lossy public C adapters, the copied alpha-quality wrapper, portable

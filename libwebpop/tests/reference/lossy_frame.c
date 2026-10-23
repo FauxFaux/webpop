@@ -42,3 +42,9 @@ unsigned WebpopProbaState(const uint32_t* in, uint32_t* out) {
   out[n++] = hash;
   return n;
 }
+
+// Test-only fixed-probability raster composition uses the original context
+// recorder; probability refresh and the production frame loop remain separate.
+void WebpopRecordModeResiduals(VP8EncIterator* it, const VP8ModeScore* rd) {
+  RecordResiduals(it, rd);
+}

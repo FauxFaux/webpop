@@ -1,5 +1,6 @@
 // Call original static analysis helpers without copying their algorithms.
 // Rename the entry point so complete checks can still call the normal library.
+#include "src/enc/cost_enc.h"
 #define VP8EncAnalyze WebpopIncludedEncAnalyze
 #include "src/enc/analysis_enc.c"
 #undef VP8EncAnalyze
@@ -180,4 +181,53 @@ unsigned WebpopAnalysisQuant(const uint32_t* in, uint32_t* out) {
   for (i = 0; i < ctx.pred_size; ++i) out[n++] = ctx.preds[i];
   ClearContext(&ctx);
   return n;
+}
+
+unsigned WebpopModeScore(const VP8ModeScore*, uint32_t*);
+void WebpopRecordModeResiduals(VP8EncIterator*, const VP8ModeScore*);
+unsigned WebpopSearchFrame(const uint32_t* in, uint32_t* out) {
+  AnalysisContext ctx; VP8EncIterator it = {0}; unsigned i, ch, k, n = 0;
+  float quality; const unsigned pixels = in[0]*in[1] + 2*((in[0]+1)/2)*((in[1]+1)/2);
+  memcpy(&quality, in+3, sizeof(quality)); InitContext(&ctx,in[0],in[1],in[2]);
+  ctx.enc.filter_hdr.simple = 1; ctx.enc.max_i4_header_bits = in[4];
+  if (quality <= 98.f) {ctx.enc.top_derr = (DError*)calloc(ctx.enc.mb_w,sizeof(DError)); if (!ctx.enc.top_derr) abort();}
+  for (i = 0; i < pixels; ++i) ctx.planes[i] = in[5+i];
+  VP8EncDspCostInit(); VP8DefaultProbas(&ctx.enc);
+  if (!VP8EncAnalyze(&ctx.enc)) abort(); VP8SetSegmentParams(&ctx.enc,quality); VP8CalculateLevelCosts(&ctx.enc.proba);
+  // Analysis seeded arbitrary interior modes. The coding pass starts with DC
+  // boundary modes; its interior is overwritten as each macroblock is selected.
+  memset(ctx.preds,0,ctx.pred_size);
+  VP8IteratorInit(&ctx.enc,&it); memset(it.yuv_p,0xa5,PRED_SIZE_ENC);
+  memset(it.yuv_out,0x5a,YUV_SIZE_ENC); memset(it.yuv_out2,0xc3,YUV_SIZE_ENC);
+  out[n++] = ctx.enc.segment_hdr.num_segments; out[n++] = ctx.enc.base_quant;
+  for (i = 0; i < 4; ++i) out[n++] = ctx.enc.dqm[i].quant;
+  do {
+    VP8ModeScore rd = {0}, logical = {0};
+    VP8IteratorImport(&it,NULL); out[n++] = VP8Decimate(&it,&rd,RD_OPT_BASIC);
+    // The exported score serializer receives only defined fields.
+    logical.D=rd.D; logical.SD=rd.SD; logical.R=rd.R; logical.H=rd.H; logical.score=rd.score; logical.nz=rd.nz;
+    logical.mode_i16=rd.mode_i16; logical.mode_uv=rd.mode_uv;
+    memcpy(logical.y_dc_levels,rd.y_dc_levels,sizeof(logical.y_dc_levels));
+    memcpy(logical.y_ac_levels,rd.y_ac_levels,sizeof(logical.y_ac_levels));
+    memcpy(logical.uv_levels,rd.uv_levels,sizeof(logical.uv_levels));
+    if (it.mb->type==0) memcpy(logical.modes_i4,rd.modes_i4,sizeof(logical.modes_i4));
+    if (ctx.enc.top_derr) memcpy(logical.derr,rd.derr,sizeof(logical.derr));
+    n += WebpopModeScore(&logical,out+n);
+    for (i=0;i<YUV_SIZE_ENC;++i) out[n++]=it.yuv_out[i];
+    out[n++]=it.mb->type;out[n++]=it.mb->uv_mode;out[n++]=it.mb->skip;out[n++]=it.mb->segment;out[n++]=it.mb->alpha;
+    WebpopRecordModeResiduals(&it,&rd);
+    for (i=0;i<9;++i) out[n++]=it.top_nz[i]; for (i=0;i<9;++i) out[n++]=it.left_nz[i]; out[n++]=*it.nz;
+    for (ch=0;ch<2;++ch) for(k=0;k<2;++k) out[n++]=(uint32_t)(int32_t)it.left_derr[ch][k];
+    for (ch=0;ch<2;++ch) for(k=0;k<2;++k) out[n++]=ctx.enc.top_derr ? (uint32_t)(int32_t)ctx.enc.top_derr[it.x][ch][k]:0;
+    VP8IteratorSaveBoundary(&it);
+    for(i=0;i<17;++i) out[n++]=it.y_left[(int)i-1];
+    for(i=0;i<9;++i) out[n++]=it.u_left[(int)i-1]; for(i=0;i<9;++i) out[n++]=it.v_left[(int)i-1];
+    for(i=0;i<16;++i) out[n++]=it.y_top[i]; for(i=0;i<16;++i) out[n++]=it.uv_top[i];
+  } while(VP8IteratorNext(&it));
+  for(i=0;i<1056;++i) out[n++]=((proba_t*)ctx.enc.proba.stats)[i];
+  for(i=0;i<ctx.pred_size;++i) out[n++]=ctx.preds[i];
+  for(i=0;i<(unsigned)ctx.enc.mb_w+1;++i) out[n++]=ctx.nz[i];
+  if(ctx.enc.top_derr) for(i=0;i<(unsigned)ctx.enc.mb_w;++i) for(ch=0;ch<2;++ch) for(k=0;k<2;++k) out[n++]=(uint32_t)(int32_t)ctx.enc.top_derr[i][ch][k];
+  for(i=0;i<4;++i) out[n++]=ctx.enc.dqm[i].max_edge;
+  free(ctx.enc.top_derr); ClearContext(&ctx); return n;
 }

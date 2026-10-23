@@ -6,7 +6,7 @@ mod native;
 mod support;
 
 use libwebpop::{
-    dsp::{cost::VP8EncBands, enc::BPS},
+    dsp::enc::BPS,
     enc::{iterator_enc::*, picture_enc::WebPYUVAPicture, vp8i_enc::*},
 };
 use support::{vp8_cost as cost, vp8_iterator as iter};
@@ -366,54 +366,6 @@ fn row_and_restart_reset_only_the_upstream_state_and_preserve_modes() {
 
 // Sum events from the independent coefficient syntax tree rather than reading
 // the encoder's residual cost cache. Keep the pin's level-9/10 estimates.
-fn tree_cost(
-    block: &[u32],
-    first: usize,
-    ty: usize,
-    mut ctx: usize,
-    prob: &[[ProbaArray; 8]; 4],
-) -> u32 {
-    let mut sum = 0;
-    let last = block.iter().rposition(|&v| v != 0);
-    let mut event = |n: usize, context: usize, node: usize, bit| {
-        sum += cost::bit_cost(bit, prob[ty][VP8EncBands[n]][context][node]);
-    };
-    event(first, ctx, 0, last.is_some());
-    if let Some(last) = last {
-        for (n, &word) in block.iter().enumerate().take(last + 1).skip(first) {
-            let v = (word as i32).unsigned_abs() as usize;
-            event(n, ctx, 1, v != 0);
-            if v == 0 {
-                ctx = 0;
-                continue;
-            }
-            for (node, bit, fixed) in cost::level_events(v) {
-                if fixed.is_none() {
-                    event(n, ctx, node, bit);
-                }
-            }
-            ctx = v.min(2);
-            if n < 15 {
-                event(n + 1, ctx, 0, n < last);
-            }
-        }
-        for &word in &block[first..=last] {
-            let v = (word as i32).unsigned_abs() as usize;
-            if v != 0 {
-                sum += if v == 9 || v == 10 {
-                    640
-                } else {
-                    cost::level_events(v)
-                        .into_iter()
-                        .filter_map(|(_, bit, fixed)| fixed.map(|p| cost::bit_cost(bit, p)))
-                        .sum()
-                };
-            }
-        }
-    }
-    sum
-}
-
 #[test]
 fn macroblock_costs_follow_independent_tree_walk_and_context_grid() {
     for case in iter::cost_cases() {
@@ -423,7 +375,7 @@ fn macroblock_costs_follow_independent_tree_walk_and_context_grid() {
         let mut top = a[4..13].to_vec();
         let mut left = a[13..22].to_vec();
         left[8] = a[2];
-        let mut expected = vec![tree_cost(
+        let mut expected = vec![cost::tree_cost(
             &a[1478..1494],
             0,
             3,
@@ -444,11 +396,11 @@ fn macroblock_costs_follow_independent_tree_walk_and_context_grid() {
             (t, l)
         };
         (top, left) = unpack();
-        let mut total = tree_cost(&a[1078..1094], 0, 1, (top[8] + left[8]) as usize, &prob);
+        let mut total = cost::tree_cost(&a[1078..1094], 0, 1, (top[8] + left[8]) as usize, &prob);
         for block in 0..16 {
             let (x, y) = (block % 4, block / 4);
             let coeffs = &a[1094 + 16 * block..1110 + 16 * block];
-            total += tree_cost(coeffs, 1, 0, (top[x] + left[y]) as usize, &prob);
+            total += cost::tree_cost(coeffs, 1, 0, (top[x] + left[y]) as usize, &prob);
             top[x] = u32::from(coeffs.iter().any(|&v| v != 0));
             left[y] = top[x];
         }
@@ -462,7 +414,7 @@ fn macroblock_costs_follow_independent_tree_walk_and_context_grid() {
                 let (x, y) = (4 + ch * 2 + block % 2, 4 + ch * 2 + block / 2);
                 let from = 1350 + 16 * (4 * ch + block);
                 let coeffs = &a[from..from + 16];
-                total += tree_cost(coeffs, 0, 2, (top[x] + left[y]) as usize, &prob);
+                total += cost::tree_cost(coeffs, 0, 2, (top[x] + left[y]) as usize, &prob);
                 top[x] = u32::from(coeffs.iter().any(|&v| v != 0));
                 left[y] = top[x];
             }

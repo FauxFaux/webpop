@@ -34,6 +34,11 @@ unsigned WebpopAnalysisQuant(const uint32_t*, uint32_t*);
 unsigned WebpopQuantizeSingle(const uint32_t*, uint32_t*);
 unsigned WebpopDCError(const uint32_t*, uint32_t*);
 unsigned WebpopReconstruct(const uint32_t*, uint32_t*);
+unsigned WebpopModeSearch(const uint32_t*, uint32_t*);
+unsigned WebpopFlat(const uint32_t*, uint32_t*);
+unsigned WebpopModeCost(const uint32_t*, uint32_t*);
+unsigned WebpopScoreOps(const uint32_t*, uint32_t*);
+unsigned WebpopSearchFrame(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
 unsigned WebpopNearLosslessFeedback(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopPredictor(const uint32_t*, unsigned, uint32_t*);
@@ -135,7 +140,43 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8QuantizeSingle)) {
+    if (IS(VP8SearchFrame)) {
+      uint64_t pixels, mbw, mbh, output_size; float quality;
+      REQUIRE(n >= 5 && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383 && in[2]>=1 && in[2]<=4 && in[4]<=65536);
+      memcpy(&quality,in+3,sizeof(quality));REQUIRE(quality>=0.f && quality<=100.f);
+      pixels=(uint64_t)in[0]*in[1]+2*(uint64_t)((in[0]+1)/2)*((in[1]+1)/2);
+      mbw=(in[0]+15)/16;mbh=(in[1]+15)/16;
+      output_size=1067+1047*mbw*mbh+(4*mbw+1)*(4*mbh+1)+mbw+(quality<=98.f?4*mbw:0);
+      REQUIRE(n==5+pixels && output_size<=LIMIT);
+      for(i=5;i<n;++i) REQUIRE(in[i]<=255);
+      count=WebpopSearchFrame(in,out);
+    } else if (IS(VP8ModeSearch)) {
+      REQUIRE(n == 720 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && in[634] <= 4 && in[635] <= 65536 && in[636] <= 4 && in[638] <= 0x7fffff);
+      REQUIRE((int32_t)in[6] >= -15 && (int32_t)in[6] <= 15 && (int32_t)in[7] >= -15 && (int32_t)in[7] <= 15);
+      for (i = 8; i < 16; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
+      for (i = 16; i < 634; ++i) REQUIRE(in[i] <= 255);
+      for (i = 639; i < n; ++i) REQUIRE(in[i] <= 9);
+      count = WebpopModeSearch(in, out);
+    } else if (IS(VP8Flat)) {
+      REQUIRE(n >= 514 && in[0] <= 240 && in[1] <= 16 && n == 514+16*in[1]);
+      for (i = 2; i < 514; ++i) REQUIRE(in[i] <= 255);
+      for (; i < n; ++i) REQUIRE((int32_t)in[i] >= -32768 && (int32_t)in[i] <= 32767);
+      count = WebpopFlat(in, out);
+    } else if (IS(VP8ModeCost)) {
+      REQUIRE(n == 99 && in[0] < 16 && in[1] < 4);
+      for (i = 2; i < n; ++i) REQUIRE(in[i] < 10);
+      count = WebpopModeCost(in, out);
+    } else if (IS(VP8ScoreOps)) {
+      REQUIRE(n == 24 && in[0] < 4 && in[1] <= 1000000);
+      for (i = 2; i < 24; i += 11) {
+        unsigned j;
+        for (j = 0; j < 10; j += 2) {
+          int64_t v = (int64_t)Read64(in+i+j);
+          REQUIRE(v >= -((int64_t)1<<40) && v <= ((int64_t)1<<40));
+        }
+      }
+      count = WebpopScoreOps(in, out);
+    } else if (IS(VP8QuantizeSingle)) {
       REQUIRE(n == 2 && in[0] >= 4 && in[0] <= 132 && (int32_t)in[1] >= -32768 && (int32_t)in[1] <= 32767);
       count = WebpopQuantizeSingle(in, out);
     } else if (IS(VP8DCError)) {

@@ -1148,3 +1148,146 @@ Validation passes: full workspace `cargo test --quiet` and
 in release with `native-oracle`, formatting, normal library-only build and
 `git diff --check`. Existing manual tests remain ignored; upstream is clean
 at the recorded pin.
+
+### Milestone 5 completion: default rate-distortion mode search
+
+`dsp/quant.rs` ports inline `IsFlat`/`IsFlatSource16`. `enc/quant_enc.rs` adds
+`InitScore`, `CopyScore`, `AddScore`, inline `SetRDScore`, contextual
+`GetCostModeI4`, `PickBestIntra16`, `PickBestIntra4`, `PickBestUV` and the default
+method-4/`RD_OPT_BASIC` `VP8Decimate`. The encoder now retains
+`max_i4_header_bits`, initialized to the preset's 65,536 cost units. Other
+methods/RD levels, trellis and distortion-only refinement remain deferred.
+There are no new production allocations or unsafe code.
+
+Owned arrays reproduce full Intra16 output-buffer swaps; booleans track the
+Intra4 scratch/block and UV destination swaps. This retains writes by losing
+trials and partial state on Intra4 rejection. Candidate scores are compared
+strictly, so ties keep the earlier mode. Intra4 lower-bound pruning retains
+`>=`; cumulative score rejection also uses `>=`, whereas the accumulated header
+cost rejects only on `>`. Flat-source refinement is persistent across I16
+candidates: once an AC-bearing candidate clears the initial flatness flag,
+later candidates are not doubled. UV residual costing refreshes contexts on
+every trial, so final scratch contexts can belong to the final evaluated mode;
+residual recording subsequently imports packed contexts again. Only the
+selected UV candidate's errors are committed.
+
+The pinned `lossy_quant.c` translation-unit adapter calls original static
+helpers for partial searches and normally linked `VP8Decimate` for complete
+macroblock decisions. `lossy_analysis.c` composes normally linked analysis,
+segment setup and decimation for a fixed-probability raster, recording contexts
+through original `RecordResiduals` exposed by `lossy_frame.c`. These adapters
+copy no search or context-recording algorithms. The raster is test composition,
+not the production token loop: adaptive probability refresh, token emission,
+header retries and final filtering remain in milestone 7.
+
+Additional logical requests:
+
+- `VP8ScoreOps`: operation (init=0, copy=1, add=2, score=3), lambda, then two
+  eleven-word score records: five signed i64 fields (D, SD, H, R, score) in
+  low/high order, followed by a mask. Inputs are bounded to ±2^40, lambda to
+  1,000,000. Returns the existing 435-word score layout. Unrelated coefficient,
+  mode and diffusion fields have distinct sentinels in source/destination to
+  detect accidental whole-struct copying.
+- `VP8Flat`: threshold `0..240`, block count `0..16`, 512 byte-valued source
+  cache words and `16*count` signed-i16 levels. Returns coefficient flatness
+  (DC omitted) and uniformity of the active 16×16 source (padding omitted).
+- `VP8ModeCost`: Intra4 index `0..15`, macroblock-position flags `0..3`, complete
+  81-byte predictor map and sixteen previous candidate modes, totaling 99
+  words. All modes lie in `0..9`; returns ten fixed-mode costs selected from
+  spatial top/left macroblock borders or prior modes inside the block.
+- `VP8ModeSearch`: the 634-word `VP8Reconstruct` input, then stage, header limit,
+  probability kind, incoming score low/high and 81 predictor modes: 720 words.
+  Stages are I16-only (0), I16 then I4 (1), complete default decimation (2),
+  UV-only (3) and forced I4 against the incoming score (4). Limits lie in
+  `0..65536`; incoming scores are nonnegative through `MAX_COST`. Probability
+  kinds are default (0), all-zero (1), all-255 (2) and asymmetric `(37*i+17)%256`
+  (3). Synthetic tie kind 4 uses default probabilities and sets I16/I4/UV
+  lambdas and texture lambda to zero, mode lambda to one; this tests equal
+  candidate comparisons and is not a public configuration. Context scratch is
+  initialized to valid binary values; packed contexts keep distinct sentinels.
+  Both macroblock destinations and predictions start with distinct sentinels.
+
+  Returns 3,429 words: result flag, normalized 435-word score, two 512-byte
+  destinations in logical current/scratch order, complete 1,792-byte prediction
+  scratch, 12 top/left diffusion bytes, nine top and nine left coefficient
+  contexts, I4 index/window offset and 37 boundary bytes, five metadata words
+  for four macroblocks, the 81 predictor modes, three packed contexts and four
+  segment maximum edges. C leaves unrelated candidate fields uninitialized;
+  normalization compares only defined luma fields, UV fields when searched,
+  diffusion when enabled, and I4 modes when defined. Stage 1 explicitly seeds
+  the mode array after I16 search to make rejected I4 prefixes observable.
+  Undefined fields are zeroed for serialization; no C padding or uninitialized
+  values enter fixtures. Rust-owned candidates are fully initialized.
+- `VP8SearchFrame`: width, height, segment count, quality f32 bits, header limit
+  and tight Y/U/V planes. Uses normal analysis and setup, default probability
+  costs and a raster coding pass with reconstructed borders and original
+  residual-statistics recording. Diffusion storage follows `quality<=98`.
+  Returns segment count/base quantizer/four segment quantizers, 1,047 words per
+  macroblock, then 1,056 statistics, the predictor map, packed column contexts,
+  optional column diffusion and four edge maxima. Each macroblock contains
+  skip result, normalized score, reconstructed cache, five metadata fields,
+  top/left coefficient contexts, packed context, eight diffusion bytes and
+  saved left/top borders. The word budget is checked before allocation:
+  `1067 + 1047*mb_w*mb_h + (4*mb_w+1)*(4*mb_h+1) + mb_w`, plus `4*mb_w` with
+  diffusion, must fit the existing logical limit.
+
+There are 18,325 new exact native requests:
+
+- 2,048 score operations, including signed values beyond u32 and wide weighted
+  products, with preservation of non-score fields.
+- 2,112 coefficient/source flatness checks over the required 1/8/16-block
+  populations, DC/AC positions and all 512 source-cache positions.
+- 6,400 contextual mode-cost requests: every top/left mode, all sixteen Intra4
+  indices and all four macroblock positions.
+- 7,561 partial/full macroblock searches: all 128 quantizer indices, segment
+  slots, border/diffusion flags, default/extreme/asymmetric probabilities,
+  ten pixel patterns, disabled/tight/full header budgets, five exact boundary
+  cases and four synthetic candidate ties. A true-motion chroma field ensures
+  UV TM wins; flat-source/asymmetric-border inputs exercise persistent flatness.
+- 204 fixed-probability raster comparisons at qualities 0/30/75/98/98.5/100,
+  including odd sizes, multiple macroblock rows and the real-image sample.
+
+The independent portable search enumerates all candidates without production
+lower-bound pruning. It computes SSE with wide pixel sums, texture costs using
+explicit Hadamard matrix products, and residual rates through syntax-tree walks
+shared with the iterator tests (including the pinned level-9/10 estimates).
+It validates final scores, coefficients, selected pixels, predictor maps and
+skip decisions. Required I16/UV modes and all ten I4 modes win. Counts of
+independent decisions are I16/I4 `1132/533`; I16 modes `1126/39/322/178`; UV modes
+`1682/64/678/522`; selected I4 block modes
+`3389/1039/406/426/830/824/428/409/445/332`.
+
+Independent branch counts include 192 disabled I4 searches, 1,757 cumulative
+score rejections, 613 header rejections, 2,437 accepted I4 trials and 384 later
+flat candidates after persistent flatness cleared. Exact C-derived inputs
+retain an all-DC I4 header total of 640 and score 2,382,600: limits 639/640
+reject/accept, and competitor scores 2,382,599/2,382,600/2,382,601 reject/reject/
+accept. Four synthetic ties prove that the earliest candidate remains selected.
+
+Raster checks independently validate 1,080 macroblocks against reconstructed
+pixel coordinates, coefficient-derived masks, skip flags, outgoing context
+edges and selected diffusion splits. They cover 205 preserved DC contexts
+across I4 blocks and 1,188 nonzero diffusion commits. The packed DC context
+persists through I4 and left DC resets at row boundaries. Native comparisons
+also retain exact trial scratch, rejected prefixes, both output destinations,
+final residual statistics and full predictor maps.
+
+`fixtures/lossy_search.txt` contains 60 portable C fixtures. Reviewed provenance
+before generation is unchanged: clean upstream pin, GCC 15.2.0-16ubuntu1,
+CMake 4.2.3, Release `-O3 -DNDEBUG`, SIMD/threading off, Rust 1.101.0-nightly
+(`7189d39d9`, 2026-10-22), x86_64 Linux. Earlier fixtures remain unchanged.
+Review `target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_search search_fixtures_match_pinned_reference
+```
+
+Milestone 5 is complete: 127,158 native requests and 105 portable fixtures across
+reconstruction/diffusion and default mode search. Partition-0 syntax and opaque
+container assembly are next; public lossy Rust APIs remain unimplemented.
+
+Validation passes: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all eight search tests in release
+with `native-oracle`, `cargo fmt --all -- --check`, the normal library-only build
+and `git diff --check`. Existing manual tests remain ignored; upstream remains
+clean at the recorded pin.

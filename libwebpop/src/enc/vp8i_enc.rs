@@ -12,6 +12,16 @@ pub const NUM_BANDS: usize = 8;
 pub const NUM_CTX: usize = 3;
 pub const NUM_PROBAS: usize = 11;
 pub const QFIX: u32 = 17;
+pub const MAX_COST: i64 = 0x7fffffffffffff;
+
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VP8RDLevel {
+    RD_OPT_NONE,
+    RD_OPT_BASIC,
+    RD_OPT_TRELLIS,
+    RD_OPT_TRELLIS_ALL,
+}
 
 #[allow(non_camel_case_types)]
 pub type proba_t = u32;
@@ -199,6 +209,7 @@ pub struct VP8ModeScore {
 /// Prediction storage includes the constant top row and left column; nz[0]
 /// is the constant left sentinel, followed by one packed context per column.
 pub struct VP8Encoder {
+    pub max_i4_header_bits: i32,
     pub config: super::config_enc::VP8EncoderConfig,
     pub filter_hdr: VP8EncFilterHeader,
     pub base_quant: i32,
@@ -261,6 +272,7 @@ impl VP8Encoder {
         let mut proba = VP8EncProba::default();
         super::tree_enc::VP8DefaultProbas(&mut proba);
         Ok(Self {
+            max_i4_header_bits: 256 * 16 * 16,
             config: super::config_enc::VP8EncoderConfig::default(),
             filter_hdr: VP8EncFilterHeader::default(),
             base_quant: 0,

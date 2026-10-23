@@ -416,3 +416,51 @@ pub fn level_events(v: usize) -> Vec<(usize, bool, Option<u8>)> {
 pub fn bit_cost(bit: bool, probability: u8) -> u32 {
     u32::from(VP8EntropyCost[if bit { 255 - probability } else { probability } as usize])
 }
+
+pub fn tree_cost(
+    block: &[u32],
+    first: usize,
+    ty: usize,
+    mut ctx: usize,
+    prob: &[[ProbaArray; 8]; 4],
+) -> u32 {
+    let mut sum = 0;
+    let last = block.iter().rposition(|&v| v != 0);
+    let mut event = |n: usize, context: usize, node: usize, bit| {
+        sum += bit_cost(bit, prob[ty][VP8EncBands[n]][context][node]);
+    };
+    event(first, ctx, 0, last.is_some());
+    if let Some(last) = last {
+        for (n, &word) in block.iter().enumerate().take(last + 1).skip(first) {
+            let v = (word as i32).unsigned_abs() as usize;
+            event(n, ctx, 1, v != 0);
+            if v == 0 {
+                ctx = 0;
+                continue;
+            }
+            for (node, bit, fixed) in level_events(v) {
+                if fixed.is_none() {
+                    event(n, ctx, node, bit);
+                }
+            }
+            ctx = v.min(2);
+            if n < 15 {
+                event(n + 1, ctx, 0, n < last);
+            }
+        }
+        for &word in &block[first..=last] {
+            let v = (word as i32).unsigned_abs() as usize;
+            if v != 0 {
+                sum += if v == 9 || v == 10 {
+                    640
+                } else {
+                    level_events(v)
+                        .into_iter()
+                        .filter_map(|(_, bit, fixed)| fixed.map(|p| bit_cost(bit, p)))
+                        .sum()
+                };
+            }
+        }
+    }
+    sum
+}

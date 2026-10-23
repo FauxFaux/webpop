@@ -227,3 +227,103 @@ unsigned WebpopReconstruct(const uint32_t* in, uint32_t* out) {
   for (i = 0; i < 4; ++i) out[n++] = enc.dqm[i].max_edge;
   return n;
 }
+
+// Compare defined search state; automatic C candidate structs leave unrelated
+// mode/UV fields uninitialized, so those fields are omitted or zero-normalized.
+#undef VP8Decimate
+int VP8Decimate(VP8EncIterator*, VP8ModeScore*, VP8RDLevel);
+unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
+  VP8Encoder enc = {0}; WebPConfig config; VP8EncIterator it = {0};
+  VP8ModeScore rd, logical = {0}; VP8MBInfo mbs[4] = {{0}};
+  uint8_t preds[99] = {0}, tops[64]; uint32_t nz[3]; DError top[2];
+  unsigned i, ch, k, at = 16, n = 0, stage = in[634]; int result = 0;
+  if (!WebPConfigInit(&config)) abort();
+  enc.config = &config; enc.method = 4; enc.num_parts = 1;
+  enc.mb_w = enc.mb_h = 2; enc.preds_w = 9; enc.mb_info = mbs;
+  enc.preds = preds+10; enc.nz = nz+1; nz[0] = 0x123456;
+  enc.y_top = tops; enc.uv_top = tops+32; enc.segment_hdr.num_segments = 4;
+  enc.dq_uv_dc = (int32_t)in[6]; enc.dq_uv_ac = (int32_t)in[7];
+  enc.max_i4_header_bits = in[635]; enc.top_derr = (in[3]&4) ? top : NULL;
+  VP8EncDspInit(); VP8EncDspCostInit(); VP8IteratorInit(&enc, &it);
+  VP8IteratorSetRow(&it, (in[3]>>1)&1); if (in[3]&1) VP8IteratorNext(&it);
+  for (i = 0; i < 4; ++i) {mbs[i].segment = in[2]; mbs[i].alpha = 199; enc.dqm[i].quant = (in[1]+17*i)%128;}
+  SetupMatrices(&enc); for (i = 0; i < 4; ++i) enc.dqm[i].max_edge = 1+i;
+  for (i = 0; i < 17; ++i) it.y_left[(int)i-1] = in[at++];
+  for (i = 0; i < 25; ++i) it.u_left[(int)i-1] = in[at++];
+  for (i = 0; i < 64; ++i) tops[i] = in[at++];
+  for (i = 0; i < YUV_SIZE_ENC; ++i) it.yuv_in[i] = in[at++];
+  for (i = 0; i < 81; ++i) preds[i] = in[639+i];
+  nz[0] = 0x123456; nz[1] = 0xabcdef; nz[2] = 0x765432;
+  for (i = 0; i < 9; ++i) {it.top_nz[i] = (i+1)%2; it.left_nz[i] = i%2;}
+  for (i = 0; i < 2; ++i) for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) top[i][ch][k] = 11+4*i+2*ch+k;
+  for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) {
+    top[it.x][ch][k] = (int8_t)in[8+2*ch+k]; it.left_derr[ch][k] = (int8_t)in[12+2*ch+k];
+  }
+  VP8DefaultProbas(&enc);
+  if (in[636] && in[636]<4) for (i = 0; i < sizeof(enc.proba.coeffs); ++i) ((uint8_t*)enc.proba.coeffs)[i] =
+      (in[636] == 1) ? 0 : (in[636] == 2) ? 255 : (37*i+17)%256;
+  if (in[636]==4) for(i=0;i<4;++i) {enc.dqm[i].lambda_i16=enc.dqm[i].lambda_i4=enc.dqm[i].lambda_uv=enc.dqm[i].tlambda=0;enc.dqm[i].lambda_mode=1;}
+  enc.proba.dirty = 1; VP8CalculateLevelCosts(&enc.proba);
+  memset(it.yuv_p, 0xa5, PRED_SIZE_ENC); memset(it.yuv_out, 0x5a, YUV_SIZE_ENC); memset(it.yuv_out2, 0xc3, YUV_SIZE_ENC);
+  SeedScore(&rd); rd.score = in[637] | ((int64_t)in[638]<<32);
+  VP8MakeLuma16Preds(&it); VP8MakeChroma8Preds(&it);
+  if (stage == 0 || stage == 1) {
+    PickBestIntra16(&it, &rd);
+    if (stage == 1) {for (i = 0; i < 16; ++i) rd.modes_i4[i] = i%10; result = PickBestIntra4(&it, &rd);}
+  } else if (stage == 2) result = VP8Decimate(&it, &rd, RD_OPT_BASIC);
+  else if (stage == 3) PickBestUV(&it, &rd);
+  else if (stage == 4) result = PickBestIntra4(&it, &rd);
+  else abort();
+  CopyScore(&logical, &rd);
+  logical.mode_i16 = rd.mode_i16;
+  memcpy(logical.y_dc_levels, rd.y_dc_levels, sizeof(logical.y_dc_levels));
+  memcpy(logical.y_ac_levels, rd.y_ac_levels, sizeof(logical.y_ac_levels));
+  if (stage == 1 || stage == 4 || (stage == 2 && it.mb->type == 0)) memcpy(logical.modes_i4, rd.modes_i4, sizeof(logical.modes_i4));
+  if (stage == 2 || stage == 3) {
+    logical.mode_uv = rd.mode_uv; memcpy(logical.uv_levels, rd.uv_levels, sizeof(logical.uv_levels));
+    if (enc.top_derr) memcpy(logical.derr, rd.derr, sizeof(logical.derr));
+  }
+  out[n++] = result; n += WebpopModeScore(&logical, out+n);
+  for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = it.yuv_out[i];
+  for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = it.yuv_out2[i];
+  for (i = 0; i < PRED_SIZE_ENC; ++i) out[n++] = it.yuv_p[i];
+  n += Errors(&it, top, out+n);
+  for (i = 0; i < 9; ++i) out[n++] = it.top_nz[i];
+  for (i = 0; i < 9; ++i) out[n++] = it.left_nz[i];
+  out[n++] = it.i4; out[n++] = it.i4_top ? (uint32_t)(it.i4_top-it.i4_boundary) : 0;
+  for (i = 0; i < 37; ++i) out[n++] = it.i4_boundary[i];
+  for (i = 0; i < 4; ++i) {out[n++] = mbs[i].type; out[n++] = mbs[i].uv_mode; out[n++] = mbs[i].skip; out[n++] = mbs[i].segment; out[n++] = mbs[i].alpha;}
+  for (i = 0; i < 81; ++i) out[n++] = preds[i];
+  for (i = 0; i < 3; ++i) out[n++] = nz[i];
+  for (i = 0; i < 4; ++i) out[n++] = enc.dqm[i].max_edge;
+  return n;
+}
+unsigned WebpopFlat(const uint32_t* in, uint32_t* out) {
+  uint8_t src[512]; int16_t levels[256]; unsigned i;
+  for (i = 0; i < 512; ++i) src[i] = in[2+i];
+  for (i = 0; i < 16*in[1]; ++i) levels[i] = (int16_t)in[514+i];
+  out[0] = IsFlat(levels, in[1], in[0]); out[1] = IsFlatSource16(src); return 2;
+}
+unsigned WebpopModeCost(const uint32_t* in, uint32_t* out) {
+  VP8Encoder enc = {0}; VP8EncIterator it = {0}; uint8_t preds[81], modes[16]; unsigned i;
+  enc.preds_w = 9; it.enc = &enc; it.i4 = in[0];
+  for (i = 0; i < 81; ++i) preds[i] = in[2+i];
+  for (i = 0; i < 16; ++i) modes[i] = in[83+i];
+  it.preds = preds+10+4*(in[1]&1)+36*((in[1]>>1)&1);
+  const uint16_t* costs = GetCostModeI4(&it,modes);
+  for (i = 0; i < 10; ++i) out[i] = costs[i]; return 10;
+}
+unsigned WebpopScoreOps(const uint32_t* in, uint32_t* out) {
+  VP8ModeScore a, b; unsigned i; SeedScore(&a); SeedScore(&b);
+  b.y_dc_levels[0] = 99; b.mode_uv = 3; b.derr[0][0] = 77;
+  int64_t* fields_a[] = {&a.D,&a.SD,&a.H,&a.R,&a.score};
+  int64_t* fields_b[] = {&b.D,&b.SD,&b.H,&b.R,&b.score};
+  for (i = 0; i < 5; ++i) {
+    *fields_a[i] = (int64_t)((uint64_t)in[2+2*i] | ((uint64_t)in[3+2*i]<<32));
+    *fields_b[i] = (int64_t)((uint64_t)in[13+2*i] | ((uint64_t)in[14+2*i]<<32));
+  }
+  a.nz = in[12]; b.nz = in[23];
+  switch (in[0]) {case 0: InitScore(&a); break; case 1: CopyScore(&a,&b); break;
+    case 2: AddScore(&a,&b); break; case 3: SetRDScore(in[1],&a); break; default: abort();}
+  return WebpopModeScore(&a,out);
+}

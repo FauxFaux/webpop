@@ -1,10 +1,277 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/quant_enc.c, setup, predictions and reconstruction.
+// Derived from upstream/src/enc/quant_enc.c, default scalar quantization/search.
 // See COPYING and PATENTS.
 #![allow(non_upper_case_globals)]
 
 use super::vp8i_enc::*;
+use super::{cost_enc::*, iterator_enc::*};
+use crate::dsp::quant::{IsFlat, IsFlatSource16};
 use crate::dsp::{dec::TransformWHT_C, enc::*};
+
+pub const kWeightY: [u16; 16] = [38, 32, 20, 9, 32, 28, 17, 7, 20, 17, 10, 4, 9, 7, 4, 2];
+
+pub fn InitScore(rd: &mut VP8ModeScore) {
+    rd.D = 0;
+    rd.SD = 0;
+    rd.R = 0;
+    rd.H = 0;
+    rd.nz = 0;
+    rd.score = MAX_COST;
+}
+pub fn CopyScore(dst: &mut VP8ModeScore, src: &VP8ModeScore) {
+    dst.D = src.D;
+    dst.SD = src.SD;
+    dst.R = src.R;
+    dst.H = src.H;
+    dst.nz = src.nz;
+    dst.score = src.score;
+}
+pub fn AddScore(dst: &mut VP8ModeScore, src: &VP8ModeScore) {
+    dst.D += src.D;
+    dst.SD += src.SD;
+    dst.R += src.R;
+    dst.H += src.H;
+    dst.nz |= src.nz;
+    dst.score += src.score;
+}
+#[inline]
+pub fn SetRDScore(lambda: i32, rd: &mut VP8ModeScore) {
+    rd.score = (rd.R + rd.H) * i64::from(lambda) + 256 * (rd.D + rd.SD);
+}
+
+pub fn PickBestIntra16(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8ModeScore) {
+    let segment = usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment);
+    let (lambda, tlambda) = (enc.dqm[segment].lambda_i16, enc.dqm[segment].tlambda);
+    let mut flat = IsFlatSource16(&it.yuv_in);
+    rd.mode_i16 = -1;
+    for mode in 0..4 {
+        let mut cur = VP8ModeScore::default();
+        let mut dst = it.yuv_out2;
+        cur.mode_i16 = mode as i32;
+        cur.nz = ReconstructIntra16(it, enc, &mut cur, &mut dst, mode);
+        it.yuv_out2 = dst;
+        cur.D = i64::from(SSE16x16_C(&it.yuv_in, &dst));
+        cur.SD = if tlambda != 0 {
+            i64::from((tlambda * Disto16x16_C(&it.yuv_in, &dst, &kWeightY) + 128) >> 8)
+        } else {
+            0
+        };
+        cur.H = i64::from(VP8FixedCostsI16[mode]);
+        cur.R = i64::from(VP8GetCostLuma16(it, enc, &cur));
+        if flat {
+            flat = IsFlat(&cur.y_ac_levels, 0);
+            if flat {
+                cur.D *= 2;
+                cur.SD *= 2;
+            }
+        }
+        SetRDScore(lambda, &mut cur);
+        if mode == 0 || cur.score < rd.score {
+            CopyScore(rd, &cur);
+            rd.mode_i16 = cur.mode_i16;
+            rd.y_dc_levels = cur.y_dc_levels;
+            rd.y_ac_levels = cur.y_ac_levels;
+            std::mem::swap(&mut it.yuv_out, &mut it.yuv_out2);
+        }
+    }
+    SetRDScore(enc.dqm[segment].lambda_mode, rd);
+    VP8SetIntra16Mode(it, enc, rd.mode_i16 as u8);
+    if rd.nz & 0x100ffff == 0x1000000 && rd.D > i64::from(enc.dqm[segment].min_disto) {
+        StoreMaxDelta(&mut enc.dqm[segment], &rd.y_dc_levels);
+    }
+}
+
+pub fn GetCostModeI4(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    modes: &[u8; 16],
+) -> &'static [u16; 10] {
+    let (x, y) = (it.i4 & 3, it.i4 >> 2);
+    let base = enc.preds_offset(it.x, it.y);
+    let left = if x == 0 {
+        enc.preds[base + y * enc.preds_w - 1]
+    } else {
+        modes[it.i4 - 1]
+    };
+    let top = if y == 0 {
+        enc.preds[base - enc.preds_w + x]
+    } else {
+        modes[it.i4 - 4]
+    };
+    &VP8FixedCostsI4[usize::from(top)][usize::from(left)]
+}
+
+pub fn PickBestIntra4(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &mut VP8ModeScore,
+) -> bool {
+    if enc.max_i4_header_bits == 0 {
+        return false;
+    }
+    let segment = usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment);
+    let (lambda, tlambda, lambda_mode) = (
+        enc.dqm[segment].lambda_i4,
+        enc.dqm[segment].tlambda,
+        enc.dqm[segment].lambda_mode,
+    );
+    let mut best = VP8ModeScore::default();
+    InitScore(&mut best);
+    best.H = 211;
+    SetRDScore(lambda_mode, &mut best);
+    let mut total_header = 0;
+    VP8IteratorStartI4(it, enc);
+    loop {
+        let offset = VP8Scan[it.i4];
+        let costs = GetCostModeI4(it, enc, &rd.modes_i4);
+        let mut block_best = VP8ModeScore::default();
+        InitScore(&mut block_best);
+        let mut best_mode = None;
+        // C swaps pointers between the prediction scratch and the candidate
+        // block. Track those two owned destinations explicitly, including writes
+        // from trials that lose or trigger an early return.
+        let mut tmp_in_scratch = true;
+        let mut best_in_scratch = false;
+        MakeIntra4Preds(it);
+        for mode in 0..10 {
+            let mut cur = VP8ModeScore::default();
+            let mut levels = [0i16; 16];
+            let mut dst = [0u8; 3 * BPS + 4];
+            cur.nz = u32::from(ReconstructIntra4(
+                it,
+                enc,
+                &mut levels,
+                &it.yuv_in[offset..],
+                &mut dst,
+                mode,
+            )) << it.i4;
+            if tmp_in_scratch {
+                Copy4x4_C(&dst, &mut it.yuv_p[I4TMP..]);
+            } else {
+                Copy4x4_C(&dst, &mut it.yuv_out2[offset..]);
+            }
+            cur.D = i64::from(SSE4x4_C(&it.yuv_in[offset..], &dst));
+            cur.SD = if tlambda != 0 {
+                i64::from((tlambda * Disto4x4_C(&it.yuv_in[offset..], &dst, &kWeightY) + 128) >> 8)
+            } else {
+                0
+            };
+            cur.H = i64::from(costs[mode]);
+            cur.R = if mode > 0 && IsFlat(&[levels], 3) {
+                140
+            } else {
+                0
+            };
+            SetRDScore(lambda, &mut cur);
+            if best_mode.is_some() && cur.score >= block_best.score {
+                continue;
+            }
+            cur.R += i64::from(VP8GetCostLuma4(it, enc, &levels));
+            SetRDScore(lambda, &mut cur);
+            if best_mode.is_none() || cur.score < block_best.score {
+                CopyScore(&mut block_best, &cur);
+                best_mode = Some(mode);
+                best_in_scratch = tmp_in_scratch;
+                tmp_in_scratch = !tmp_in_scratch;
+                best.y_ac_levels[it.i4] = levels;
+            }
+        }
+        SetRDScore(lambda_mode, &mut block_best);
+        AddScore(&mut best, &block_best);
+        if best.score >= rd.score {
+            return false;
+        }
+        total_header += block_best.H as i32;
+        if total_header > enc.max_i4_header_bits {
+            return false;
+        }
+        if best_in_scratch {
+            let mut block = [0; 3 * BPS + 4];
+            Copy4x4_C(&it.yuv_p[I4TMP..], &mut block);
+            Copy4x4_C(&block, &mut it.yuv_out2[offset..]);
+        }
+        rd.modes_i4[it.i4] = best_mode.unwrap() as u8;
+        it.top_nz[it.i4 & 3] = u8::from(block_best.nz != 0);
+        it.left_nz[it.i4 >> 2] = u8::from(block_best.nz != 0);
+        let pixels = it.yuv_out2;
+        if !VP8IteratorRotateI4(it, &pixels) {
+            break;
+        }
+    }
+    CopyScore(rd, &best);
+    rd.y_ac_levels = best.y_ac_levels;
+    VP8SetIntra4Mode(it, enc, &rd.modes_i4);
+    std::mem::swap(&mut it.yuv_out, &mut it.yuv_out2);
+    true
+}
+
+pub fn PickBestUV(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8ModeScore) {
+    let segment = usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment);
+    let lambda = enc.dqm[segment].lambda_uv;
+    let mut best = VP8ModeScore::default();
+    InitScore(&mut best);
+    let mut tmp_in_out2 = true;
+    let mut best_in_out2 = false;
+    rd.mode_uv = -1;
+    for mode in 0..4 {
+        let mut cur = VP8ModeScore::default();
+        let mut dst = [0u8; 7 * BPS + 16];
+        cur.nz = ReconstructUV(it, enc, &mut cur, &mut dst, mode);
+        if tmp_in_out2 {
+            Copy16x8_C(&dst, &mut it.yuv_out2[U_OFF_ENC..]);
+        } else {
+            Copy16x8_C(&dst, &mut it.yuv_out[U_OFF_ENC..]);
+        }
+        cur.D = i64::from(SSE16x8_C(&it.yuv_in[U_OFF_ENC..], &dst));
+        cur.SD = 0;
+        cur.H = i64::from(VP8FixedCostsUV[mode]);
+        cur.R = i64::from(VP8GetCostUV(it, enc, &cur));
+        if mode > 0 && IsFlat(&cur.uv_levels, 2) {
+            cur.R += 140 * 8;
+        }
+        SetRDScore(lambda, &mut cur);
+        if mode == 0 || cur.score < best.score {
+            CopyScore(&mut best, &cur);
+            rd.mode_uv = mode as i32;
+            rd.uv_levels = cur.uv_levels;
+            if enc.top_derr.is_some() {
+                rd.derr = cur.derr;
+            }
+            best_in_out2 = tmp_in_out2;
+            tmp_in_out2 = !tmp_in_out2;
+        }
+    }
+    VP8SetIntraUVMode(it, enc, rd.mode_uv as u8);
+    AddScore(rd, &best);
+    if best_in_out2 {
+        let pixels = it.yuv_out2;
+        Copy16x8_C(&pixels[U_OFF_ENC..], &mut it.yuv_out[U_OFF_ENC..]);
+    }
+    if enc.top_derr.is_some() {
+        StoreDiffusionErrors(it, enc, rd);
+    }
+}
+
+/// Required default-preset search. Other RD levels and methods remain deferred.
+pub fn VP8Decimate(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &mut VP8ModeScore,
+    rd_opt: VP8RDLevel,
+) -> bool {
+    assert_eq!(rd_opt, VP8RDLevel::RD_OPT_BASIC);
+    assert_eq!(enc.config.method, 4);
+    InitScore(rd);
+    VP8MakeLuma16Preds(it, enc);
+    VP8MakeChroma8Preds(it, enc);
+    it.do_trellis = false;
+    PickBestIntra16(it, enc, rd);
+    PickBestIntra4(it, enc, rd);
+    PickBestUV(it, enc, rd);
+    let skipped = rd.nz == 0;
+    VP8SetSkip(it, enc, skipped);
+    skipped
+}
 
 pub const VP8Scan: [usize; 16] = [
     0,
