@@ -11,6 +11,7 @@
 #include "src/dsp/lossless.h"
 #include "src/dsp/lossless_common.h"
 #include "src/enc/vp8i_enc.h"
+#include "src/enc/cost_enc.h"
 #include "src/utils/color_cache_utils.h"
 #include "src/utils/bit_writer_utils.h"
 #include "src/utils/huffman_encode_utils.h"
@@ -65,6 +66,11 @@ unsigned WebpopVP8Quantize(const uint32_t*, uint32_t*);
 unsigned WebpopVP8Metric(const uint32_t*, uint32_t*);
 unsigned WebpopVP8Histogram(const uint32_t*, int, uint32_t*);
 int WebpopBooleanWriter(const uint32_t*, unsigned, uint32_t*, unsigned*);
+unsigned WebpopVP8CostTables(uint32_t*);
+unsigned WebpopVP8LevelCosts(const uint32_t*, uint32_t*);
+unsigned WebpopVP8Residual(const uint32_t*, uint32_t*);
+unsigned WebpopVP8WriteProbas(const uint32_t*, uint32_t*);
+unsigned WebpopVP8DefaultProbas(uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -107,7 +113,39 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8BitWriter)) {
+    if (IS(VP8CostTables) || IS(VP8DefaultProbas)) {
+      REQUIRE(n == 0);
+      count = IS(VP8CostTables) ? WebpopVP8CostTables(out) : WebpopVP8DefaultProbas(out);
+    } else if (IS(VP8BitCost)) {
+      REQUIRE(n == 2 && in[1] <= 255);
+      out[count++] = VP8BitCost((int32_t)in[0], in[1]);
+    } else if (IS(VP8RecordStats)) {
+      proba_t stats;
+      REQUIRE(n >= 1 && n <= 131073);
+      stats = in[0];
+      for (i = 1; i < n; ++i) {
+        REQUIRE(in[i] <= 1);
+        out[count++] = VP8RecordStats(in[i], &stats);
+        out[count++] = stats;
+      }
+    } else if (IS(VP8LevelCosts)) {
+      REQUIRE(n == 1057 && in[0] <= 1);
+      for (i = 1; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopVP8LevelCosts(in, out);
+    } else if (IS(VP8Residual)) {
+      REQUIRE(n >= 2116 && in[0] <= 1 && in[1] < 4 && in[2] < 3);
+      REQUIRE(in[3] <= 32768 && n == 2116 + 16 * in[3]);
+      for (i = 4; i < 1060; ++i) REQUIRE(in[i] <= 255);
+      for (i = 2116; i < n; ++i) {
+        REQUIRE((int32_t)in[i] >= -2047 && (int32_t)in[i] <= 2047);
+        if (in[0] && (i - 2116) % 16 == 0) REQUIRE(in[i] == 0);
+      }
+      count = WebpopVP8Residual(in, out);
+    } else if (IS(VP8WriteProbas)) {
+      REQUIRE(n == 1059 && in[0] <= 1 && in[1] <= 255 && in[2] <= 31);
+      for (i = 3; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopVP8WriteProbas(in, out);
+    } else if (IS(VP8BitWriter)) {
       REQUIRE(WebpopBooleanWriter(in, n, out, &count));
     } else if (IS(QUANTDIV)) {
       REQUIRE(n == 3);

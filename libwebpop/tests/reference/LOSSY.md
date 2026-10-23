@@ -375,3 +375,103 @@ Validation: full workspace `cargo test --quiet` and
 `cargo test --features native-oracle --quiet` pass, as do all six boolean-writer
 tests in release, `cargo fmt --all -- --check`, the normal library-only build,
 and `git diff --check`. The upstream checkout remains clean at the recorded pin.
+
+### Milestone 2: costs, residual statistics and probability headers
+
+Continued from `3a6339f` against the unchanged, clean upstream pin and the same
+recorded GCC 15.2.0-16ubuntu1/CMake 4.2.3/Release `-O3 -DNDEBUG` configuration,
+SIMD/threading off, Rust 1.101.0-nightly (`7189d39d9`). `lossy_cost.c` calls
+normally linked original functions and tables; no cost, recording or coding
+algorithms are copied into this native adapter.
+
+New production ports:
+
+- `dsp/cost.rs`: `VP8EntropyCost`, `VP8LevelFixedCosts`, `VP8EncBands`,
+  `SetResidualCoeffs_C` and `GetResidualCost_C`.
+- `enc/cost_enc.rs`: fixed UV/I16/I4 costs, variable level-code paths,
+  `VP8InitResidual`, inline `VP8RecordStats` / `VP8BitCost` / `VP8LevelCost`,
+  `VP8CalculateLevelCosts` and `VP8RecordCoeffs`.
+- `enc/tree_enc.rs`: default and update coefficient probabilities, Intra4
+  mode probabilities, `VP8DefaultProbas` and `VP8WriteProbas`.
+- `enc/vp8i_enc.rs`: probability dimensions/types and `VP8EncProba`.
+
+The residual borrows its coefficient array; costing and recording receive the
+probability state explicitly instead of retaining aliased C pointers. The
+level-cost cache retains band/type/context layout and the dirty fast path.
+Band remapping is resolved on access, without self references or duplicated
+cached tables. Default probability setup preserves statistics, cost contents,
+skip probability and skip count, matching C. `VP8RecordStats` uses explicit
+wrapping for C's full-width unsigned `p + 1u`, including the `u32::MAX` edge.
+The macroblock iterator wrappers `VP8GetCostLuma4/Luma16/UV` remain deferred
+until that iterator exists. Buffered tokens and adaptive probability fitting
+are the next units; mode syntax emission and the frame loop remain later work.
+
+Independent syntax-tree walks exposed fixed estimates that differ from the
+actual bits emitted by the pinned coder. Preserve these deliberately:
+
+- Levels 9 and 10 each have `VP8LevelFixedCosts=640`; their fixed category/sign
+  event costs are 851 and 952. All other levels through 2,047 equal the explicit
+  fixed-event sums.
+- UV search costs in DC/TM/VE/HE order are `[302, 984, 439, 642]`; the current
+  `PutUVMode` tree costs `[218, 990, 601, 648]`.
+- I16 and all 1,000 context-dependent I4 mode costs equal their explicit tree
+  sums (I16 includes the block-type selection bit).
+
+These are properties of the pinned cost model, not Rust/C divergence. Residual
+independent checks use actual tree events for adaptive costs and statistics,
+with the two fixed level estimates above retained when adding search costs.
+The independent interval decoder used for boolean tests now lives in shared
+support and also checks probability-header field order and values.
+
+New requests extend the existing logical word protocol:
+
+- `VP8CostTables`: no input; entropy costs (256), fixed level costs (2,048),
+  coefficient bands including sentinel (17), UV (4), I16 (4), I4 (1,000),
+  default coefficient probabilities (1,056), update probabilities (1,056).
+- `VP8BitCost`: `(bit, probability)`; returns cost. Nonzero signed i32 bit
+  words preserve upstream truthiness, probability is `0..=255`.
+- `VP8RecordStats`: initial packed stats followed by zero/one observations;
+  returns each bit's return value and resulting stats. Includes rescale edges,
+  full-width unsigned states and a 131,072-observation stream.
+- `VP8LevelCosts`: dirty flag followed by 1,056 probability bytes; initialized
+  cache entries are 1,234. Returns dirty, then 6,528 cache entries. If the flag
+  was set, also returns the logical target band of all 192 remapped pointers.
+  A clear flag preserves the cache contents.
+- `VP8Residual`: `(first, coefficient type, initial context, block count)`,
+  then 1,056 probabilities, 1,056 packed stats and 16 signed i16 words per
+  block. `first` is 0/1, type 0..3, context 0..2, magnitudes at most 2,047;
+  AC-only blocks have zero DC. Returns `(last, cost, nonzero)` per block,
+  followed by all updated stats, including untouched types/bands/contexts.
+- `VP8WriteProbas`: `(use_skip, skip_probability, prefix_bits)`, followed by
+  1,056 probabilities. Returns approximate bit position after the header,
+  terminated byte count and bytes. Nonzero prefix widths write the low bits
+  of `0x5ad`, and all headers are followed by an 11-bit `0x5ad` sentinel.
+- `VP8DefaultProbas`: no input; checks setup on dirty state. Returns dirty,
+  use-skip, skip-probability, skip count, segment probabilities, coefficient
+  probabilities, stats and cached costs.
+
+There are 4,363 exact native requests: 1,373 scalar/table/cache cases, 840
+batched residual cases (247,644 blocks) and 2,150 probability-header streams.
+The residual corpus covers every magnitude/sign at coefficient 15, every
+coefficient position, all four types/three contexts/both starts, zero runs,
+last-coefficient/EOB boundaries, default/extreme/asymmetric probabilities,
+seeded dense coefficients and saturated counter rescaling. Header cases cover
+every individual probability-update slot, dense updates, both skip branches,
+probability byte extremes and prefixes through 31 bits. All match C exactly.
+
+There are 55 portable C fixtures in `fixtures/lossy_costs.txt`. Independent
+portable checks walk the coefficient coding tree for costs/statistics over all
+247,644 blocks, validate fixed/mode tables and dirty-cache behavior, check
+packed counters with wide and split-count arithmetic, and independently decode
+all 2,150 probability headers. Earlier boolean fixtures remain unchanged.
+Review the pin and `target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_costs cost_fixtures_match_pinned_reference
+```
+
+Validation passes: full workspace portable and native-oracle suites; all eight
+cost/probability tests and six boolean-writer tests in release with
+`native-oracle`; `cargo fmt --all -- --check`; normal library-only build; and
+`git diff --check`. Existing manual timing/large-corpus tests remain ignored.
+The source pin and previous fixtures are unchanged, and upstream remains clean.

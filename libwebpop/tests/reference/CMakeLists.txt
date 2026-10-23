@@ -22,6 +22,7 @@ target_sources(webpop_oracle PRIVATE near_lossless.c near_lossless_wrapper.c)
 target_sources(webpop_oracle PRIVATE lossy.c alpha_quality_wrapper.c)
 target_sources(webpop_oracle PRIVATE lossy_dsp.c)
 target_sources(webpop_oracle PRIVATE boolean_writer.c)
+target_sources(webpop_oracle PRIVATE lossy_cost.c)
 
 target_sources(webpop_oracle PRIVATE predictor.c)
 

@@ -218,3 +218,50 @@ pub fn fixture_cases() -> Vec<Case> {
         })
         .collect()
 }
+
+// Independent streaming decoder: use interval sizes, no encoder normalization
+// tables, deferred-byte runs, carry propagation or encoder accumulator.
+pub struct Decoder<'a> {
+    bytes: &'a [u8],
+    cursor: usize,
+    code: u32,
+    size: u32,
+}
+impl<'a> Decoder<'a> {
+    pub fn new(bytes: &'a [u8]) -> Self {
+        let mut d = Self {
+            bytes,
+            cursor: 0,
+            code: 0,
+            size: 255,
+        };
+        for _ in 0..8 {
+            d.code = 2 * d.code + d.next();
+        }
+        d
+    }
+    fn next(&mut self) -> u32 {
+        assert!(
+            self.cursor < self.bytes.len() * 8,
+            "decoder exhausted terminated stream"
+        );
+        let bit = (self.bytes[self.cursor / 8] >> (7 - self.cursor % 8)) & 1;
+        self.cursor += 1;
+        u32::from(bit)
+    }
+    pub fn bit(&mut self, probability: u8) -> bool {
+        let zero_size = ((self.size - 1) * u32::from(probability) / 256) + 1;
+        let bit = self.code >= zero_size;
+        if bit {
+            self.code -= zero_size;
+            self.size -= zero_size;
+        } else {
+            self.size = zero_size;
+        }
+        while self.size < 128 {
+            self.size *= 2;
+            self.code = 2 * self.code + self.next();
+        }
+        bit
+    }
+}

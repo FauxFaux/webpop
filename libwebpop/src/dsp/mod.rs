@@ -1,3 +1,4 @@
+pub mod cost;
 pub mod dec;
 pub mod enc;
 pub mod lossless;

@@ -58,7 +58,7 @@ Color quality 100 still uses YUV420 and quantization; it is not lossless RGB.
 
 ## Current repository (revalidated 2026-10-23)
 
-Continued from `e96c3da` against the unchanged, clean upstream pin.
+Continued from `3a6339f` against the unchanged, clean upstream pin.
 **Milestones 0 and 1 are complete.** The scalar VP8 prediction, transform,
 quantization and metric leaves match C. The dependency graph below still applies;
 the public lossy Rust APIs remain unimplemented.
@@ -129,7 +129,20 @@ the public lossy Rust APIs remain unimplemented.
   are 8,280 exact native traces and 128 portable fixtures. An independent
   interval decoder recovers 1,278,333 bits from 8,273 streams; explicit checks
   include a 511-byte deferred run and carry/no-carry resolution. Cost and
-  probability tables, residual costs and buffered tokens remain in milestone 2.
+  probability tables and residual costs are covered by the following batch;
+  buffered tokens remain in milestone 2.
+- **Milestone 2 costs and probability foundations are ported.** New
+  `dsp/cost.rs`, `enc/cost_enc.rs` and `enc/tree_enc.rs` supply entropy/fixed
+  mode and level tables, default/update probabilities, level-cost caching,
+  residual last-nonzero detection and costing, adaptive statistics recording,
+  default probability setup and probability-header writing. Rust resolves
+  band-remapped costs on access and passes state explicitly, avoiding aliased
+  or self-referential pointers. Another 4,363 native requests and 55 portable
+  fixtures pass, with independent tree walks over 247,644 residual blocks and
+  decoding of 2,150 probability headers. Pinned estimates for levels 9/10 and
+  all four UV modes intentionally differ from their emitted-bit costs; tests
+  preserve those values. Buffered tokens and probability fitting remain next;
+  iterator-dependent macroblock cost wrappers await the iterator.
 - **Shared input/output glue remains ARGB/VP8L-only.** Checked geometry,
   owned pixels/output and error propagation exist. `WebPPicture` has only
   width, height and packed ARGB; import, transparency detection and cleanup
@@ -610,7 +623,7 @@ work; integrate parents only after their dependencies match the oracle.
 | --- | --- | --- | --- |
 | 0 (complete) | Extend existing oracle/fixtures with a VP8 leaf, both lossy public C wrappers and their provenance | Completed lossless (satisfied) | `FTransform_C`, both public C entry points, 48 portable fixtures and 3,566 independent VP8/ALPH decodes; lossless and near-lossless regressions pass |
 | 1 (complete) | VP8 tables/scans, clipping, predictions, transforms/inverse WHT, scalar quantization, SSE/texture/histogram DSP `[B]` | 0 | 34,554 exact native requests and 290 portable DSP fixtures; independent border, rounding, Hadamard, quantization, histogram and padding checks |
-| 2 | **Boolean bit writer complete**; cost/probability tables, residual cost leaves, buffered token recording/emission `[C]` | 0 | Exact bits/bytes and state across carry/0xff runs, probabilities 0/255, finish boundaries, coefficient categories and token storage boundaries |
+| 2 | **Boolean writer, cost/probability tables and residual leaves complete**; buffered token recording/emission `[C]` | 0 | Exact bits/bytes and state across carry/0xff runs, probabilities 0/255, finish boundaries, coefficient categories and token storage boundaries |
 | 3 | YUVA picture storage, default RGBA import and cleanup `[A]`; iterator/block geometry/borders/contexts `[D]` | 0 | Exact YUVA planes, gamma/alpha-weighting results, padded blocks, row transitions and Intra4 rotations |
 | 4 | Analysis/segment assignment `[E]`; segment params, matrix expansion and filter-strength leaves `[F foundations]` | 1, 3 | Exact susceptibility histograms/centers, segment remaps, q/deltas, matrices/lambdas and initial filter strengths |
 | 5 | Candidate reconstruction, mode costs, Intra16/Intra4/UV selection, diffusion and scratch commits `[F remainder]` | 1, 2, 3, 4 | Exact levels, reconstructed blocks, scores, winning modes, saved contexts/borders and diffusion errors |
@@ -630,8 +643,9 @@ path and alpha feature range are covered.
 The lossy oracle and scalar VP8 DSP milestones are complete. Next small units
 (milestones 2–3, and independent alpha leaves) are:
 
-1. Probability/cost tables, residual last-nonzero detection and costs, then
-   buffered token recording/emission with coefficient contexts and statistics.
+1. Buffered token recording/emission with coefficient contexts and statistics,
+   page boundaries, size estimation, final-pass disposal and probability fitting.
+   The boolean writer, cost/probability tables and residual leaves are ported.
 2. Default RGB→Y and UV accumulation/conversion, gamma/interpolation and
    alpha-weighted cases; import last-row/odd-column handling before whole images.
 3. Alpha-to-green dispatch and direct comparisons of the existing headerless
