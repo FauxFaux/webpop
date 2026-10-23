@@ -79,6 +79,9 @@ unsigned WebpopYuvGamma(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopYuvMatrix(const uint32_t*, int, uint32_t*);
 unsigned WebpopYuvAccumulate(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopYuvaImport(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopIteratorScan(const uint32_t*, uint32_t*);
+unsigned WebpopIteratorNz(const uint32_t*, uint32_t*);
+unsigned WebpopIteratorCosts(const uint32_t*, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -121,7 +124,39 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(YuvTables)) {
+    if (IS(VP8IteratorNz)) {
+      REQUIRE(n == 22 && in[0] <= 1 && in[3] <= 1);
+      for (i = 4; i < n; ++i) REQUIRE(in[i] <= 1);
+      count = WebpopIteratorNz(in, out);
+    } else if (IS(VP8IteratorCosts)) {
+      REQUIRE(n == 1494 && in[2] <= 1 && in[3] < 16);
+      for (i = 4; i < 22; ++i) REQUIRE(in[i] <= 1);
+      for (; i < 1078; ++i) REQUIRE(in[i] <= 255);
+      for (; i < n; ++i) REQUIRE((int32_t)in[i] >= -2047 && (int32_t)in[i] <= 2047);
+      for (i = 1094; i < 1350; i += 16) REQUIRE(in[i] == 0);
+      count = WebpopIteratorCosts(in, out);
+    } else if (IS(VP8IteratorScan)) {
+      uint64_t pixels, mbw, mbh, pred_size, budget;
+      REQUIRE(n >= 7 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383);
+      REQUIRE(in[2] <= 1 && in[3] <= 1 && in[6] <= 1);
+      mbw = (in[0] + 15) / 16; mbh = (in[1] + 15) / 16;
+      REQUIRE(in[4] <= mbh && in[5] <= mbw * (mbh - in[4]));
+      pixels = (uint64_t)in[0] * in[1] + 2 * (uint64_t)((in[0] + 1) / 2) * ((in[1] + 1) / 2);
+      pred_size = (4 * mbw + 1) * (4 * mbh + 1);
+      budget = 158 + (815 + (in[6] && !in[2] ? 679 : 0)) * (uint64_t)in[5] + pred_size + 5 * mbw * mbh + mbw + 1 + 32 * mbw + (in[3] ? 4 * mbw : 0);
+      REQUIRE(7 + pixels + 558 * (uint64_t)in[5] == n && budget <= LIMIT);
+      for (i = 7; i < 7 + pixels; ++i) REQUIRE(in[i] <= 255);
+      for (; i < n; i += 558) {
+        unsigned j;
+        for (j = 0; j < 512; ++j) REQUIRE(in[i + j] <= 255);
+        REQUIRE(in[i + 512] <= 1 && in[i + 529] <= 3 && in[i + 530] <= 1 && in[i + 531] <= 3);
+        for (j = 513; j < 529; ++j) REQUIRE(in[i + j] <= 9);
+        if (in[i + 512]) REQUIRE(in[i + 513] <= 3);
+        for (j = 532; j < 550; ++j) REQUIRE(in[i + j] <= 1);
+        for (; j < 558; ++j) REQUIRE((int32_t)in[i + j] >= -128 && (int32_t)in[i + j] <= 127);
+      }
+      count = WebpopIteratorScan(in, out);
+    } else if (IS(YuvTables)) {
       REQUIRE(n == 0);
       count = WebpopYuvTables(out);
     } else if (IS(YuvGamma)) {

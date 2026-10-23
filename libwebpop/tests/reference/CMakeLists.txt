@@ -25,6 +25,7 @@ target_sources(webpop_oracle PRIVATE boolean_writer.c)
 target_sources(webpop_oracle PRIVATE lossy_cost.c)
 target_sources(webpop_oracle PRIVATE lossy_tokens.c lossy_frame.c)
 target_sources(webpop_oracle PRIVATE lossy_yuv.c)
+target_sources(webpop_oracle PRIVATE lossy_iterator.c)
 
 target_sources(webpop_oracle PRIVATE predictor.c)
 

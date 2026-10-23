@@ -674,3 +674,118 @@ Validation passes: full workspace `cargo test --quiet` and
 release with `native-oracle`, `cargo fmt --all -- --check`, normal library-only
 build and `git diff --check`. Existing manual tests remain ignored. The upstream
 checkout is clean at the recorded pin.
+
+### Milestone 3 complete: iterator and macroblock residual costs
+
+Continued from `a41d65c` against the unchanged, clean pin and the same scalar
+GCC 15.2.0-16ubuntu1 / CMake 4.2.3 / Release `-O3 -DNDEBUG` configuration,
+SIMD/threading off, Rust 1.101.0-nightly `7189d39d9`. `lossy_iterator.c` calls
+the normally linked original iterator and macroblock cost functions. It only
+allocates and serializes their state; no iterator/cost algorithm is copied.
+The constructor's private C layout is represented by logical geometry, owned
+arrays and constant prediction/context borders. Native pointer alignment and
+addresses are excluded from comparisons.
+
+`enc/iterator_enc.rs` ports iterator initialization, row/countdown controls,
+source block/line import and edge replication, reconstructed boundary saves,
+advance, nonzero contexts, mode setters and Intra4 start/rotation. The scalar
+37-byte Intra4 boundary is retained, with an explicit offset and 13-byte DSP
+window. The rightmost subblocks carry the original external top-right samples
+through successive rows; the last macroblock replicates its last top sample.
+`MinSize` retains upstream's plain `#[inline]`.
+
+`enc/vp8i_enc.rs` adds the iterator subset of `VP8Encoder`, `VP8EncIterator`,
+`VP8MBInfo`, `DError` and `VP8ModeScore`, with the cache layout/offset constants.
+The encoder constructor checks geometry, macroblock and allocation sizes and
+propagates allocation errors. Frame arguments replace back-pointers; current
+macroblock/prediction/context indices are derived from x/y. Left sample arrays
+include their corner at index zero; chroma V starts at offset 16. Source-border
+scratch is owned by the iterator and discarded on advance, then reimported by
+analysis. Coding reads/writes persistent reconstructed top borders. No pointers,
+aliased mutation or unsafe Rust are needed. Advanced config/partition routing,
+callbacks/progress and `show_compressed` export remain outside the required
+default path; the rest of VP8Encoder is added by subsequent milestones.
+
+`cost_enc.rs` adds `VP8GetCostLuma4`, `VP8GetCostLuma16` and `VP8GetCostUV`.
+Luma4 reads existing trial contexts without mutation. Luma16 and UV reimport
+packed neighbors before each trial and update their own context grid. Luma16
+DC costing preserves both DC contexts; `left_nz[8]` is propagated separately
+by the caller, and packing always takes the DC bit from the top. Shared bottom/
+right corner bits also take the top array's value. Unused bits are discarded.
+
+The new logical requests are:
+
+- `VP8IteratorNz`: `(action, top_packed, left_packed, left_dc)`, nine initial
+  top bytes and nine left bytes. Bytes and DC are binary; action zero unpacks
+  before packing, action one only packs. The explicit DC overrides the initial
+  left array's last element. Returns both byte arrays, packed output and the
+  unchanged left packed word.
+- `VP8IteratorCosts`: `(top_packed, left_packed, left_dc, i4_index)`, nine top
+  and nine left binary bytes, 1,056 probability bytes, then 16 DC, 256 luma AC,
+  128 UV and 16 Intra4 signed coefficient words. AC DC slots are zero; levels
+  are bounded by 2,047. Returns each of the Luma4/Luma16/UV costs followed by
+  its complete top/left context arrays, then both unchanged packed words.
+- `VP8IteratorScan`: `(width, height, source_borders, diffusion, start_row,
+  count, trace_i4)`, tightly packed Y/U/V byte planes, then one 558-word packet
+  per visited macroblock. Packets contain 512 reconstructed cache bytes,
+  Intra16 flag, 16 modes, UV mode, skip, segment, nine top/nine left binary
+  contexts, and four left/four top signed i8 diffusion errors. Intra16 uses
+  the first mode; otherwise all sixteen Intra4 modes are stored. The supplied
+  errors exercise persistence/reset behavior, not mode-search diffusion.
+
+Scan output starts with snapshots after init and row/countdown selection.
+Each 79-word snapshot contains position/countdowns/done, 17 left-Y and 9+9
+left-U/V samples including corners, both nine-byte context arrays, four left
+errors, trellis flag, twelve cleared bit counters and full 64-bit luma/UV bit
+counts as low/high pairs. Init starts with dirty counters/errors/trellis and
+sentinel bit counts so selective reset/preservation can be observed.
+
+Each block returns its imported snapshot, all 512 input cache bytes including
+padding, and 16+16 top-Y/UV bytes. Coding scans with `trace_i4` return the
+starting `(i4_index, top_offset, 37 boundary bytes)`, then the rotation return
+value and the same state after each of sixteen rotations. The trace next
+contains the saved snapshot/top borders/packed context, advance return value
+and advanced snapshot. Source analysis scans omit reconstructed border saves.
+The response ends with the complete predictor map including constant borders,
+all five logical fields per macroblock, the packed row including left sentinel,
+both full top-sample arrays and optional top diffusion errors. Requests and
+worst-case responses are bounded by the existing protocol limit. The native
+predictor allocation also guards the terminal row pointer; unused guards and
+C padding are not serialized.
+
+There are 18,671 exact native requests: 17,484 nonzero-context cases, 275 scan
+workflows and 912 macroblock cost cases. Context cases exhaust all 16,384
+independent outgoing edge combinations, deliberately inconsistent shared
+corners, every incoming bit and 1,036 seeded word pairs. Scans cover source and
+reconstructed borders, both diffusion settings, empty/subrange/terminal scans,
+partial dimensions around 8/16/32, multirow macroblocks, every Intra4 position,
+both mode types/all UV modes/skip/segments and complete 1×16,383 / 16,383×1
+scans. Cost cases cover all sixteen Intra4 positions, default, uniform extreme
+and asymmetric probabilities, zero/sparse/dense blocks and signed/category
+boundaries including the pinned level-9/10 estimates.
+
+Independent portable tests check 418 macroblocks directly against source and
+reconstructed pixel coordinates; 368 Intra4 windows against geometric
+neighbors and external top-right samples; all outgoing context combinations
+against a separate bit-position model; selective row/restart resets, cache
+preservation, geometry errors and maximum skinny dimensions. Macroblock costs
+are summed with independent coefficient syntax-tree walks and 4×4 / two 2×2
+context grids, preserving trial reimports and the separate DC bit.
+
+`fixtures/lossy_iterator.txt` contains 80 portable C fixtures. Existing fixtures
+and source pin are unchanged. Review the pin, wrapper and toolchain record in
+`target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_iterator iterator_fixtures_match_pinned_reference
+```
+
+Milestone 3 is complete: 25,245 native requests and 167 portable fixtures across
+input/cleanup and iterator/cost batches. Analysis/segment assignment and
+quantizer/filter foundations are next; the public lossy APIs remain later work.
+
+Validation passes: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all eight iterator/cost tests in
+release with `native-oracle`, formatting, normal library-only build and
+`git diff --check`. Existing manual tests remain ignored; upstream remains
+clean at the recorded pin.

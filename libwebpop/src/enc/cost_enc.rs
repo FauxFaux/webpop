@@ -329,3 +329,48 @@ pub fn VP8RecordCoeffs(ctx: usize, res: &VP8Residual<'_>, proba: &mut VP8EncProb
     }
     true
 }
+
+pub fn VP8GetCostLuma4(it: &VP8EncIterator, enc: &VP8Encoder, levels: &[i16; 16]) -> i32 {
+    let (x, y) = (it.i4 & 3, it.i4 >> 2);
+    let mut res = VP8InitResidual(0, 3);
+    SetResidualCoeffs_C(levels, &mut res);
+    GetResidualCost_C(usize::from(it.top_nz[x] + it.left_nz[y]), &res, &enc.proba)
+}
+
+pub fn VP8GetCostLuma16(it: &mut VP8EncIterator, enc: &VP8Encoder, rd: &VP8ModeScore) -> i32 {
+    super::iterator_enc::VP8IteratorNzToBytes(it, enc);
+    let mut res = VP8InitResidual(0, 1);
+    SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+    let mut cost = GetResidualCost_C(usize::from(it.top_nz[8] + it.left_nz[8]), &res, &enc.proba);
+    let mut res = VP8InitResidual(1, 0);
+    for y in 0..4 {
+        for x in 0..4 {
+            SetResidualCoeffs_C(&rd.y_ac_levels[x + 4 * y], &mut res);
+            cost += GetResidualCost_C(usize::from(it.top_nz[x] + it.left_nz[y]), &res, &enc.proba);
+            it.top_nz[x] = u8::from(res.last >= 0);
+            it.left_nz[y] = u8::from(res.last >= 0);
+        }
+    }
+    cost
+}
+
+pub fn VP8GetCostUV(it: &mut VP8EncIterator, enc: &VP8Encoder, rd: &VP8ModeScore) -> i32 {
+    super::iterator_enc::VP8IteratorNzToBytes(it, enc);
+    let mut res = VP8InitResidual(0, 2);
+    let mut cost = 0;
+    for ch in [0, 2] {
+        for y in 0..2 {
+            for x in 0..2 {
+                SetResidualCoeffs_C(&rd.uv_levels[ch * 2 + x + y * 2], &mut res);
+                cost += GetResidualCost_C(
+                    usize::from(it.top_nz[4 + ch + x] + it.left_nz[4 + ch + y]),
+                    &res,
+                    &enc.proba,
+                );
+                it.top_nz[4 + ch + x] = u8::from(res.last >= 0);
+                it.left_nz[4 + ch + y] = u8::from(res.last >= 0);
+            }
+        }
+    }
+    cost
+}

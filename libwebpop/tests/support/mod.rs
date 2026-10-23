@@ -16,6 +16,7 @@ pub mod token_streams;
 pub mod vp8_boolean;
 pub mod vp8_cost;
 pub mod vp8_dsp;
+pub mod vp8_iterator;
 pub mod vp8_predictions;
 pub mod vp8_tokens;
 pub mod vp8_transforms;
@@ -44,6 +45,9 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8IteratorScan" | "VP8IteratorNz" | "VP8IteratorCosts" => {
+                vp8_iterator::evaluate(self)
+            }
             "YuvTables" | "YuvGamma" | "YuvLuma" | "YuvUV" | "YuvAccumulate" | "YuvaImport" => {
                 vp8_yuv::evaluate(self)
             }

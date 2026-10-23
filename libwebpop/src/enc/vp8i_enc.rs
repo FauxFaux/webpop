@@ -98,3 +98,189 @@ pub const I4VL4: usize = I4DC4 + 28;
 pub const I4HD4: usize = I4DC4 + 4 * BPS;
 pub const I4HU4: usize = I4HD4 + 4;
 pub const I4TMP: usize = I4HD4 + 8;
+
+pub const YUV_SIZE_ENC: usize = 16 * BPS;
+pub const Y_OFF_ENC: usize = 0;
+pub const U_OFF_ENC: usize = 16;
+pub const V_OFF_ENC: usize = 24;
+pub type DError = [[i8; 2]; 2];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VP8MBInfo {
+    pub r#type: u8,
+    pub uv_mode: u8,
+    pub skip: bool,
+    pub segment: u8,
+    pub alpha: u8,
+}
+
+/// Candidate state. Coefficients and scores belong to a trial until its mode
+/// wins; storing them here does not commit iterator borders or contexts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VP8ModeScore {
+    pub D: i64,
+    pub SD: i64,
+    pub H: i64,
+    pub R: i64,
+    pub score: i64,
+    pub y_dc_levels: [i16; 16],
+    pub y_ac_levels: [[i16; 16]; 16],
+    pub uv_levels: [[i16; 16]; 8],
+    pub mode_i16: i32,
+    pub modes_i4: [u8; 16],
+    pub mode_uv: i32,
+    pub nz: u32,
+    pub derr: [[i8; 3]; 2],
+}
+
+/// Frame-persistent iterator foundations. Additional segment, configuration
+/// and bitstream state will be added with the corresponding port milestones.
+/// Prediction storage includes the constant top row and left column; nz[0]
+/// is the constant left sentinel, followed by one packed context per column.
+pub struct VP8Encoder {
+    pub mb_w: usize,
+    pub mb_h: usize,
+    pub preds_w: usize,
+    pub mb_info: Vec<VP8MBInfo>,
+    pub preds: Vec<u8>,
+    pub nz: Vec<u32>,
+    pub y_top: Vec<u8>,
+    pub uv_top: Vec<u8>,
+    pub top_derr: Option<Vec<DError>>,
+    pub proba: VP8EncProba,
+}
+
+impl VP8Encoder {
+    pub fn new(
+        width: u32,
+        height: u32,
+        diffusion: bool,
+    ) -> Result<Self, crate::webp::encode::LosslessEncodeError> {
+        use crate::enc::picture_csp_enc::RgbaInputError;
+        if !(1..=16383).contains(&width) || !(1..=16383).contains(&height) {
+            return Err(RgbaInputError::InvalidDimensions.into());
+        }
+        let (mb_w, mb_h) = (
+            (width as usize).div_ceil(16),
+            (height as usize).div_ceil(16),
+        );
+        let preds_w = mb_w
+            .checked_mul(4)
+            .and_then(|v| v.checked_add(1))
+            .ok_or(RgbaInputError::SizeOverflow)?;
+        let preds_h = mb_h
+            .checked_mul(4)
+            .and_then(|v| v.checked_add(1))
+            .ok_or(RgbaInputError::SizeOverflow)?;
+        let count = mb_w.checked_mul(mb_h).ok_or(RgbaInputError::SizeOverflow)?;
+        let preds_size = preds_w
+            .checked_mul(preds_h)
+            .ok_or(RgbaInputError::SizeOverflow)?;
+        let top_size = mb_w.checked_mul(16).ok_or(RgbaInputError::SizeOverflow)?;
+        fn allocate<T: Default + Clone>(
+            len: usize,
+        ) -> Result<Vec<T>, std::collections::TryReserveError> {
+            let mut v = Vec::new();
+            v.try_reserve_exact(len)?;
+            v.resize(len, T::default());
+            Ok(v)
+        }
+        let mut proba = VP8EncProba::default();
+        super::tree_enc::VP8DefaultProbas(&mut proba);
+        Ok(Self {
+            mb_w,
+            mb_h,
+            preds_w,
+            mb_info: allocate(count)?,
+            preds: allocate(preds_size)?,
+            nz: allocate(mb_w + 1)?,
+            y_top: allocate(top_size)?,
+            uv_top: allocate(top_size)?,
+            top_derr: if diffusion {
+                Some(allocate(mb_w)?)
+            } else {
+                None
+            },
+            proba,
+        })
+    }
+
+    pub fn preds_offset(&self, x: usize, y: usize) -> usize {
+        (4 * y + 1) * self.preds_w + 4 * x + 1
+    }
+}
+
+/// Scratch and position without C back-pointers. Functions receive the frame
+/// explicitly, and candidate output slots can be swapped with std::mem::swap.
+/// Left buffers include the corner at index zero. Chroma V's corner is at 16,
+/// matching the DSP prediction layout. i4_top is an offset into i4_boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VP8EncIterator {
+    pub x: usize,
+    pub y: usize,
+    pub yuv_in: [u8; YUV_SIZE_ENC],
+    pub yuv_out: [u8; YUV_SIZE_ENC],
+    pub yuv_out2: [u8; YUV_SIZE_ENC],
+    pub yuv_p: [u8; PRED_SIZE_ENC],
+    pub y_left: [u8; 17],
+    pub uv_left: [u8; 25],
+    pub i4_boundary: [u8; 37],
+    pub i4_top: usize,
+    pub i4: usize,
+    pub top_nz: [u8; 9],
+    pub left_nz: [u8; 9],
+    pub bit_count: [[u64; 3]; 4],
+    pub luma_bits: u64,
+    pub uv_bits: u64,
+    pub do_trellis: bool,
+    pub count_down: i32,
+    pub count_down0: i32,
+    pub left_derr: DError,
+    pub source_boundary: Option<[u8; 32]>,
+}
+
+impl Default for VP8EncIterator {
+    fn default() -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            yuv_in: [0; YUV_SIZE_ENC],
+            yuv_out: [0; YUV_SIZE_ENC],
+            yuv_out2: [0; YUV_SIZE_ENC],
+            yuv_p: [0; PRED_SIZE_ENC],
+            y_left: [0; 17],
+            uv_left: [0; 25],
+            i4_boundary: [0; 37],
+            i4_top: 0,
+            i4: 0,
+            top_nz: [0; 9],
+            left_nz: [0; 9],
+            bit_count: [[0; 3]; 4],
+            luma_bits: 0,
+            uv_bits: 0,
+            do_trellis: false,
+            count_down: 0,
+            count_down0: 0,
+            left_derr: [[0; 2]; 2],
+            source_boundary: None,
+        }
+    }
+}
+
+impl VP8EncIterator {
+    pub fn y_top<'a>(&'a self, enc: &'a VP8Encoder) -> &'a [u8] {
+        self.source_boundary
+            .as_ref()
+            .map_or_else(|| &enc.y_top[16 * self.x..], |v| &v[..])
+    }
+    pub fn uv_top<'a>(&'a self, enc: &'a VP8Encoder) -> &'a [u8] {
+        self.source_boundary
+            .as_ref()
+            .map_or_else(|| &enc.uv_top[16 * self.x..], |v| &v[16..])
+    }
+    pub fn i4_window(&self) -> &[u8; 13] {
+        self.i4_boundary[self.i4_top - 5..self.i4_top + 8]
+            .try_into()
+            .unwrap()
+    }
+}

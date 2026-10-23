@@ -8,9 +8,9 @@ points covered here, exposed by quad-image's full WebP Wasm encoder. The
 near-lossless extension reuses VP8L and needs none of this plan's VP8/YUV/ALPH
 milestones. Both lossless and near-lossless are complete for the initial
 scalar scope, including their public APIs and pinned-reference validation.
-Lossy milestones 0–2 and milestone 3's default YUVA input/cleanup are complete;
-the iterator, VP8 mode search/frame coding and ALPH remain to port. Preserve
-upstream function names and source layout where practical. The result is a
+Lossy milestones 0–3 are complete; analysis/segmentation, VP8 mode search/frame
+coding and ALPH remain to port. Preserve upstream function names and source
+layout where practical. The result is a
 pure Rust library accepting prepared RGBA pixels and returning a complete
 still-image WebP file containing VP8, with a separate alpha stream when needed.
 
@@ -59,11 +59,11 @@ Color quality 100 still uses YUV420 and quantization; it is not lossless RGB.
 
 ## Current repository (revalidated 2026-10-23)
 
-Continued from `2237561` against the unchanged, clean upstream pin.
-**Milestones 0–2 are complete.** The scalar VP8 prediction, transform,
-quantization and metric leaves match C. Milestone 3's YUVA import/cleanup is
-also implemented; iterator work remains. The dependency graph below still
-applies; the public lossy Rust APIs remain unimplemented.
+Continued from `a41d65c` against the unchanged, clean upstream pin.
+**Milestones 0–3 are complete.** The scalar VP8 prediction, transform,
+quantization and metric leaves, YUVA import/cleanup and iterator match C.
+Iterator-based macroblock residual costs are also implemented. The dependency
+graph below still applies; the public lossy Rust APIs remain unimplemented.
 
 - **Lossless milestones 1–9 are complete.** The public simple API and
   configurable `encode_lossless_rgba` use the full synchronous analysis/trial
@@ -112,7 +112,7 @@ applies; the public lossy Rust APIs remain unimplemented.
   comparisons and 51 portable fixtures, including full scratch preservation.
   Independent tests check rounded border means, directional transposition,
   true-motion clipping, byte averaging, replicated edges and minimum buffers.
-  Iterator construction/rotation of these borders remains in milestone 3.
+  Iterator construction/rotation of these borders is now covered by milestone 3.
 - **Milestone 1 is complete.** The remaining DSP now includes `QuantizeBlock_C`
   (also WHT), `Quantize2Blocks_C`, SSE and texture distortion, `Mean16x4_C`,
   histogram collection/reduction, block copies, zigzag and scan/offset tables.
@@ -144,7 +144,7 @@ applies; the public lossy Rust APIs remain unimplemented.
   decoding of 2,150 probability headers. Pinned estimates for levels 9/10 and
   all four UV modes intentionally differ from their emitted-bit costs; tests
   preserve those values. The completion batch below adds tokens and fitting;
-  iterator-dependent macroblock cost wrappers await the iterator.
+  iterator-dependent macroblock cost wrappers are now covered by milestone 3.
 - **Milestone 2 is complete.** `enc/token_enc.rs` ports paginated coefficient
   token recording, adaptive/fixed probability packing, size estimation,
   repeatable trial emission and final-pass disposal. `enc/frame_enc.rs` adds
@@ -170,7 +170,23 @@ applies; the public lossy Rust APIs remain unimplemented.
   sample. Independent checks cover replication, clipping, reciprocal rounding,
   cleanup run resets, alpha/visible-luma preservation and invalid geometry.
   Owned YUVA and inherited ARGB storage remain distinct; shared public config/
-  picture routing awaits milestone 9. Iterator borders/contexts remain next.
+  picture routing awaits milestone 9.
+- **Milestone 3 is complete.** New
+  [`enc/iterator_enc.rs`](../libwebpop/src/enc/iterator_enc.rs) ports raster
+  traversal, source-block padding, analysis/source and coding/reconstructed
+  borders, boundary saves, nonzero packing/unpacking, mode setters and all
+  Intra4 rotations. The iterator subset of `VP8Encoder`, owned scratch in
+  `VP8EncIterator`, `VP8MBInfo`, `DError` and `VP8ModeScore` now live in
+  `enc/vp8i_enc.rs`. Explicit frame arguments and offsets replace C pointers;
+  source scratch is owned and discarded on advance. `cost_enc.rs` adds
+  `VP8GetCostLuma4/Luma16/UV`, preserving trial-context refresh and mutation.
+  Another 18,671 exact native requests and 80 portable fixtures cover all
+  outgoing nonzero edge combinations, source/reconstructed scans, partial and
+  terminal rows, optional diffusion resets, full Intra4 boundary traces and
+  macroblock costs under default/extreme/asymmetric probabilities. Independent
+  coordinate checks, syntax-tree costs and context-grid walks pass. Across
+  milestone 3, there are 25,245 native requests and 167 portable fixtures.
+  Analysis/segment assignment and quantizer/filter foundations are next.
 - **Shared output glue remains VP8L-only.** Owned output and checked geometry/
   allocation errors are inherited. VP8 syntax and `VP8X`/`ALPH` assembly remain
   unimplemented.
@@ -640,8 +656,8 @@ names do not prove that Intra4, diffusion, raw fallback, or frame retries ran.
 ## Implementation order and acceptance gates
 
 The completed lossless and near-lossless ports satisfy the project order.
-**Lossy milestones 0–2 are complete.** Milestone 3's YUVA import/cleanup is
-complete; the next checkpoint is its iterator. Milestone 8 reuses the implemented
+**Lossy milestones 0–3 are complete.** The next checkpoint is analysis/segment
+assignment and quantizer/filter foundations (4). Milestone 8 reuses the implemented
 configurable VP8L stream. Split large files into leaf/subgraph
 work; integrate parents only after their dependencies match the oracle.
 
@@ -650,7 +666,7 @@ work; integrate parents only after their dependencies match the oracle.
 | 0 (complete) | Extend existing oracle/fixtures with a VP8 leaf, both lossy public C wrappers and their provenance | Completed lossless (satisfied) | `FTransform_C`, both public C entry points, 48 portable fixtures and 3,566 independent VP8/ALPH decodes; lossless and near-lossless regressions pass |
 | 1 (complete) | VP8 tables/scans, clipping, predictions, transforms/inverse WHT, scalar quantization, SSE/texture/histogram DSP `[B]` | 0 | 34,554 exact native requests and 290 portable DSP fixtures; independent border, rounding, Hadamard, quantization, histogram and padding checks |
 | 2 (complete) | Boolean writer, cost/probability tables, residual leaves, buffered token recording/emission and fitting `[C]` | 0 | 17,738 native requests and 242 portable fixtures; independent bit/tree decoding, counter/tie checks, exact token packing, page boundaries, late-bound probabilities and final-pass disposal |
-| 3 (input complete) | YUVA picture storage, default RGBA import and cleanup `[A]` complete; iterator/block geometry/borders/contexts `[D]` next | 0 | Input: 6,574 exact native requests and 87 portable fixtures; remaining: padded blocks, row transitions, contexts and Intra4 rotations |
+| 3 (complete) | YUVA picture storage, default RGBA import and cleanup `[A]`; iterator/block geometry/borders/contexts `[D]`; iterator-based residual costs | 0–2 | 25,245 exact native requests and 167 portable fixtures; independent gamma/alpha, padding, source/reconstructed border, row-transition, nonzero-context, Intra4 and syntax-tree cost checks |
 | 4 | Analysis/segment assignment `[E]`; segment params, matrix expansion and filter-strength leaves `[F foundations]` | 1, 3 | Exact susceptibility histograms/centers, segment remaps, q/deltas, matrices/lambdas and initial filter strengths |
 | 5 | Candidate reconstruction, mode costs, Intra16/Intra4/UV selection, diffusion and scratch commits `[F remainder]` | 1, 2, 3, 4 | Exact levels, reconstructed blocks, scores, winning modes, saved contexts/borders and diffusion errors |
 | 6 | VP8 partition-0 syntax, modes, frame headers and opaque RIFF assembly `[H]` | 2, 3, 4 | Synthetic coding state emits exact header bytes; test-only fixed-mode opaque image decodes independently |
@@ -666,11 +682,11 @@ path and alpha feature range are covered.
 
 ### Next implementation batches
 
-The lossy oracle, scalar VP8 DSP, boolean/cost/token milestones and default
-YUVA import/cleanup are complete. Next small units are:
+The lossy oracle, scalar VP8 DSP, boolean/cost/token milestones, default
+YUVA import/cleanup and iterator are complete. Next small units are:
 
-1. Iterator/block geometry, border extension/rotation and nonzero contexts; then
-   iterator-dependent macroblock residual-cost wrappers.
+1. Analysis/susceptibility histograms, segment clustering/remapping, then
+   segment-quality mapping, matrices/lambdas and initial filter-strength leaves.
 2. Alpha-to-green dispatch and direct comparisons of the existing headerless
    `VP8LEncodeStream` at method 4/quality 32/`exact=1`, then alpha filter kernels,
    filter estimator and centroid `QuantizeLevels`. This branch can proceed

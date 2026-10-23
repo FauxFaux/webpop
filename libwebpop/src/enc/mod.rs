@@ -4,6 +4,7 @@ pub mod config_enc;
 pub mod cost_enc;
 pub mod frame_enc;
 pub mod histogram_enc;
+pub mod iterator_enc;
 pub mod near_lossless_enc;
 pub mod picture_csp_enc;
 pub mod picture_enc;
