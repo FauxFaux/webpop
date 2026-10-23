@@ -9,6 +9,8 @@ pub enum LosslessEncodeError {
     Input(#[from] RgbaInputError),
     #[error("quality must be in 0..=100")]
     InvalidQuality,
+    #[error("near-lossless strength must be in 0..=100")]
+    InvalidNearLosslessStrength,
     #[error("method must be in 0..=6")]
     InvalidMethod,
     #[error(transparent)]

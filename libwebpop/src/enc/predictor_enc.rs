@@ -8,7 +8,9 @@
 const ARGB_BLACK: u32 = 0xff000000;
 
 use crate::dsp::lossless::{VP8LMultipliers, VP8LPredictors};
-use crate::dsp::lossless_common::{DivRound, LOG_2_PRECISION_BITS, VP8LSubPixels};
+use crate::dsp::lossless_common::{
+    DivRound, LOG_2_PRECISION_BITS, VP8LAddPixels, VP8LNearLosslessBits, VP8LSubPixels,
+};
 use crate::dsp::lossless_enc::{
     VP8LCollectColorBlueTransforms, VP8LCollectColorRedTransforms, VP8LCombinedShannonEntropy,
     VP8LShannonEntropy, VP8LTransformColor,
@@ -117,7 +119,7 @@ pub fn PredictionCostSpatialHistogram(
 
 /// Return (active ARGB plane mask, first eligible predictor mode). Constant
 /// planes are omitted only when they stay constant after transparent cleanup.
-/// The quantization guard is retained for later near-lossless integration.
+/// Active quantization can change initially constant planes.
 pub fn GetPlaneDiffMask(argb: &[u32], max_quantization: u32, exact: bool) -> (u32, u32) {
     let first = argb[0];
     if max_quantization > 1 {
@@ -328,21 +330,26 @@ pub fn NearLossless(
     (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
-/// Lossless (max_quantization=1) GetResidual. Transparent RGB cleanup mutates
-/// row context in the same order as C, including the right-edge wrap word.
+/// Subtract predictions and reconstruct quantized pixels before later predictions.
+/// Transparent RGB cleanup also updates the right-edge wrap context.
 #[allow(clippy::too_many_arguments)]
 #[inline]
 pub fn GetResidual(
     width: usize,
+    height: usize,
     upper: &mut [u32],
     current: &mut [u32],
+    max_diffs: &[u8],
     mode: usize,
     x_start: usize,
     y: usize,
+    max_quantization: u32,
     exact: bool,
+    used_subtract_green: bool,
     out: &mut [u32],
 ) {
-    assert!(mode < 14 && x_start + out.len() <= width);
+    assert!(mode < 14 && x_start + out.len() <= width && y < height);
+    assert!(max_quantization.is_power_of_two() && max_quantization <= 32);
     assert!(current.len() > width && upper.len() > width);
     if exact {
         PredictBatch(mode, x_start, y, current, upper, out);
@@ -351,7 +358,25 @@ pub fn GetResidual(
     for (i, residual) in out.iter_mut().enumerate() {
         let x = x_start + i;
         let predict = PredictPixel(mode, x, y, current, upper);
-        *residual = VP8LSubPixels(current[x], predict);
+        *residual = if max_quantization == 1
+            || mode == 0
+            || y == 0
+            || y + 1 == height
+            || x == 0
+            || x + 1 == width
+        {
+            VP8LSubPixels(current[x], predict)
+        } else {
+            let residual = NearLossless(
+                current[x],
+                predict,
+                max_quantization,
+                max_diffs[x],
+                used_subtract_green,
+            );
+            current[x] = VP8LAddPixels(predict, residual);
+            residual
+        };
         if current[x] & 0xff000000 == 0 {
             *residual &= 0xff000000;
             current[x] = predict & 0x00ffffff;
@@ -363,7 +388,7 @@ pub fn GetResidual(
 }
 
 /// Convert a prepared image in place using a supplied predictor map. This
-/// ports the lossless path only; low effort always uses predictor 11 and skips
+/// quantizes residuals when requested; low effort always uses predictor 11 and skips
 /// transparent cleanup, as in C. Scratch rows are owned and allocation failures
 /// propagate. The first-row/column and right-edge wrap rules apply to all modes.
 #[allow(clippy::too_many_arguments)]
@@ -374,7 +399,9 @@ pub fn CopyImageWithPrediction(
     modes: &[u32],
     argb: &mut [u32],
     low_effort: bool,
+    max_quantization: u32,
     exact: bool,
+    used_subtract_green: bool,
 ) -> Result<(), std::collections::TryReserveError> {
     assert!(width > 0 && height > 0 && bits <= MAX_TRANSFORM_BITS);
     assert_eq!(
@@ -388,6 +415,9 @@ pub fn CopyImageWithPrediction(
     scratch.try_reserve_exact(row_size.checked_mul(2).expect("scratch size"))?;
     scratch.resize(2 * row_size, 0);
     let (mut upper, mut current) = scratch.split_at_mut(row_size);
+    let diff_width = if max_quantization > 1 { width } else { 0 };
+    let mut current_max_diffs = zeroed(diff_width)?;
+    let mut lower_max_diffs = zeroed(diff_width)?;
     for y in 0..height {
         std::mem::swap(&mut upper, &mut current);
         let count = width + usize::from(y + 1 < height);
@@ -402,17 +432,35 @@ pub fn CopyImageWithPrediction(
                 &mut argb[y * width..(y + 1) * width],
             );
         } else {
+            if max_quantization > 1 {
+                // Look ahead while the current source row still holds pixels.
+                std::mem::swap(&mut current_max_diffs, &mut lower_max_diffs);
+                if y + 2 < height {
+                    MaxDiffsForRow(
+                        width,
+                        width,
+                        argb,
+                        (y + 1) * width,
+                        &mut lower_max_diffs,
+                        used_subtract_green,
+                    );
+                }
+            }
             for x in (0..width).step_by(1 << bits) {
                 let mode = ((modes[(y >> bits) * tiles_per_row + (x >> bits)] >> 8) & 255) as usize;
                 let end = (x + (1 << bits)).min(width);
                 GetResidual(
                     width,
+                    height,
                     upper,
                     current,
+                    &current_max_diffs,
                     mode,
                     x,
                     y,
+                    max_quantization,
                     exact,
+                    used_subtract_green,
                     &mut argb[y * width + x..y * width + end],
                 );
             }
@@ -437,64 +485,83 @@ struct PredictorSearch {
     modes: Vec<Vec<u32>>,
 }
 
-impl PredictorSearch {
-    #[allow(clippy::too_many_arguments)]
-    fn ComputeResidualsForTile(
-        &mut self,
-        width: usize,
-        height: usize,
-        tile_x: usize,
-        tile_y: usize,
-        min_bits: u32,
-        update_up_to_index: usize,
-        scratch: &mut [u32],
-        argb: &[u32],
-        exact: bool,
-        min_mode: usize,
-        diff_mask: u32,
-    ) {
-        let start_x = tile_x << min_bits;
-        let start_y = tile_y << min_bits;
-        let max_x = (1 << min_bits).min(width - start_x);
-        let max_y = (1 << min_bits).min(height - start_y);
-        let have_left = usize::from(start_x > 0);
-        let context_start = start_x - have_left;
-        let (mut upper, mut current) = scratch.split_at_mut(width + 1);
-        let mut residuals = [0; 1 << MAX_TRANSFORM_BITS];
-        for mode in min_mode..14 {
-            if start_y > 0 {
-                let count = max_x + have_left + 1;
-                let offset = (start_y - 1) * width + context_start;
-                current[context_start..context_start + count]
-                    .copy_from_slice(&argb[offset..offset + count]);
-            }
-            for y in start_y..start_y + max_y {
-                std::mem::swap(&mut upper, &mut current);
-                let count = max_x + have_left + usize::from(y + 1 < height);
-                let offset = y * width + context_start;
-                current[context_start..context_start + count]
-                    .copy_from_slice(&argb[offset..offset + count]);
-                GetResidual(
+/// Accumulate candidate histograms using separate reconstructed context rows.
+#[allow(clippy::too_many_arguments)]
+pub fn ComputeResidualsForTile(
+    histograms: &mut [[u32; 1024]],
+    width: usize,
+    height: usize,
+    tile_x: usize,
+    tile_y: usize,
+    min_bits: u32,
+    update_up_to_index: usize,
+    scratch: &mut [u32],
+    argb: &[u32],
+    max_diffs: &mut [u8],
+    max_quantization: u32,
+    exact: bool,
+    used_subtract_green: bool,
+    min_mode: usize,
+    diff_mask: u32,
+) {
+    let start_x = tile_x << min_bits;
+    let start_y = tile_y << min_bits;
+    let max_x = (1 << min_bits).min(width - start_x);
+    let max_y = (1 << min_bits).min(height - start_y);
+    let have_left = usize::from(start_x > 0);
+    let context_start = start_x - have_left;
+    let context_width = max_x + have_left + usize::from(max_x < width - start_x);
+    let (mut upper, mut current) = scratch.split_at_mut(width + 1);
+    let mut residuals = [0; 1 << MAX_TRANSFORM_BITS];
+    for mode in min_mode..14 {
+        if start_y > 0 {
+            let count = max_x + have_left + 1;
+            let offset = (start_y - 1) * width + context_start;
+            current[context_start..context_start + count]
+                .copy_from_slice(&argb[offset..offset + count]);
+        }
+        for y in start_y..start_y + max_y {
+            std::mem::swap(&mut upper, &mut current);
+            let count = max_x + have_left + usize::from(y + 1 < height);
+            let offset = y * width + context_start;
+            current[context_start..context_start + count]
+                .copy_from_slice(&argb[offset..offset + count]);
+            if max_quantization > 1 && y >= 1 && y + 1 < height {
+                MaxDiffsForRow(
+                    context_width,
                     width,
-                    upper,
-                    current,
-                    mode,
-                    start_x,
-                    y,
-                    exact,
-                    &mut residuals[..max_x],
+                    &argb[context_start..],
+                    y * width,
+                    &mut max_diffs[context_start..],
+                    used_subtract_green,
                 );
-                for s in 0..=update_up_to_index {
-                    UpdateHisto(
-                        &mut self.histograms[s * 14 + mode],
-                        &residuals[..max_x],
-                        diff_mask,
-                    );
-                }
+            }
+            GetResidual(
+                width,
+                height,
+                upper,
+                current,
+                max_diffs,
+                mode,
+                start_x,
+                y,
+                max_quantization,
+                exact,
+                used_subtract_green,
+                &mut residuals[..max_x],
+            );
+            for s in 0..=update_up_to_index {
+                UpdateHisto(
+                    &mut histograms[s * 14 + mode],
+                    &residuals[..max_x],
+                    diff_mask,
+                );
             }
         }
     }
+}
 
+impl PredictorSearch {
     #[allow(clippy::too_many_arguments)]
     fn GetBestPredictorForTile(
         &mut self,
@@ -546,16 +613,19 @@ impl PredictorSearch {
     }
 }
 
-/// Choose lossless predictor modes and tile size using upstream's Z traversal,
+/// Choose predictor modes and tile size using upstream's Z traversal,
 /// accumulated entropy, neighbor biases, and strict first-minimum tie rules.
 /// Uniform maps may compact to a tile size larger than `max_bits` (up to 9).
+#[allow(clippy::too_many_arguments)]
 pub fn GetBestPredictorsAndSubSampling(
     width: usize,
     height: usize,
     min_bits: u32,
     max_bits: u32,
     argb: &[u32],
+    max_quantization: u32,
     exact: bool,
+    used_subtract_green: bool,
 ) -> Result<(u32, Vec<u32>), TryReserveError> {
     assert!(
         width > 0
@@ -568,7 +638,7 @@ pub fn GetBestPredictorsAndSubSampling(
         argb.len(),
         width.checked_mul(height).expect("image geometry")
     );
-    let (diff_mask, min_mode) = GetPlaneDiffMask(argb, 1, exact);
+    let (diff_mask, min_mode) = GetPlaneDiffMask(argb, max_quantization, exact);
     let min_mode = min_mode as usize;
     let max_s = (max_bits - min_bits) as usize;
     let levels = max_s + 1;
@@ -600,6 +670,7 @@ pub fn GetBestPredictorsAndSubSampling(
             .and_then(|n| n.checked_mul(2))
             .expect("scratch size"),
     )?;
+    let mut max_diffs = zeroed(if max_quantization > 1 { width } else { 0 })?;
     let update_up_to_index = (max_bits.min(4).max(min_bits) - min_bits) as usize;
     let tiles_per_row = width.div_ceil(1 << min_bits);
     let tiles_per_col = height.div_ceil(1 << min_bits);
@@ -607,7 +678,8 @@ pub fn GetBestPredictorsAndSubSampling(
     let (mut local_x, mut local_y, mut max_x, mut max_y) = (0, 0, 0, 0);
     let (mut tile_x, mut tile_y) = (0, 0);
     while tile_y < tiles_per_col {
-        search.ComputeResidualsForTile(
+        ComputeResidualsForTile(
+            &mut search.histograms,
             width,
             height,
             tile_x,
@@ -616,7 +688,10 @@ pub fn GetBestPredictorsAndSubSampling(
             update_up_to_index,
             &mut scratch,
             argb,
+            &mut max_diffs,
+            max_quantization,
             exact,
+            used_subtract_green,
             min_mode,
             diff_mask,
         );
@@ -710,8 +785,8 @@ pub fn GetBestPredictorsAndSubSampling(
     Ok((best_bits, modes))
 }
 
-/// Select predictors and convert pixels in place. Only the lossless path
-/// (near-lossless quality 100) is supported. Returns (tile bits, predictor map).
+/// Select predictors and convert pixels in place, optionally quantizing with
+/// reconstruction feedback. Returns (tile bits, predictor map).
 /// Low effort fixes mode 11 at `max_bits` without sampling optimization.
 #[allow(clippy::too_many_arguments)]
 pub fn VP8LResidualImage(
@@ -721,7 +796,9 @@ pub fn VP8LResidualImage(
     max_bits: u32,
     low_effort: bool,
     argb: &mut [u32],
+    near_lossless_quality: u32,
     exact: bool,
+    used_subtract_green: bool,
 ) -> Result<(u32, Vec<u32>), TryReserveError> {
     assert!(
         width > 0
@@ -734,15 +811,35 @@ pub fn VP8LResidualImage(
         argb.len(),
         width.checked_mul(height).expect("image geometry")
     );
+    let max_quantization = 1 << VP8LNearLosslessBits(near_lossless_quality);
     let (bits, modes) = if low_effort {
         let mut modes: Vec<u32> =
             zeroed(width.div_ceil(1 << max_bits) * height.div_ceil(1 << max_bits))?;
         modes.fill(ARGB_BLACK | (11 << 8));
         (max_bits, modes)
     } else {
-        GetBestPredictorsAndSubSampling(width, height, min_bits, max_bits, argb, exact)?
+        GetBestPredictorsAndSubSampling(
+            width,
+            height,
+            min_bits,
+            max_bits,
+            argb,
+            max_quantization,
+            exact,
+            used_subtract_green,
+        )?
     };
-    CopyImageWithPrediction(width, height, bits, &modes, argb, low_effort, exact)?;
+    CopyImageWithPrediction(
+        width,
+        height,
+        bits,
+        &modes,
+        argb,
+        low_effort,
+        max_quantization,
+        exact,
+        used_subtract_green,
+    )?;
     Ok((bits, modes))
 }
 

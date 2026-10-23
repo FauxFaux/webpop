@@ -329,7 +329,9 @@ pub fn transform_evaluate(case: &Case) -> Vec<u32> {
             6,
             quality,
             low,
+            100,
             exact,
+            false,
         )
         .unwrap();
     }

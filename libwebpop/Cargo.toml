@@ -7,6 +7,8 @@ license = "BSD-3-Clause"
 [features]
 # Build and run the pinned scalar C implementation only in the oracle tests.
 native-oracle = []
+# Test-only retained full encoder regression; requires Node with Wasm SIMD.
+wasm-oracle = []
 
 [dependencies]
 thiserror = "2"
@@ -19,3 +21,13 @@ name = "native_oracle"
 path = "tests/native_oracle.rs"
 required-features = ["native-oracle"]
 
+
+[[test]]
+name = "near_lossless_streams"
+path = "tests/near_lossless_streams.rs"
+required-features = ["native-oracle"]
+
+[[test]]
+name = "near_lossless_wasm"
+path = "tests/near_lossless_wasm.rs"
+required-features = ["wasm-oracle"]

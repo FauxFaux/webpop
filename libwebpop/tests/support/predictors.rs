@@ -28,7 +28,9 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
                 &a[6..6 + size],
                 &mut pixels,
                 a[4] != 0,
+                1,
                 a[5] != 0,
+                false,
             )
             .unwrap();
             pixels
@@ -40,12 +42,16 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             let mut out = vec![0; a[6] as usize];
             GetResidual(
                 w,
+                a[4] as usize + 2,
                 &mut upper,
                 &mut current,
+                &[],
                 a[2] as usize,
                 a[3] as usize,
                 a[4] as usize,
+                1,
                 a[5] != 0,
+                false,
                 &mut out,
             );
             out.extend(current);
@@ -72,7 +78,9 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
                     a[4],
                     a[5] != 0,
                     &mut pixels,
+                    100,
                     a[6] != 0,
+                    false,
                 )
                 .unwrap()
             } else {
@@ -82,7 +90,9 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
                     a[3],
                     a[4],
                     &pixels,
+                    1,
                     a[6] != 0,
+                    false,
                 )
                 .unwrap()
             };
@@ -280,7 +290,9 @@ pub fn transform_evaluate(case: &Case) -> Vec<u32> {
         a[3],
         a[4],
         a[5] != 0,
+        100,
         a[6] != 0,
+        false,
     )
     .unwrap();
     VP8LPutBits(&mut bw, 0x5ad, 11).unwrap();

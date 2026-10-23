@@ -27,6 +27,7 @@ void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*,
 unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
+unsigned WebpopNearLosslessFeedback(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopPredictor(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopCrossColor(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopCrossColorTransform(const uint32_t*, uint32_t*);
@@ -35,6 +36,7 @@ unsigned WebpopPredictorTransform(const uint32_t*, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopMainImage(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnalysis(const char*, const uint32_t*, uint32_t*);
+unsigned WebpopNearLosslessStream(const uint32_t*, uint32_t*);
 unsigned WebpopEncodeStream(const uint32_t*, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopTrace(const uint32_t*, unsigned, uint32_t*);
@@ -130,6 +132,10 @@ int main(void) {
       REQUIRE(in[3] <= 6 && in[4] <= 100 && in[5] <= 1 && in[6] <= 1 && in[7] <= 97);
       REQUIRE((uint64_t)in[0] * in[1] == n - 8);
       count = WebpopPredictorTransform(in, out);
+    } else if (IS(NearLosslessStream)) {
+      count = WebpopNearLosslessStream(in, out);
+    } else if (IS(NearLosslessFeedback)) {
+      count = WebpopNearLosslessFeedback(in, n, out);
     } else if (IS(PredictorFoundations)) {
       REQUIRE(n > 0);
       count = WebpopPredictor(in, n, out);

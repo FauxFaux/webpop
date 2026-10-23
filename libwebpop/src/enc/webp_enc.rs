@@ -3,7 +3,7 @@
 // See COPYING and PATENTS.
 
 use super::{
-    config_enc::{LosslessOptions, WebPValidateConfig},
+    config_enc::{EncoderConfig, WebPValidateConfig},
     picture_enc::WebPPicture,
     picture_tools_enc::WebPReplaceTransparentPixels,
     vp8l_enc::VP8LEncodeImage,
@@ -11,11 +11,11 @@ use super::{
 use crate::webp::encode::LosslessEncodeError;
 
 pub(crate) fn WebPEncode(
-    config: &LosslessOptions,
+    config: &EncoderConfig,
     picture: &mut WebPPicture,
 ) -> Result<Vec<u8>, LosslessEncodeError> {
-    WebPValidateConfig(config)?;
-    if !config.exact {
+    WebPValidateConfig(&config.options)?;
+    if !config.options.exact {
         WebPReplaceTransparentPixels(picture, 0);
     }
     VP8LEncodeImage(config, picture)

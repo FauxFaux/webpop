@@ -1,9 +1,9 @@
-//! Checked public RGBA entry points for the lossless encoder.
+//! Checked public RGBA entry points for the VP8L encoder.
 
 pub use crate::enc::config_enc::LosslessOptions;
 pub use crate::webp::encode::LosslessEncodeError;
 
-use crate::enc::config_enc::WebPValidateConfig;
+use crate::enc::config_enc::{EncoderConfig, WebPValidateConfig};
 use crate::enc::picture_csp_enc::{WebPPictureImportRGBA, checked_rgba_geometry};
 use crate::enc::webp_enc::WebPEncode;
 
@@ -38,5 +38,36 @@ pub fn encode_lossless_rgba(
     checked_rgba_geometry(rgba.len(), width, height, stride)?;
     WebPValidateConfig(options)?;
     let mut picture = WebPPictureImportRGBA(rgba, width, height, stride)?;
-    WebPEncode(options, &mut picture)
+    WebPEncode(
+        &EncoderConfig {
+            options: *options,
+            near_lossless: 100,
+        },
+        &mut picture,
+    )
+}
+
+/// Encode positive-stride RGBA as a near-lossless still-image WebP. Strength
+/// must be in 0..=100; lower values permit stronger changes to RGB and
+/// intermediate alpha. Alpha 0 and 255 stay unchanged. Strength 100 is byte
+/// identical to [`WebPEncodeLosslessRGBA`]. Uses quality 70, method 4 and
+/// transparent RGB cleanup. Input is never modified; geometry follows the
+/// lossless API, including optional final-row padding.
+pub fn WebPEncodeRGBAWithNearLossless(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    near_lossless: i32,
+) -> Result<Vec<u8>, LosslessEncodeError> {
+    if !(0..=100).contains(&near_lossless) {
+        return Err(LosslessEncodeError::InvalidNearLosslessStrength);
+    }
+    checked_rgba_geometry(rgba.len(), width, height, stride)?;
+    let config = EncoderConfig {
+        options: LosslessOptions::default(),
+        near_lossless: near_lossless as u32,
+    };
+    let mut picture = WebPPictureImportRGBA(rgba, width, height, stride)?;
+    WebPEncode(&config, &mut picture)
 }

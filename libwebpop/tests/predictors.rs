@@ -234,7 +234,8 @@ fn uniform_predictor_ties_compact_to_the_largest_tile_size() {
             let source = vec![pixel; w * h];
             for (min, max) in [(2, 2), (2, 9), (7, 8)] {
                 let (bits, map) =
-                    GetBestPredictorsAndSubSampling(w, h, min, max, &source, exact).unwrap();
+                    GetBestPredictorsAndSubSampling(w, h, min, max, &source, 1, exact, false)
+                        .unwrap();
                 assert_eq!(bits, 9);
                 assert_eq!(
                     map,
@@ -332,7 +333,9 @@ fn production_predictor_writer_decodes_with_preceding_transforms() {
                 a[3],
                 quality,
                 low,
+                100,
                 exact,
+                false,
             )
             .unwrap();
             VP8LPutBits(&mut bw, 0, 1).unwrap();

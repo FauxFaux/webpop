@@ -257,7 +257,9 @@ fn complete_files_decode_with_all_transform_combinations() {
                     6,
                     quality,
                     low,
+                    100,
                     exact,
+                    false,
                 )
                 .unwrap();
             }

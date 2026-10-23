@@ -38,3 +38,10 @@ pub(crate) fn WebPValidateConfig(config: &LosslessOptions) -> Result<(), Lossles
     }
     Ok(())
 }
+
+/// Private VP8L configuration. Public lossless options always select strength
+/// 100; the custom near-lossless wrapper keeps the simple API's effort defaults.
+pub(crate) struct EncoderConfig {
+    pub options: LosslessOptions,
+    pub near_lossless: u32,
+}

@@ -94,6 +94,67 @@ unsigned WebpopEncodeStream(const uint32_t* in, uint32_t* out) {
   return count;
 }
 
+// Replay an inherited candidate, or the complete production loop (index=~0u).
+// Prepared input: width,height,stride,method,quality,strength,exact,index,ARGB.
+// Return routing, selected stats, transformed data and the complete stream.
+unsigned WebpopNearLosslessStream(const uint32_t* in, uint32_t* out) {
+  WebPPicture pic;
+  WebPConfig config;
+  WebPAuxStats stats;
+  VP8LBitWriter bw;
+  VP8LEncoder* enc;
+  StreamEncodeContext params;
+  int num_configs, transformed_zero = 0;
+  unsigned i, count = 0, entropy = ~0u;
+  size_t size;
+  memset(&stats, 0, sizeof(stats));
+  memset(&params, 0, sizeof(params));
+  if (!WebPPictureInit(&pic) || !WebPConfigInit(&config) ||
+      !VP8LBitWriterInit(&bw, 0)) abort();
+  pic.width = in[0]; pic.height = in[1]; pic.argb_stride = in[2];
+  pic.use_argb = 1; pic.argb = (uint32_t*)(in + 8); pic.stats = &stats;
+  config.method = in[3]; config.quality = in[4]; config.near_lossless = in[5];
+  config.exact = in[6]; config.lossless = 1;
+  enc = VP8LEncoderNew(&config, &pic);
+  if (!enc || !EncoderAnalyze(enc, params.crunch_configs, &num_configs,
+                              &transformed_zero) || !EncoderInit(enc)) abort();
+  out[count++] = num_configs;
+  if (in[7] != ~0u) {
+    if (in[7] >= (unsigned)num_configs) abort();
+    params.crunch_configs[0] = params.crunch_configs[in[7]];
+    entropy = params.crunch_configs[0].entropy_idx;
+    num_configs = 1;
+  }
+  params.config = &config; params.picture = &pic; params.bw = &bw;
+  params.enc = enc; params.stats = &stats; params.num_crunch_configs = num_configs;
+  params.red_and_blue_transformed_always_zero = transformed_zero;
+  VP8LPutBits(&bw, 0x15, 5);
+  if (!EncodeStreamHook(&params, NULL)) abort();
+  out[count++] = entropy;
+  out[count++] = enc->current_width;
+  out[count++] = enc->use_palette ? (enc->use_predict ? 5 : 4) :
+      in[5] == 100 ? 0 : !enc->use_predict ? 1 : enc->use_subtract_green ? 3 : 2;
+  out[count++] = stats.lossless_features;
+  out[count++] = stats.histogram_bits;
+  out[count++] = stats.transform_bits;
+  out[count++] = stats.cross_color_transform_bits;
+  out[count++] = stats.cache_bits;
+  out[count++] = stats.palette_size;
+  out[count++] = stats.lossless_size;
+  out[count++] = stats.lossless_hdr_size;
+  out[count++] = stats.lossless_data_size;
+  out[count++] = enc->current_width * pic.height;
+  for (i = 0; i < (unsigned)(enc->current_width * pic.height); ++i) out[count++] = enc->argb[i];
+  VP8LPutBits(&bw, 0x5ad, 11);
+  VP8LBitWriterFinish(&bw);
+  size = VP8LBitWriterNumBytes(&bw);
+  out[count++] = size;
+  for (i = 0; i < size; ++i) out[count++] = bw.buf[i];
+  VP8LBitWriterWipeOut(&bw);
+  VP8LEncoderDelete(enc);
+  return count;
+}
+
 void WebpopStoreHuffmanCode(VP8LBitWriter* bw, const HuffmanTreeCode* code) {
   HuffmanTree* scratch = (HuffmanTree*)calloc(3 * (code->num_symbols + 19), sizeof(*scratch));
   HuffmanTreeToken* tokens = (HuffmanTreeToken*)calloc(code->num_symbols + 1, sizeof(*tokens));

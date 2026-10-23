@@ -367,6 +367,9 @@ struct VP8LEncoder<'a> {
     method: u32,
     quality: u32,
     exact: bool,
+    near_lossless: u32,
+    #[cfg(test)]
+    evaluated_candidates: Vec<(usize, usize, u32)>,
     analysis: EncoderAnalysis,
     argb: Vec<u32>,
     current_width: usize,
@@ -468,6 +471,22 @@ fn EncodeStreamHook(
                 enc.height,
             )?;
             cache_bits = BitsLog2Floor(size as u32) + 1;
+        } else if enc.near_lossless < 100 && !use_predict {
+            use super::near_lossless_enc::{NearLosslessError, VP8ApplyNearLossless};
+            // Each candidate starts with the inherited source. In particular,
+            // subtract-green must follow standalone preprocessing.
+            enc.argb = VP8ApplyNearLossless(
+                enc.source,
+                enc.width as u32,
+                enc.height as u32,
+                enc.stride,
+                enc.near_lossless,
+            )
+            .map_err(|error| match error {
+                NearLosslessError::Allocation(error) => error,
+                _ => unreachable!("validated encoder geometry and strength: {error}"),
+            })?;
+            enc.current_width = enc.width;
         } else {
             MakeInputImageCopy(enc)?;
         }
@@ -486,7 +505,9 @@ fn EncodeStreamHook(
                 enc.method,
                 enc.quality,
                 low_effort,
+                if use_palette { 100 } else { enc.near_lossless },
                 enc.exact,
+                use_subtract_green,
             )?;
         }
         if use_cross_color {
@@ -518,6 +539,15 @@ fn EncodeStreamHook(
             byte_position,
         )?;
         let size = VP8LBitWriterNumBytes(bw);
+        #[cfg(test)]
+        enc.evaluated_candidates.push((
+            idx,
+            size,
+            u32::from(use_predict)
+                | (u32::from(use_cross_color) << 1)
+                | (u32::from(use_subtract_green) << 2)
+                | (u32::from(use_palette) << 3),
+        ));
         if size < best_size {
             best_size = size;
             VP8LBitWriterSwap(bw, &mut bw_best);
@@ -547,7 +577,7 @@ fn EncodeStreamHook(
 /// Analyze and encode prepared ARGB using the upstream synchronous trial loop.
 /// The caller supplies image/container headers and prepared input (including
 /// transparent-RGB cleanup when desired). Geometry/settings must be validated.
-/// This lossless path uses near_lossless=100 and no worker threads or callbacks.
+/// This entry point selects strength 100 and synchronous execution.
 #[allow(clippy::too_many_arguments)]
 pub fn VP8LEncodeStream(
     bw: &mut VP8LBitWriter,
@@ -559,6 +589,22 @@ pub fn VP8LEncodeStream(
     quality: u32,
     exact: bool,
 ) -> Result<LosslessStreamStats, TryReserveError> {
+    VP8LEncodeStreamWithNearLossless(bw, argb, width, height, stride, method, quality, 100, exact)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn VP8LEncodeStreamWithNearLossless(
+    bw: &mut VP8LBitWriter,
+    argb: &[u32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    method: u32,
+    quality: u32,
+    near_lossless: u32,
+    exact: bool,
+) -> Result<LosslessStreamStats, TryReserveError> {
+    assert!(near_lossless <= 100);
     use super::backward_references_enc::{VP8LBackwardRefsInit, VP8LHashChainInit};
     let analysis = EncoderAnalyze(argb, width, height, stride, method, quality)?;
     let size = width.checked_mul(height).expect("validated image size");
@@ -570,6 +616,9 @@ pub fn VP8LEncodeStream(
         method,
         quality,
         exact,
+        near_lossless,
+        #[cfg(test)]
+        evaluated_candidates: Vec::new(),
         analysis,
         argb: Vec::new(),
         current_width: width,
@@ -582,7 +631,7 @@ pub fn VP8LEncodeStream(
 /// Encode the owned ARGB picture as a complete still-image RIFF/WebP file.
 /// Owned output replaces the upstream memory-writer callback.
 pub(crate) fn VP8LEncodeImage(
-    config: &super::config_enc::LosslessOptions,
+    config: &super::config_enc::EncoderConfig,
     picture: &super::picture_enc::WebPPicture,
 ) -> Result<Vec<u8>, crate::webp::encode::LosslessEncodeError> {
     use super::picture_csp_enc::{RgbaInputError, WebPPictureHasTransparency};
@@ -595,15 +644,16 @@ pub(crate) fn VP8LEncodeImage(
     let mut bw = VP8LBitWriterInit(initial_size)?;
     WriteImageSize(&mut bw, picture.width, picture.height)?;
     WriteRealAlphaAndVersion(&mut bw, WebPPictureHasTransparency(picture))?;
-    VP8LEncodeStream(
+    VP8LEncodeStreamWithNearLossless(
         &mut bw,
         &picture.argb,
         picture.width as usize,
         picture.height as usize,
         picture.width as usize,
-        config.method,
-        config.quality,
-        config.exact,
+        config.options.method,
+        config.options.quality,
+        config.near_lossless,
+        config.options.exact,
     )?;
     Ok(WriteImage(&mut bw)?)
 }
@@ -1319,10 +1369,10 @@ pub fn EncodePalette(
     )
 }
 
-/// Apply the lossless predictor transform and write its header and auxiliary
+/// Apply the predictor transform and write its header and auxiliary
 /// map. Encoder-state fields and reusable hash/reference scratch are explicit.
-/// `method` selects the search range as in upstream; near-lossless residual
-/// quantization and progress callbacks remain outside this internal API.
+/// `method` selects the search range as in upstream. Palette indices must
+/// select near-lossless strength 100 to retain their exact values.
 /// Returns the selected transform bits. The hash chain needs capacity for the
 /// auxiliary map, and `refs` needs at least two reusable reference lists.
 #[allow(clippy::too_many_arguments)]
@@ -1337,7 +1387,9 @@ pub fn ApplyPredictFilter(
     method: u32,
     quality: u32,
     low_effort: bool,
+    near_lossless: u32,
     exact: bool,
+    used_subtract_green: bool,
 ) -> Result<u32, TryReserveError> {
     use super::predictor_enc::{MAX_TRANSFORM_BITS, VP8LResidualImage};
     use crate::webp::format_constants::{MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS};
@@ -1359,8 +1411,17 @@ pub fn ApplyPredictFilter(
         MAX_TRANSFORM_BITS,
         MAX_PREDICTOR_IMAGE_SIZE,
     );
-    let (bits, modes) =
-        VP8LResidualImage(width, height, min_bits, max_bits, low_effort, argb, exact)?;
+    let (bits, modes) = VP8LResidualImage(
+        width,
+        height,
+        min_bits,
+        max_bits,
+        low_effort,
+        argb,
+        near_lossless,
+        exact,
+        used_subtract_green,
+    )?;
     VP8LPutBits(bw, 1, 1)?; // TRANSFORM_PRESENT
     VP8LPutBits(bw, 0, 2)?; // PREDICTOR_TRANSFORM
     VP8LPutBits(bw, bits - MIN_TRANSFORM_BITS, NUM_TRANSFORM_BITS)?;
@@ -1449,6 +1510,8 @@ mod stream_tests {
                 method: 6,
                 quality: 100,
                 exact: true,
+                near_lossless: 100,
+                evaluated_candidates: Vec::new(),
                 analysis,
                 argb: Vec::new(),
                 current_width: 19,
@@ -1525,6 +1588,167 @@ mod palette_tests {
                 &output[6..],
                 &[0xff000100, 0xff000200, 0xff000000, 0xff000300]
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod near_lossless_tests {
+    use super::*;
+    use crate::utils::bit_writer_utils::*;
+
+    #[test]
+    fn candidate_routes_transforms_and_full_loop_match_pinned_c() {
+        let mut routes = [0; 6];
+        let mut selected = [0; 6];
+        let mut count = 0;
+        let mut replays = std::collections::BTreeMap::new();
+        let mut duplicates = 0;
+        let mut losing_trials = 0;
+        for line in include_str!("../../tests/fixtures/near_lossless_streams.txt")
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.is_empty())
+        {
+            let (request, response) = line.split_once(" | ").unwrap();
+            let a: Vec<u32> = request
+                .split_whitespace()
+                .skip(1)
+                .map(|word| u32::from_str_radix(word, 16).unwrap())
+                .collect();
+            let expected: Vec<u32> = response
+                .split_whitespace()
+                .map(|word| u32::from_str_radix(word, 16).unwrap())
+                .collect();
+            let (width, height, stride) = (a[0] as usize, a[1] as usize, a[2] as usize);
+            let mut analysis = EncoderAnalyze(&a[8..], width, height, stride, a[3], a[4]).unwrap();
+            let num_configs = analysis.crunch_configs.len();
+            let entropy = if a[7] == u32::MAX {
+                u32::MAX
+            } else {
+                let config = analysis.crunch_configs[a[7] as usize].clone();
+                let entropy = config.entropy_idx as u32;
+                analysis.crunch_configs = vec![config];
+                entropy
+            };
+            let size = width * height;
+            let mut enc = VP8LEncoder {
+                source: &a[8..],
+                width,
+                height,
+                stride,
+                method: a[3],
+                quality: a[4],
+                near_lossless: a[5],
+                evaluated_candidates: Vec::new(),
+                exact: a[6] != 0,
+                analysis,
+                argb: Vec::new(),
+                current_width: width,
+                hash_chain: super::super::backward_references_enc::VP8LHashChainInit(size).unwrap(),
+                refs: std::array::from_fn(|_| {
+                    super::super::backward_references_enc::VP8LBackwardRefsInit((size - 1) / 16 + 1)
+                }),
+            };
+            let mut bw = VP8LBitWriterInit(0).unwrap();
+            VP8LPutBits(&mut bw, 0x15, 5).unwrap();
+            let stats = EncodeStreamHook(&mut enc, &mut bw).unwrap();
+            let features = if entropy == u32::MAX {
+                // The final scratch buffer belongs to the last evaluated trial;
+                // the selected stream/stats can belong to an earlier one.
+                let last = enc.analysis.crunch_configs.last().unwrap().entropy_idx;
+                last as u32
+            } else {
+                entropy
+            };
+            let route = route(features, a[5]);
+            if a[7] == u32::MAX {
+                let mut best = (usize::MAX, 0);
+                for &(index, size, features) in &enc.evaluated_candidates {
+                    assert_eq!(replays[&(index as u32)], (size, features));
+                    let entropy = enc.analysis.crunch_configs[index].entropy_idx as u32;
+                    routes[self::route(entropy, a[5]) as usize] += 1;
+                    if size < best.0 {
+                        best = (size, features);
+                    }
+                }
+                assert_eq!(best.1, stats.lossless_features);
+                duplicates += num_configs - enc.evaluated_candidates.len();
+                losing_trials += enc.evaluated_candidates.len() - 1;
+                replays.clear();
+                let f = stats.lossless_features;
+                let r = if f & 8 != 0 {
+                    if f & 1 != 0 { 5 } else { 4 }
+                } else if a[5] == 100 {
+                    0
+                } else if f & 1 == 0 {
+                    1
+                } else if f & 4 != 0 {
+                    3
+                } else {
+                    2
+                };
+                selected[r] += 1;
+            } else {
+                let (_, size, features) = enc.evaluated_candidates[0];
+                replays.insert(a[7], (size, features));
+            }
+            let mut actual = vec![
+                num_configs as u32,
+                entropy,
+                enc.current_width as u32,
+                route,
+                stats.lossless_features,
+                stats.histogram_bits,
+                stats.transform_bits,
+                stats.cross_color_transform_bits,
+                stats.cache_bits,
+                stats.palette_size as u32,
+                stats.lossless_size as u32,
+                stats.lossless_hdr_size as u32,
+                stats.lossless_data_size as u32,
+                enc.argb.len() as u32,
+            ];
+            actual.extend(enc.argb);
+            VP8LPutBits(&mut bw, 0x5ad, 11).unwrap();
+            let bytes = VP8LBitWriterFinish(&mut bw).unwrap();
+            actual.push(bytes.len() as u32);
+            actual.extend(bytes.iter().map(|&b| u32::from(b)));
+            let first = expected.iter().zip(&actual).position(|(a, b)| a != b);
+            assert!(
+                actual == expected,
+                "candidate index {}, strength {}, first difference {first:?}; lengths {}/{}",
+                a[7],
+                a[5],
+                actual.len(),
+                expected.len()
+            );
+            count += 1;
+        }
+        assert!(
+            routes.into_iter().all(|count| count > 0),
+            "routes: {routes:?}"
+        );
+        assert!(selected[0] > 0 && selected[1..].iter().sum::<usize>() > 0);
+        assert!(duplicates > 0 && losing_trials > 0);
+        eprintln!(
+            "{count} exact C candidate/full-loop comparisons; evaluated {routes:?}; selected {selected:?}"
+        );
+    }
+
+    fn route(entropy: u32, strength: u32) -> u32 {
+        use EntropyIx::*;
+        if entropy == kPalette as u32 {
+            4
+        } else if entropy == kPaletteAndSpatial as u32 {
+            5
+        } else if strength == 100 {
+            0
+        } else if entropy == kSpatial as u32 {
+            2
+        } else if entropy == kSpatialSubGreen as u32 {
+            3
+        } else {
+            1
         }
     }
 }

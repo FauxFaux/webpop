@@ -27,11 +27,13 @@ Enabling the feature on a library build does not invoke the oracle.
 
 The [near-lossless reference record](NEAR_LOSSLESS.md) describes standalone
 preprocessing, predictor quantization leaves, the copied custom public C
-wrapper, their request layouts and separate fixture regeneration commands.
-The Rust near-lossless public encoder is not yet integrated.
+wrapper, integrated feedback/search and per-candidate routing, their request
+layouts and fixture regeneration commands. The Rust near-lossless public
+encoder matches pinned C. An independent older-full-Wasm regression is opt-in
+through `wasm-oracle`; see [artifact and host provenance](full-wasm/README.md).
 
 This native backend was selected because it can expose internal/header leaves
-directly from the pinned checkout. The older bundled Wasm regression has been
+directly from the pinned checkout. The older lossless-only bundled Wasm regression has been
 removed; its seven synthetic image cases now compare full public Rust output
 with pinned C and independently decode. Normal tests use committed C fixtures.
 

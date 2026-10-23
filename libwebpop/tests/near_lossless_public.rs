@@ -106,3 +106,236 @@ fn near_lossless_public_fixtures_match_pinned_reference() {
         }
     }
 }
+
+#[test]
+fn public_strength_and_geometry_validation() {
+    use libwebpop::enc::picture_csp_enc::RgbaInputError;
+    use libwebpop::{LosslessEncodeError, WebPEncodeRGBAWithNearLossless as encode};
+    for strength in [i32::MIN, -1, 101, i32::MAX] {
+        assert!(matches!(
+            encode(&[1, 2, 3, 255], 1, 1, 4, strength),
+            Err(LosslessEncodeError::InvalidNearLosslessStrength)
+        ));
+    }
+    for strength in [0, 99, 100] {
+        for (pixels, w, h, stride, expected) in [
+            (&[][..], 0, 1, 4, RgbaInputError::InvalidDimensions),
+            (&[][..], 1, 0, 4, RgbaInputError::InvalidDimensions),
+            (&[][..], 16384, 1, 65536, RgbaInputError::InvalidDimensions),
+            (&[][..], 1, 16384, 4, RgbaInputError::InvalidDimensions),
+            (
+                &[][..],
+                u32::MAX,
+                1,
+                usize::MAX,
+                RgbaInputError::InvalidDimensions,
+            ),
+            (&[][..], 16383, 16383, 65532, RgbaInputError::InputTooShort),
+            (&[0; 4][..], 1, 1, 3, RgbaInputError::InvalidStride),
+            (&[0; 3][..], 1, 1, 4, RgbaInputError::InputTooShort),
+            (&[][..], 1, 2, usize::MAX, RgbaInputError::SizeOverflow),
+            (&[][..], 1, 3, usize::MAX / 2, RgbaInputError::SizeOverflow),
+        ] {
+            assert!(matches!(encode(pixels, w, h, stride, strength),
+                Err(LosslessEncodeError::Input(actual)) if actual == expected));
+        }
+        assert!(encode(&[1, 2, 3, 255], 1, 1, usize::MAX, strength).is_ok());
+        for (w, h) in [(1, 16383), (16383, 1)] {
+            let pixels = vec![255; w as usize * h as usize * 4];
+            let bytes = encode(&pixels, w, h, w as usize * 4, strength).unwrap();
+            let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::WebP)
+                .unwrap()
+                .into_rgba8();
+            assert_eq!(decoded.dimensions(), (w, h));
+            assert_eq!(decoded.as_raw(), &pixels);
+        }
+    }
+}
+
+#[test]
+fn strengths_share_buckets_and_ignore_padding_without_mutating_input() {
+    use libwebpop::WebPEncodeRGBAWithNearLossless as encode;
+    for pattern in [2, 9, 12, 24] {
+        let image = support::public_images::image(19, 17, pattern);
+        let mut packed = Vec::new();
+        for y in 0..image.height as usize {
+            packed.extend_from_slice(&image.rgba[y * image.stride..][..image.width as usize * 4]);
+        }
+        let original = image.rgba.clone();
+        let mut previous = Vec::new();
+        for strength in 0..=100 {
+            let bytes = encode(
+                &image.rgba,
+                image.width,
+                image.height,
+                image.stride,
+                strength,
+            )
+            .unwrap();
+            assert_eq!(
+                bytes,
+                encode(
+                    &packed,
+                    image.width,
+                    image.height,
+                    image.width as usize * 4,
+                    strength
+                )
+                .unwrap()
+            );
+            if strength % 20 != 0 {
+                assert_eq!(bytes, previous);
+            }
+            if strength == 100 {
+                assert_eq!(
+                    bytes,
+                    libwebpop::WebPEncodeLosslessRGBA(
+                        &image.rgba,
+                        image.width,
+                        image.height,
+                        image.stride
+                    )
+                    .unwrap()
+                );
+            }
+            previous = bytes;
+        }
+        assert_eq!(image.rgba, original);
+    }
+}
+
+#[cfg(feature = "native-oracle")]
+#[test]
+#[ignore = "manual full real-image corpus parity, timing and process-memory record"]
+fn real_image_corpus_parity_and_metrics() {
+    use std::{path::PathBuf, process::Command, time::Instant};
+    let build = native::build_dir();
+    let status = Command::new("cmake")
+        .arg("--build")
+        .arg(build)
+        .args([
+            "--target",
+            "webpop_near_lossless_file",
+            "--config",
+            "Release",
+            "--parallel",
+            "4",
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let mut helper = build.join(format!(
+        "webpop_near_lossless_file{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if !helper.is_file() {
+        helper = build.join("Release").join(helper.file_name().unwrap());
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_owned();
+    let run = build.join("near-lossless-corpus");
+    std::fs::create_dir_all(&run).unwrap();
+    let mut record = String::from(
+        "image,width,height,strength,bytes,rust_ms,max_r,max_g,max_b,max_a,process_peak_kib\n",
+    );
+    for name in [
+        "graphic-alpha-transparency.webp",
+        "graphic-invite.webp",
+        "graphic-map.webp",
+        "photo-japan-p50.webp",
+        "screenshot-wikipedia.webp",
+    ] {
+        let source = image::load_from_memory_with_format(
+            &std::fs::read(root.join("samples").join(name)).unwrap(),
+            image::ImageFormat::WebP,
+        )
+        .unwrap()
+        .into_rgba8();
+        let (w, h) = source.dimensions();
+        let input = run.join(format!("{name}.rgba"));
+        std::fs::write(&input, source.as_raw()).unwrap();
+        for strength in [0, 20, 40, 60, 80, 100] {
+            let output = run.join(format!("{name}.{strength}.webp"));
+            let result = Command::new(&helper)
+                .arg(&input)
+                .arg(w.to_string())
+                .arg(h.to_string())
+                .arg(strength.to_string())
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{name} {strength}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let start = Instant::now();
+            let actual = libwebpop::WebPEncodeRGBAWithNearLossless(
+                source.as_raw(),
+                w,
+                h,
+                w as usize * 4,
+                strength,
+            )
+            .unwrap();
+            let elapsed = start.elapsed().as_secs_f64() * 1000.;
+            let reference = std::fs::read(&output).unwrap();
+            assert!(
+                actual == reference,
+                "{name} strength {strength}, first differing byte {:?}",
+                actual.iter().zip(&reference).position(|(a, b)| a != b)
+            );
+            let decoded = image::load_from_memory_with_format(&actual, image::ImageFormat::WebP)
+                .unwrap()
+                .into_rgba8();
+            let decoded_reference =
+                image::load_from_memory_with_format(&reference, image::ImageFormat::WebP)
+                    .unwrap()
+                    .into_rgba8();
+            assert_eq!(decoded.dimensions(), (w, h));
+            assert!(decoded == decoded_reference);
+            let mut errors = [0u8; 4];
+            for (a, b) in source.pixels().zip(decoded.pixels()) {
+                if a[3] == 0 || a[3] == 255 {
+                    assert_eq!(a[3], b[3]);
+                }
+                for lane in 0..4 {
+                    if lane == 3 || (a[3] != 0 && b[3] != 0) {
+                        errors[lane] = errors[lane].max(a[lane].abs_diff(b[lane]));
+                    }
+                }
+            }
+            if strength == 100 {
+                assert_eq!(errors, [0; 4]);
+                assert!(
+                    actual
+                        == libwebpop::WebPEncodeLosslessRGBA(source.as_raw(), w, h, w as usize * 4)
+                            .unwrap()
+                );
+            }
+            // Linux process high-water RSS includes input, both encoded files,
+            // independent decoding and test infrastructure, not just encoding.
+            let peak = std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find_map(|line| line.strip_prefix("VmHWM:").map(str::to_owned))
+                })
+                .unwrap_or_default();
+            let peak = peak.split_whitespace().next().unwrap_or("");
+            let line = format!(
+                "{name},{w},{h},{strength},{},{elapsed:.3},{},{},{},{},{peak}\n",
+                actual.len(),
+                errors[0],
+                errors[1],
+                errors[2],
+                errors[3]
+            );
+            eprint!("{line}");
+            record.push_str(&line);
+            std::fs::write(run.join("metrics.csv"), &record).unwrap();
+        }
+    }
+}

@@ -33,6 +33,10 @@ pub fn fixture_cases() -> Vec<Case> {
             cases.push(request(&image, strength));
         }
     }
+    for (w, h, pattern) in [(19, 17, 2), (65, 5, 9), (19, 17, 12), (65, 5, 2)] {
+        let image = crate::support::public_images::image(w, h, pattern);
+        cases.extend([20, 40, 60, 80].map(|strength| request(&image, strength)));
+    }
     cases
 }
 
@@ -49,6 +53,11 @@ pub fn cases() -> Vec<Case> {
         (63, 63),
         (64, 65),
         (65, 64),
+        (65, 65),
+        (63, 65),
+        (65, 63),
+        (65, 3),
+        (3, 65),
         (19, 17),
     ] {
         for pattern in [2, 5, 9, 10, 12, 24] {
@@ -62,6 +71,14 @@ pub fn cases() -> Vec<Case> {
     for pattern in [2, 12, 24] {
         let image = crate::support::public_images::image(19, 17, pattern);
         cases.extend((0..=100).map(|strength| request(&image, strength)));
+    }
+    let mut seed = crate::support::SEED;
+    for _ in 0..128 {
+        let w = (crate::support::random(&mut seed) % 67 + 1) as usize;
+        let h = (crate::support::random(&mut seed) % 67 + 1) as usize;
+        let pattern = crate::support::random(&mut seed) % 36;
+        let image = crate::support::public_images::image(w, h, pattern);
+        cases.extend([0, 20, 40, 60, 80, 100].map(|strength| request(&image, strength)));
     }
     let sample = crate::support::public_images::real_image();
     cases.extend([0, 20, 40, 60, 80, 100].map(|strength| request(&sample, strength)));
@@ -99,6 +116,32 @@ pub fn check_reference(case: &Case, words: &[u32]) -> (usize, usize) {
             }
         }
     }
+    let mut allocation = vec![0xa5];
+    allocation.extend(&image.rgba);
+    let original = allocation.clone();
+    let actual = libwebpop::WebPEncodeRGBAWithNearLossless(
+        &allocation[1..],
+        image.width,
+        image.height,
+        image.stride,
+        case.input[3] as i32,
+    )
+    .unwrap();
+    assert_eq!(allocation, original);
+    assert!(
+        actual == bytes,
+        "near-lossless strength {}, {}x{}, first differing byte {:?}; lengths {}/{}",
+        case.input[3],
+        image.width,
+        image.height,
+        actual.iter().zip(&bytes).position(|(a, b)| a != b),
+        actual.len(),
+        bytes.len()
+    );
+    let actual_decoded = image::load_from_memory_with_format(&actual, image::ImageFormat::WebP)
+        .unwrap()
+        .into_rgba8();
+    assert_eq!(actual_decoded, decoded);
     if case.input[3] == 100 {
         image.check_decoded(&bytes);
         // Retain an unaligned start and exact minimum input length in Rust.

@@ -56,6 +56,91 @@ int WebpopNearLosslessPredictor(const char* name, const uint32_t* in, unsigned n
   return 1;
 }
 
+// Active residual/search subgraphs. All buffers start initialized; scratch
+// results include only the two context rows and the logical difference row.
+unsigned WebpopNearLosslessFeedback(const uint32_t* in, unsigned n, uint32_t* out) {
+  const unsigned op = in[0], w = in[1], h = in[2];
+  unsigned count = 0, i;
+  if (!w || !h) abort();
+  if (op == 0) {
+    // op,w,h,mode,x,y,count,max_quantization,exact,subtract_green, rows, diffs
+    const unsigned num = in[6];
+    uint32_t* rows = (uint32_t*)malloc(2 * (w + 1) * sizeof(*rows));
+    uint8_t* diffs = (uint8_t*)malloc(w);
+    if (n != 10 + 2 * (w + 1) + w || !rows || !diffs) abort();
+    memcpy(rows, in + 10, 2 * (w + 1) * sizeof(*rows));
+    for (i = 0; i < w; ++i) diffs[i] = in[10 + 2 * (w + 1) + i];
+    GetResidual(w, h, rows + w + 1, rows, diffs, in[3], in[4], in[4] + num,
+                in[5], in[7], in[8], in[9], out);
+    count = num;
+    for (i = 0; i < 2 * (w + 1); ++i) out[count++] = rows[i];
+    for (i = 0; i < w; ++i) out[count++] = diffs[i];
+    free(rows); free(diffs);
+  } else if (op == 1) {
+    // op,w,h,bits,low_effort,max_quantization,exact,subtract_green,map,pixels
+    const unsigned bits = in[3];
+    const unsigned map_size = VP8LSubSampleSize(w, bits) * VP8LSubSampleSize(h, bits);
+    uint32_t* pixels = (uint32_t*)malloc(w * h * sizeof(*pixels));
+    uint32_t* scratch = (uint32_t*)calloc(4 * (w + 1), sizeof(*scratch));
+    if (n != 8 + map_size + w * h || !pixels || !scratch) abort();
+    memcpy(pixels, in + 8 + map_size, w * h * sizeof(*pixels));
+    CopyImageWithPrediction(w, h, bits, in + 8, scratch, pixels,
+                             in[4], in[5], in[6], in[7]);
+    for (i = 0; i < w * h; ++i) out[count++] = pixels[i];
+    free(pixels); free(scratch);
+  } else if (op == 2 || op == 3) {
+    // op,w,h,min_bits,max_bits,low_effort,strength,exact,subtract_green,pixels
+    const unsigned min_bits = in[3], max_bits = in[4];
+    const unsigned map_size = VP8LSubSampleSize(w, min_bits) * VP8LSubSampleSize(h, min_bits);
+    const int quantization = 1 << VP8LNearLosslessBits(in[6]);
+    uint32_t* pixels = (uint32_t*)malloc(w * h * sizeof(*pixels));
+    uint32_t* scratch = (uint32_t*)calloc(4 * (w + 1), sizeof(*scratch));
+    uint32_t* map = (uint32_t*)malloc(map_size * sizeof(*map));
+    WebPPicture pic;
+    int percent = 0, bits = 0;
+    if (n != 9 + w * h || !pixels || !scratch || !map || !WebPPictureInit(&pic)) abort();
+    memcpy(pixels, in + 9, w * h * sizeof(*pixels));
+    if (op == 2) {
+      if (!WebpopIncludedResidualImage(w, h, min_bits, max_bits, in[5], pixels,
+              scratch, map, in[6], in[7], in[8], &pic, 0, &percent, &bits)) abort();
+    } else {
+      uint32_t* modes[MAX_TRANSFORM_BITS + 1];
+      uint32_t* best_mode;
+      int b, min_mode;
+      const uint32_t mask = GetPlaneDiffMask(pixels, w, h, quantization, in[7], &min_mode);
+      for (b = min_bits; b <= (int)max_bits; ++b) {
+        modes[b - min_bits] = (uint32_t*)calloc(map_size, sizeof(*map));
+        if (!modes[b - min_bits]) abort();
+      }
+      GetBestPredictorsAndSubSampling(w, h, min_bits, max_bits, scratch, pixels,
+          quantization, in[7], in[8], min_mode, mask, &pic, 0, &percent, modes, &bits, &best_mode);
+      if (!bits) abort();
+      memcpy(map, best_mode, VP8LSubSampleSize(w, bits) * VP8LSubSampleSize(h, bits) * sizeof(*map));
+      for (b = min_bits; b <= (int)max_bits; ++b) free(modes[b - min_bits]);
+    }
+    out[count++] = bits;
+    for (i = 0; i < (unsigned)(VP8LSubSampleSize(w, bits) * VP8LSubSampleSize(h, bits)); ++i) out[count++] = map[i];
+    if (op == 2) for (i = 0; i < w * h; ++i) out[count++] = pixels[i];
+    WebPPictureFree(&pic);
+    free(pixels); free(scratch); free(map);
+  } else if (op == 4) {
+    // op,w,h,bits,tile_x,tile_y,update,max_quantization,exact,subtract_green,min_mode,mask,pixels
+    const unsigned levels = in[6] + 1;
+    uint32_t* histos = (uint32_t*)calloc(levels * 14 * HISTO_SIZE, sizeof(*histos));
+    uint32_t* scratch = (uint32_t*)calloc(4 * (w + 1), sizeof(*scratch));
+    uint8_t* diffs = (uint8_t*)(scratch + 2 * (w + 1));
+    if (n != 12 + w * h || !histos || !scratch) abort();
+    memset(diffs, 0xa5, w);
+    ComputeResidualsForTile(w, h, in[4], in[5], in[3], in[6], histos,
+        scratch, in + 12, in[7], in[8], in[9], in[10], in[11]);
+    for (i = 0; i < levels * 14 * HISTO_SIZE; ++i) out[count++] = histos[i];
+    for (i = 0; i < 2 * (w + 1); ++i) out[count++] = scratch[i];
+    for (i = 0; i < w; ++i) out[count++] = diffs[i];
+    free(histos); free(scratch);
+  } else { abort(); }
+  return count;
+}
+
 unsigned WebpopPredictor(const uint32_t* in, unsigned n, uint32_t* out) {
   unsigned count = 0, i;
   const unsigned op = in[0];
