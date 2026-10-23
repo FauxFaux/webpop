@@ -37,7 +37,9 @@ python3 scripts/benchmark.py --case 75:4 --output target/bench-current
 ```
 
 `--rust LABEL=PATH` is repeatable; its first value is the Rust baseline in
-`versus_first_rust` results. `--case QUALITY:METHOD` is also repeatable. Without
+`versus_first_rust` results. `--compare-c-noasm` adds the same C executable with
+`-noasm` as a third implementation, interleaved with normal C and Rust.
+`--case QUALITY:METHOD` is also repeatable. Without
 it, the runner uses `75:4`, `75:0`, and `100:6`; the last can be expensive on
 large images. Positional filenames select a subset of inputs; otherwise all
 `samples/*.webp` are used. `--exact` preserves and checks RGB beneath zero alpha.
@@ -187,3 +189,200 @@ python3 scripts/benchmark.py --rust v3=target/bench-lossless/bin/v3 \
 
 [Raw samples and hashes](benchmarks/2026-10-23-invite.json) accompany this report;
 full local artifacts are under `target/bench-invite/`. No flag sweep was run.
+
+## Map profiling follow-up
+
+The `profiling` Cargo profile inherits release optimization and retains full
+debug information, including inline frames. `.cargo/config.toml` adds
+`-Clink-arg=-Wl,--no-rosegment` for Linux x86-64. An environment `RUSTFLAGS` or
+`CARGO_ENCODED_RUSTFLAGS` overrides Cargo's configured rustflags; include the
+linker argument explicitly in that case. The profiling script does this and
+selects x86-64-v3 to match the C artifact and original Rust baseline.
+
+Using a prepared RGBA PAM from the benchmark runner:
+
+```sh
+PERF_EVENT=cpu_core/cycles/u bash scripts/profile-map.sh \
+  target/bench-lossless/inputs/1-graphic-map.pam target/profile-map-next 2 12
+```
+
+The arguments are input PAM, **new** output directory, logical CPU, and repeat
+count. This builds Rust, archives both executables, warms each implementation,
+then captures 12 quality-75/method-4 encodes per implementation, exact off.
+The essential recording command is:
+
+```sh
+perf record -o OUTPUT.perf.data -e cpu_core/cycles/u -F99 \
+  --call-graph dwarf,64000 -- taskset -c 2 ENCODER ARGS...
+```
+
+The explicit core PMU avoids mixing the Intel hybrid host's core and atom
+events. Select an event and CPU appropriate to another host; the script's
+default event is `cycles:u`. The 64,000-byte DWARF stack snapshot matters:
+16,384-byte snapshots frequently lost outer encoder callers, particularly in
+Rust. These are user-mode cycle profiles, not wall-time or allocation profiles.
+Repeated child processes are recorded sequentially; captures for C and Rust
+are separate, so sampled cycle totals are exploratory attribution, not a
+paired benchmark. Neither encoder enables multithreading.
+
+Artifacts include `c.perf.data`, `rust.perf.data`, flat self and inclusive
+reports, build logs, hashes, source configuration, and, when `flamegraph` is
+installed, `c.svg` and `rust.svg`. Inspect interactively with
+`perf report -i target/profile-map-next/rust.perf.data`. The script checks output
+byte parity. `scripts/compare-profiles.py` also exports inline call stacks and
+`comparison.json`: each sample's period is assigned once to the first matching
+encoder stage, with per-function inclusive shares recorded separately. This
+avoids comparing only self time across different compiler inlining decisions.
+
+The 2026-10-23 capture is under `target/profile-map-full/`; preliminary smaller
+stack captures are under `target/profile-map/`. The Rust profiling build uses
+rustc `1.101.0-nightly (7189d39d9 2026-10-22)` / LLVM 23.1.4, default release
+LTO/codegen settings, and x86-64-v3. C is the original SIMD-enabled artifact.
+An unprofiled eight-block run, one warmup, CPU 2, gives:
+
+| Implementation | Median seconds | IQR |
+| --- | ---: | ---: |
+| C | 1.5613 | 0.49% |
+| Rust profiling | 2.0422 | 0.06% |
+| Archived Rust v3 release | 2.0409 | 0.17% |
+
+All outputs are 94,476 bytes, byte-identical and independently decoded and
+verified. C/Rust profiling paired speedup is 0.763x (95% bootstrap interval
+0.761–0.765). The profiling binary and archived release binary are effectively
+tied, despite the newer Rust compiler; this is not an isolated measurement of
+the debug-info/linker flags. Full timing artifacts are under
+`target/bench-map-profile/`.
+
+The final captures contain 1,817 C samples and 2,387 Rust samples with zero
+lost samples. Their estimated cycle totals are 95.51 billion and 127.07 billion
+over 12 encodes. Call stacks reach `main` for 100% of C and 98% of Rust sampled
+periods; the missing outer Rust callers are in cache-size estimation, whose
+nearby encoder frames remain identifiable. Unknown leaf addresses account for
+0.93% and 1.26% respectively.
+
+Stage shares include callees and inline frames. Estimated billion cycles per
+encode are the sum of sampled event periods divided by 12, not exact hardware
+counter totals:
+
+| Stage | C share | Rust share | C billion cycles | Rust billion cycles |
+| --- | ---: | ---: | ---: | ---: |
+| Predictor transform | 46.21% | 55.05% | 3.678 | 5.829 |
+| Hash-chain construction | 12.66% | 9.68% | 1.008 | 1.025 |
+| LZ77 box search | 22.06% | 14.27% | 1.756 | 1.511 |
+| Backward-reference traceback | 8.16% | 7.99% | 0.650 | 0.846 |
+| Palette mapping/sorting | 2.87% | 4.80% | 0.229 | 0.508 |
+| All sampled work | 100% | 100% | 7.960 | 10.589 |
+
+The predictor transform contributes about **82% of the excess estimated
+cycles**. Inside it, `GetResidual` including callees costs about 1.56 billion
+cycles in C versus 3.56 billion in Rust. Histogram updates are not the source
+of that increase: inclusive `UpdateHisto` costs about 1.84 versus 1.74 billion
+cycles. These subregions overlap the predictor stage and must not be added to
+the table. Hash-chain construction is close in absolute cycles despite very
+different percentage shares; LZ77 box search is actually cheaper in Rust in
+this capture. Palette work and traceback are smaller secondary gaps.
+
+Disassembly (`rust.PredictPixel.annotate.txt` and
+`rust.GetResidual.annotate.txt` in the capture directory) provides a concrete
+lead in `libwebpop/src/enc/predictor_enc.rs`: `GetResidual` calls the separate
+`PredictPixel` helper for every pixel. The helper retains several bounds
+checks, loads the predictor function, builds a three-pixel context on the
+stack, and makes an indirect call. C inlines the edge-selection logic into
+`GetResidual`/`ComputeResidualsForTile`, selects the function outside the pixel
+loop, and passes the existing upper-row context directly. C also dispatches
+to SSE2 predictors, whereas Rust uses the scalar implementations; Rust's
+`VP8LPredictor10_C` alone has 5% self time. Sampling cannot apportion the gap
+precisely among call overhead, context copies, checks, and missing SIMD.
+
+The next optimization experiment should therefore target residual prediction:
+allow the compiler to see loop invariants and row bounds, avoid reconstructing
+context per pixel, and evaluate scalar code generation before deciding how
+much SIMD is needed. Preserve transparent-pixel cleanup and image-edge rules,
+then repeat byte-parity checks and unprofiled timings. This profiling change
+does not alter encoder algorithms.
+
+[Compact capture summaries, stage definitions, hashes, and raw unprofiled
+timings](benchmarks/2026-10-23-map-profile.json) are committed. The full perf
+data and SVGs remain local under `target/profile-map-full/`; copy that directory
+elsewhere before cleaning `target/`.
+
+## Map without C runtime SIMD dispatch
+
+An unprofiled follow-up compares the same reference executable with and without
+`-noasm` against the archived default release v3 Rust executable. CPU 2,
+quality 75, method 4, exact off, the same prepared RGBA PAM, one warmup and
+eight balanced measured blocks, with no concurrent builds:
+
+| Implementation | Median seconds | IQR |
+| --- | ---: | ---: |
+| C, normal dispatch | 1.5565 | 0.10% |
+| C, `-noasm` | 1.7376 | 0.28% |
+| Rust v3 | 2.0372 | 0.34% |
+
+Disabling C's runtime SIMD dispatch **narrows the gap but does not close it**.
+Rust takes 30.9% longer than normal C and 17.2% longer than C with `-noasm`,
+using medians. The C slowdown closes about 38% of the original absolute
+seconds gap, leaving about 62%. Paired C-noasm/Rust speedup is 0.848x, with
+95% bootstrap interval 0.836–0.855. One Rust sample took 2.149s; all samples
+are retained. Every output is 94,476 bytes, byte-identical across all three
+implementations and repeats, and independently decoded and verified.
+
+`-noasm` sets `VP8GetCPUInfo` to null, bypassing libwebp's hand-written SIMD
+dispatch, including the predictor and vector-mismatch kernels. It does not
+disable compiler auto-vectorization in the existing `-O3 -march=x86-64-v3`
+binary or SIMD inside libc. This supports investigating Rust's scalar
+prediction overhead as well as missing SIMD; it does not isolate predictor
+SIMD from other DSP kernels or input conversion.
+
+```sh
+python3 scripts/benchmark.py --compare-c-noasm \
+  --rust v3=target/bench-map-profile/bin/baseline \
+  --case 75:4 --runs 8 --cpu 2 --output target/bench-map-noasm-next \
+  --build-note 'Archived default release x86-64-v3 Rust; same C binary with and without -noasm' \
+  samples/graphic-map.webp
+```
+
+[Raw samples, hashes and paired comparisons](benchmarks/2026-10-23-map-noasm.json)
+accompany this result. Full local artifacts are under `target/bench-map-noasm/`.
+
+## Inlining the per-pixel predictor helper
+
+Adding `#[inline(always)]` to `PredictPixel` in
+`libwebpop/src/enc/predictor_enc.rs` removes its standalone function body from
+the optimized executable (`nm -C` finds it in the before binary and not in the
+after binary). This experiment changes only that annotation. Both Rust
+executables use the same rustc 1.101.0-nightly compiler, `profiling` profile,
+x86-64-v3 target CPU, and `--no-rosegment` linker flag from the profiling
+follow-up. No profiler runs during timing. The predictor and public encoder
+test suites pass: 13 tests passed, with one manual timing test ignored.
+
+The unprofiled comparison uses the same map PAM, CPU 2, quality 75, method 4,
+exact off, one warmup, and eight balanced measured blocks:
+
+```sh
+python3 scripts/benchmark.py --compare-c-noasm \
+  --rust before=target/profile-map-full/rust \
+  --rust inline=target/profiling/cwebpop \
+  --case 75:4 --runs 8 --cpu 2 --output target/bench-map-inline-next \
+  --build-note 'Same compiler and profiling profile; only PredictPixel inline(always) added' \
+  samples/graphic-map.webp
+```
+
+| Implementation | Median seconds | IQR |
+| --- | ---: | ---: |
+| C, normal dispatch | 1.5656 | 0.63% |
+| C, `-noasm` | 1.7510 | 0.35% |
+| Rust before | 2.0541 | 0.33% |
+| Rust `PredictPixel` inline | 1.9932 | 0.26% |
+
+Inlining provides a **1.031x paired speedup**, bootstrap 95% interval
+1.029–1.032, or about 3% less time by medians. The annotation is retained.
+Rust remains 27.3% slower than normal C and 13.8% slower than C with `-noasm`.
+All outputs remain byte-identical at 94,476 bytes and independently decode to
+the prepared pixels. This is a useful improvement, but the full self time
+previously attributed to `PredictPixel` was not removable call overhead:
+inlining still performs prediction and context access in its callers.
+
+[Raw samples, hashes, build settings and paired comparisons](benchmarks/2026-10-23-map-inline.json)
+accompany this result. Full local artifacts, including before/after binaries
+and build/test logs, are under `target/bench-map-inline/`.

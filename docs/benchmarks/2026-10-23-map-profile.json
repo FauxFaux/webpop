@@ -1,0 +1,942 @@
+{
+  "profile_command": "PERF_EVENT=cpu_core/cycles/u bash scripts/profile-map.sh target/bench-lossless/inputs/1-graphic-map.pam target/profile-map-full 2 12",
+  "profile_repeats": 12,
+  "profile_warmups_per_implementation": 1,
+  "profile_cpu": 2,
+  "profile_event": "cpu_core/cycles/u",
+  "profile_frequency_hz": 99,
+  "profile_dwarf_stack_bytes": 64000,
+  "quality": 75,
+  "method": 4,
+  "exact": false,
+  "rustc": "rustc 1.101.0-nightly (7189d39d9 2026-10-22)\nbinary: rustc\ncommit-hash: 7189d39d9ce936881b8132c6addeaf3e295cd455\ncommit-date: 2026-10-22\nhost: x86_64-unknown-linux-gnu\nrelease: 1.101.0-nightly\nLLVM version: 23.1.4\n",
+  "rust_build": "env -u CARGO_ENCODED_RUSTFLAGS RUSTFLAGS='-Ctarget-cpu=x86-64-v3 -Clink-arg=-Wl,--no-rosegment' cargo build --locked --profile profiling -p cwebpop -vv",
+  "revision": "7b2fe1c94d896477a7f38fba3de491e7495cbd00",
+  "hashes": {
+    "rust": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+    "c": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+    "input.pam": "7a07b1a108d47fd1f818d83577aff082fd7c22b09c3bbc3dffa3b7496eadfeac",
+    "c.webp": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16",
+    "rust.webp": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+  },
+  "profile_lost_samples": {
+    "c": 0,
+    "rust": 0
+  },
+  "comparison": {
+    "stage_patterns_in_priority_order": {
+      "predictor_transform": "VP8LResidualImage|GetBestPredictorsAndSubSampling|ComputeResidualsForTile|GetResidual|PredictPixel|UpdateHisto",
+      "hash_chain": "VP8LHashChainFill",
+      "lz77_box": "BackwardReferencesLz77Box",
+      "trace_backwards": "VP8LBackwardReferencesTraceBackwards|BackwardReferencesHashChainDistanceOnly",
+      "lz77_other": "BackwardReferencesLz77",
+      "cache_size": "CalculateBestCacheSize",
+      "palette": "ApplyPalette|MapImageFromPalette|PaletteSort|CoOccurrenceBuild"
+    },
+    "profiles": {
+      "c": {
+        "samples": 1817,
+        "estimated_cycles": 95514761427,
+        "unknown_leaf_percent": 0.9307528540281699,
+        "main_in_stack_percent": 100.0,
+        "stages": {
+          "other": {
+            "percent": 3.759055476198944,
+            "estimated_cycles": 3590452870,
+            "samples": 89
+          },
+          "palette": {
+            "percent": 2.8728277640071,
+            "estimated_cycles": 2743974585,
+            "samples": 54
+          },
+          "hash_chain": {
+            "percent": 12.65832430020838,
+            "estimated_cycles": 12090568256,
+            "samples": 233
+          },
+          "lz77_other": {
+            "percent": 1.6621821468018774,
+            "estimated_cycles": 1587629312,
+            "samples": 29
+          },
+          "lz77_box": {
+            "percent": 22.062736456820655,
+            "estimated_cycles": 21073170091,
+            "samples": 394
+          },
+          "cache_size": {
+            "percent": 2.616041967408054,
+            "estimated_cycles": 2498706244,
+            "samples": 46
+          },
+          "trace_backwards": {
+            "percent": 8.163413690730193,
+            "estimated_cycles": 7797265111,
+            "samples": 168
+          },
+          "predictor_transform": {
+            "percent": 46.2054181978248,
+            "estimated_cycles": 44132994958,
+            "samples": 804
+          }
+        },
+        "inclusive_percent": {
+          "VP8LHashChainFill": 12.65832430020838,
+          "VP8LGetBackwardReferences": 35.76699699565277,
+          "BackwardReferencesLz77Box": 22.062736456820655,
+          "VP8LResidualImage": 46.2054181978248,
+          "UpdateHisto": 23.083028548263307,
+          "ComputeResidualsForTile": 42.053544207090006,
+          "GetBestPredictorsAndSubSampling": 44.12669583351521,
+          "GetResidual": 19.540385463104027,
+          "VectorMismatch": 3.2044101113514474
+        }
+      },
+      "rust": {
+        "samples": 2387,
+        "estimated_cycles": 127066855544,
+        "unknown_leaf_percent": 1.263218461752352,
+        "main_in_stack_percent": 98.00306752210348,
+        "stages": {
+          "other": {
+            "percent": 5.125729623288489,
+            "estimated_cycles": 6513103456,
+            "samples": 145
+          },
+          "palette": {
+            "percent": 4.798284383364437,
+            "estimated_cycles": 6097029086,
+            "samples": 130
+          },
+          "hash_chain": {
+            "percent": 9.676378025851433,
+            "estimated_cycles": 12295469288,
+            "samples": 225
+          },
+          "lz77_box": {
+            "percent": 14.272508214166121,
+            "estimated_cycles": 18135627395,
+            "samples": 339
+          },
+          "cache_size": {
+            "percent": 1.9969324778965272,
+            "estimated_cycles": 2537439307,
+            "samples": 46
+          },
+          "trace_backwards": {
+            "percent": 7.993950223693591,
+            "estimated_cycles": 10157661183,
+            "samples": 212
+          },
+          "predictor_transform": {
+            "percent": 55.048539281574214,
+            "estimated_cycles": 69948447888,
+            "samples": 1265
+          },
+          "lz77_other": {
+            "percent": 1.087677770165188,
+            "estimated_cycles": 1382077941,
+            "samples": 25
+          }
+        },
+        "inclusive_percent": {
+          "VP8LHashChainFill": 9.676378025851433,
+          "VectorMismatch": 3.2297334001303883,
+          "VP8LGetBackwardReferences": 27.339280994460996,
+          "BackwardReferencesLz77Box": 14.272508214166121,
+          "GetResidual": 33.62253826152649,
+          "PredictPixel": 19.338298622248622,
+          "ComputeResidualsForTile": 49.58734873562805,
+          "GetBestPredictorsAndSubSampling": 52.65036189617035,
+          "VP8LResidualImage": 55.048539281574214,
+          "UpdateHisto": 16.405658189740528
+        }
+      }
+    }
+  },
+  "timing": {
+    "started_utc": "2026-10-23T10:29:45.461229+00:00",
+    "command": [
+      "scripts/benchmark.py",
+      "--rust",
+      "profiling=target/profile-map/rust",
+      "--rust",
+      "baseline=target/benchmark-bins/rust-v3",
+      "--case",
+      "75:4",
+      "--runs",
+      "8",
+      "--cpu",
+      "2",
+      "--build-note",
+      "profiling: scripts/profile-map.sh; baseline: archived scripts/build-benchmarks.sh v3",
+      "--output",
+      "target/bench-map-profile",
+      "samples/graphic-map.webp"
+    ],
+    "build_note": "profiling: scripts/profile-map.sh; baseline: archived scripts/build-benchmarks.sh v3",
+    "affinity": [
+      2
+    ],
+    "initial_load_average": [
+      0.984375,
+      1.2041015625,
+      1.35009765625
+    ],
+    "binaries": {
+      "c": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+      "profiling": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+      "baseline": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d"
+    },
+    "input": {
+      "source": "/home/faux/code/webpop/samples/graphic-map.webp",
+      "source_sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16",
+      "prepared": "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+      "sha256": "7a07b1a108d47fd1f818d83577aff082fd7c22b09c3bbc3dffa3b7496eadfeac",
+      "bytes": 50068691,
+      "layout": "packed RGBA8 PAM",
+      "width": 4977,
+      "height": 2515
+    },
+    "summary": {
+      "image": 0,
+      "quality": 75,
+      "method": 4,
+      "exact": false,
+      "results": {
+        "c": {
+          "median_seconds": 1.5613466365,
+          "min_seconds": 1.548498925,
+          "max_seconds": 1.568896359,
+          "iqr_percent": 0.4858300087035095,
+          "megapixels_per_second": 8.016896893606624,
+          "matches_c_bytes": true,
+          "bytes": 94476,
+          "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+        },
+        "profiling": {
+          "median_seconds": 2.0422239555,
+          "min_seconds": 2.036842936,
+          "max_seconds": 2.050954565,
+          "iqr_percent": 0.06453280975628152,
+          "megapixels_per_second": 6.129178421538695,
+          "matches_c_bytes": true,
+          "bytes": 94476,
+          "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16",
+          "paired_geomean_speedup": 0.763040418352916,
+          "bootstrap_95_percent": [
+            0.7607935729586053,
+            0.7652463924106847
+          ],
+          "versus_first_rust": {
+            "paired_geomean_speedup": 1.0,
+            "bootstrap_95_percent": [
+              1.0,
+              1.0
+            ]
+          }
+        },
+        "baseline": {
+          "median_seconds": 2.0408784295,
+          "min_seconds": 2.033660058,
+          "max_seconds": 2.046588161,
+          "iqr_percent": 0.166681449557653,
+          "megapixels_per_second": 6.133219313345679,
+          "matches_c_bytes": true,
+          "bytes": 94476,
+          "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16",
+          "paired_geomean_speedup": 0.7638212693983569,
+          "bootstrap_95_percent": [
+            0.7615486110248444,
+            0.7656243152017481
+          ],
+          "versus_first_rust": {
+            "paired_geomean_speedup": 1.0010233416561685,
+            "bootstrap_95_percent": [
+              0.9995263830507255,
+              1.0025691520465896
+            ]
+          }
+        }
+      }
+    },
+    "samples": [
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 0,
+        "warmup": true,
+        "seconds": 1.557732458,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 0,
+        "warmup": true,
+        "seconds": 2.035095168,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 0,
+        "warmup": true,
+        "seconds": 2.030006369,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 0,
+        "warmup": false,
+        "seconds": 1.548498925,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 0,
+        "warmup": false,
+        "seconds": 2.045038407,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 0,
+        "warmup": false,
+        "seconds": 2.04197516,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 1,
+        "warmup": false,
+        "seconds": 2.036842936,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 1,
+        "warmup": false,
+        "seconds": 2.033660058,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 1,
+        "warmup": false,
+        "seconds": 1.549631742,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 2,
+        "warmup": false,
+        "seconds": 2.037253045,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 2,
+        "warmup": false,
+        "seconds": 2.042184907,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 2,
+        "warmup": false,
+        "seconds": 1.561430063,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 3,
+        "warmup": false,
+        "seconds": 1.56126321,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 3,
+        "warmup": false,
+        "seconds": 2.044435134,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 3,
+        "warmup": false,
+        "seconds": 2.040197424,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 4,
+        "warmup": false,
+        "seconds": 2.042005449,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 4,
+        "warmup": false,
+        "seconds": 2.041621443,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 4,
+        "warmup": false,
+        "seconds": 1.562115717,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 5,
+        "warmup": false,
+        "seconds": 1.556262338,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 5,
+        "warmup": false,
+        "seconds": 2.050954565,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 5,
+        "warmup": false,
+        "seconds": 2.040064882,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 6,
+        "warmup": false,
+        "seconds": 2.041559435,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 6,
+        "warmup": false,
+        "seconds": 2.042794469,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 6,
+        "warmup": false,
+        "seconds": 1.562413567,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 7,
+        "warmup": false,
+        "seconds": 1.568896359,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/c",
+          "-quiet",
+          "-lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "profiling",
+        "block": 7,
+        "warmup": false,
+        "seconds": 2.042263004,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/profiling",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-profiling.webp"
+        ],
+        "binary_sha256": "7f2a702182cdaffd1884a32dc3f7d5a3c72ed397712d991a658ad6d7566cc06c",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      },
+      {
+        "image": 0,
+        "quality": 75,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 7,
+        "warmup": false,
+        "seconds": 2.046588161,
+        "command": [
+          "/home/faux/code/webpop/target/bench-map-profile/bin/baseline",
+          "--quiet",
+          "--lossless",
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/bench-map-profile/inputs/0-graphic-map.pam",
+          "-o",
+          "/home/faux/code/webpop/target/bench-map-profile/outputs/0-q75-m4-baseline.webp"
+        ],
+        "binary_sha256": "8e487bf8c1e15d9b96419cff6e41a271e2d08ae5168613bd80867f796eee581d",
+        "bytes": 94476,
+        "sha256": "ae08b45d6948f98dc7e665fd01363bcc59948f538f430b40959546240f44ce16"
+      }
+    ]
+  }
+}

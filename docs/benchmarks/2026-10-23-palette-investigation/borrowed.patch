@@ -1,0 +1,11 @@
+--- a/libwebpop/src/enc/predictor_enc.rs
++++ b/libwebpop/src/enc/predictor_enc.rs
+@@ -163,7 +163,7 @@
+     } else if x == 0 {
+         upper[0]
+     } else {
+-        VP8LPredictors[mode](current[x - 1], &[upper[x - 1], upper[x], upper[x + 1]])
++        VP8LPredictors[mode](current[x - 1], upper[x - 1..x + 2].try_into().unwrap())
+     }
+ }
+ 

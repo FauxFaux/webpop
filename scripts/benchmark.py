@@ -57,6 +57,8 @@ def main():
     parser.add_argument("--rust", action="append", metavar="LABEL=PATH",
                         help="repeat for saved build variants; default current release binary")
     parser.add_argument("--c", type=Path, default=ROOT / "reference-cwebp/artifacts/cwebp")
+    parser.add_argument("--compare-c-noasm", action="store_true",
+                        help="also time the same C executable with -noasm")
     parser.add_argument("--case", action="append", metavar="QUALITY:METHOD",
                         help="repeat; defaults 75:4, 75:0, 100:6 (integer quality only)")
     parser.add_argument("--exact", action="store_true")
@@ -74,6 +76,10 @@ def main():
     if args.runs < 1 or args.warmups < 1 or args.timeout <= 0:
         parser.error("runs and warmups must be >= 1 and timeout must be positive")
     variants = {"c": args.c.resolve()}
+    c_labels = {"c"}
+    if args.compare_c_noasm:
+        variants["c-noasm"] = args.c.resolve()
+        c_labels.add("c-noasm")
     for spec in args.rust or ["rust=target/release/cwebpop"]:
         label, sep, path = spec.partition("=")
         if not sep or not label or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in label) or label in variants:
@@ -154,7 +160,7 @@ def main():
     save(out / "inputs.json", manifest)
     rng = random.Random(args.seed)
     summary = []
-    print("image / q:m / implementation: median seconds, IQR%, bytes; C/Rust paired speedup [95% bootstrap CI]", flush=True)
+    print("image / q:m / implementation: median seconds, IQR%, bytes; C/implementation paired speedup [95% bootstrap CI]", flush=True)
     with (out / "samples.jsonl").open("w", buffering=1) as raw:
         for image_index, item in enumerate(manifest):
             for q, m in cases:
@@ -162,9 +168,11 @@ def main():
 
                 def run(label, block, warmup):
                     output = out / "outputs" / f"{image_index}-q{q}-m{m}-{label}.webp"
-                    prefix = "-" if label == "c" else "--"
+                    prefix = "-" if label in c_labels else "--"
                     command = [str(variants[label]), prefix + "quiet", prefix + "lossless",
                                "-q", str(q), "-m", str(m)]
+                    if args.compare_c_noasm and label == "c-noasm":
+                        command.append("-noasm")
                     if args.exact:
                         command.append(prefix + "exact")
                     command += [item["prepared"], "-o", str(output)]
@@ -210,8 +218,9 @@ def main():
                                    "matches_c_bytes": hashes[label] == hashes["c"], **outputs[label]}
                     if label != "c":
                         rows[label].update(paired_interval(times["c"], values, args.seed))
-                        baseline = next(name for name in variants if name != "c")
-                        rows[label]["versus_first_rust"] = paired_interval(times[baseline], values, args.seed)
+                        if label not in c_labels:
+                            baseline = next(name for name in variants if name not in c_labels)
+                            rows[label]["versus_first_rust"] = paired_interval(times[baseline], values, args.seed)
                     row = rows[label]
                     line = f"{Path(item['source']).name} / {q}:{m} / {label}: {median:.4f}s, {row['iqr_percent']:.1f}%, {row['bytes']} B"
                     if label != "c":

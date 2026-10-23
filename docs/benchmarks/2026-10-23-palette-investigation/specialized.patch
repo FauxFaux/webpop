@@ -1,0 +1,49 @@
+--- a/libwebpop/src/enc/predictor_enc.rs
++++ b/libwebpop/src/enc/predictor_enc.rs
+@@ -197,15 +197,43 @@
+     exact: bool,
+     out: &mut [u32],
+ ) {
+-    assert!(mode < 14 && x_start + out.len() <= width);
++    match mode {
++        0 => get_residual_for_mode::<0>(width, upper, current, x_start, y, exact, out),
++        1 => get_residual_for_mode::<1>(width, upper, current, x_start, y, exact, out),
++        2 => get_residual_for_mode::<2>(width, upper, current, x_start, y, exact, out),
++        3 => get_residual_for_mode::<3>(width, upper, current, x_start, y, exact, out),
++        4 => get_residual_for_mode::<4>(width, upper, current, x_start, y, exact, out),
++        5 => get_residual_for_mode::<5>(width, upper, current, x_start, y, exact, out),
++        6 => get_residual_for_mode::<6>(width, upper, current, x_start, y, exact, out),
++        7 => get_residual_for_mode::<7>(width, upper, current, x_start, y, exact, out),
++        8 => get_residual_for_mode::<8>(width, upper, current, x_start, y, exact, out),
++        9 => get_residual_for_mode::<9>(width, upper, current, x_start, y, exact, out),
++        10 => get_residual_for_mode::<10>(width, upper, current, x_start, y, exact, out),
++        11 => get_residual_for_mode::<11>(width, upper, current, x_start, y, exact, out),
++        12 => get_residual_for_mode::<12>(width, upper, current, x_start, y, exact, out),
++        13 => get_residual_for_mode::<13>(width, upper, current, x_start, y, exact, out),
++        _ => panic!("invalid predictor mode"),
++    }
++}
++
++fn get_residual_for_mode<const MODE: usize>(
++    width: usize,
++    upper: &mut [u32],
++    current: &mut [u32],
++    x_start: usize,
++    y: usize,
++    exact: bool,
++    out: &mut [u32],
++) {
++    assert!(MODE < 14 && x_start + out.len() <= width);
+     assert!(current.len() > width && upper.len() > width);
+     if exact {
+-        PredictBatch(mode, x_start, y, current, upper, out);
++        PredictBatch(MODE, x_start, y, current, upper, out);
+         return;
+     }
+     for (i, residual) in out.iter_mut().enumerate() {
+         let x = x_start + i;
+-        let predict = PredictPixel(mode, x, y, current, upper);
++        let predict = PredictPixel(MODE, x, y, current, upper);
+         *residual = VP8LSubPixels(current[x], predict);
+         if current[x] & 0xff000000 == 0 {
+             *residual &= 0xff000000;
