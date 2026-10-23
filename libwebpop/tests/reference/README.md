@@ -25,6 +25,11 @@ selection follows CMake (`CC` on the first configuration). To change compilers,
 use a fresh build directory. There is no Cargo build script or production FFI.
 Enabling the feature on a library build does not invoke the oracle.
 
+The [near-lossless reference record](NEAR_LOSSLESS.md) describes standalone
+preprocessing, predictor quantization leaves, the copied custom public C
+wrapper, their request layouts and separate fixture regeneration commands.
+The Rust near-lossless public encoder is not yet integrated.
+
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older bundled Wasm regression has been
 removed; its seven synthetic image cases now compare full public Rust output

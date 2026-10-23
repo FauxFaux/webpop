@@ -38,18 +38,26 @@ wrapper/export regression backend, not the source of algorithm truth.
   shortcuts, active quantization, alpha endpoints, strength buckets, unchanged
   input and validation. Reuse these adapters and cases rather than recreating
   the preprocessing harness.
-- **Milestone 0 is partial.** The scalar oracle already builds near-lossless
-  support and exposes standalone helpers. The custom public wrapper,
-  near-lossless predictor adapters and candidate branch traces remain to add.
-- **Milestones 2–5 remain.** `GetResidual`, predictor search and final residual
+- **Milestone 2 is complete.** Predictor neighborhood differences, component
+  and pixel residual quantization, and subtract-green compensation are ported
+  in `enc/predictor_enc.rs`. There are 120 committed C fixtures and 645,384
+  native comparisons, including exhaustive component value/prediction pairs
+  at every step size, varied boundaries and reconstructed pixels. Independent
+  checks bound restored-channel error and verify neighborhood rows, alpha
+  endpoints and half-step boundary handling.
+- **Milestone 0 is partial.** The copied custom C wrapper and predictor leaf
+  adapters are implemented. Ten public fixtures at 0/100 and 1,035 live C
+  encodings independently decode; strength 100 matches Rust's simple lossless
+  API. Candidate branch traces and active residual/search adapters remain for
+  integration. No tests require the sibling checkout.
+- **Milestones 3–5 remain.** `GetResidual`, predictor search and final residual
   generation are specialized to strength 100. `GetPlaneDiffMask` already has
   the active-quantization guard, but search currently calls it with 1.
   `VP8LEncodeStream`/`EncodeStreamHook` have no near-lossless setting or routing.
   The public wrapper is not exported, and `cwebpop` rejects strengths below 100.
 
-The next batch should finish the public C oracle and predictor leaf adapters,
-then port predictor quantization and reconstruction feedback. Completing the
-lossless encoder and re-porting standalone preprocessing are no longer tasks.
+The next batch should connect the quantization leaves to predictor search and
+final generation, including reconstruction feedback and branch traces.
 
 ## Public API and compatibility
 
@@ -62,11 +70,12 @@ pub fn WebPEncodeRGBAWithNearLossless(
 ) -> Result<Vec<u8>, WebPEncodingError>;
 ```
 
-This is quad-image's custom wrapper, not an upstream simple API. Its reviewed
-source is [`near-lossless.c`](../../quad-image/webp-wasm/near-lossless.c) in the
-sibling checkout at `1ee887300721ad754c5632b56349d5daad17c11e`. Copy the reviewed
-wrapper into test support with its provenance and applicable notices when
-extending the oracle, so tests never require that checkout.
+This is quad-image's custom wrapper, not an upstream simple API. The reviewed
+source from `webp-wasm/near-lossless.c` at
+`1ee887300721ad754c5632b56349d5daad17c11e` is copied into
+[`reference/near_lossless_wrapper.c`](../libwebpop/tests/reference/near_lossless_wrapper.c).
+It retains source/copyright provenance and uses this repository's BSD license
+with the author's permission.
 
 | Setting | Value | Consequence |
 | --- | --- | --- |
@@ -170,7 +179,7 @@ positive bit count. Keep checked buffer sizing and allocation errors in Rust.
 ### Prediction and reconstruction feedback
 
 Extend the inherited predictor implementation rather than replacing its mode
-search. Additional leaves include `MaxDiffBetweenPixels`, `MaxDiffAroundPixel`,
+search. The ported leaves are `MaxDiffBetweenPixels`, `MaxDiffAroundPixel`,
 `AddGreenToBlueAndRed`, `MaxDiffsForRow`, `NearLosslessComponent`,
 `NearLosslessDiff`, and predictor-local `NearLossless`.
 
@@ -254,12 +263,12 @@ Extend the existing [native oracle](../libwebpop/tests/reference/README.md),
 logical request protocol, fixture evaluator and seeded corpus. Its CMake build
 already has `WEBP_NEAR_LOSSLESS=ON`, SIMD off and threading off. Standalone
 adapters and their evaluator already exist in `reference/near_lossless.c` and
-`support/near_lossless.rs`. Add the reviewed custom public wrapper against this
-pin and extend the existing `reference/predictor.c` adapters to expose active
-quantization (they currently specialize residual/search calls to 100), outside
-`upstream/`. Rename external definitions as in the existing wrappers to avoid
-duplicate symbols; public
-encoding comparisons must still use the normally built reference library.
+`support/near_lossless.rs`. The copied custom public wrapper uses the normally
+built reference library, and `reference/predictor.c` exposes the quantization
+leaves. Extend its residual/search adapters to expose active quantization
+(those calls are still specialized to 100), outside `upstream/`. Rename
+external definitions as in the existing wrappers to avoid duplicate symbols;
+public encoding comparisons must still use the normally built reference library.
 
 Compare in layers:
 
@@ -299,27 +308,25 @@ near-lossless milestones; no lossy VP8 milestone is required.
 
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
-| 0 (partial) | Audit inherited config/predictor specializations; extend existing oracle with custom wrapper, predictor leaf adapters and branch traces | Completed lossless | Pinned C wrapper exercised at 0 and 100; independent decode; 100 equals simple lossless; inherited regressions pass |
+| 0 (partial) | Custom public wrapper and predictor leaf adapters complete; add candidate branch traces during integration | Completed lossless | Ten public fixtures and 1,035 independent C decodes pass; 100 equals simple lossless; candidate traces remain |
 | 1 (complete) | Strength mapping, discretization/smoothness leaves, row buffering and complete `VP8ApplyNearLossless` | Standalone oracle adapters (complete) | 26,201 exact native comparisons and 49 portable fixtures; independent rounding/neighborhood checks, stride, dimension shortcuts, in-place updates and invalid inputs |
-| 2 | Predictor neighborhood and component quantization leaves, modulo boundaries and subtract-green compensation | 0 | Exact residuals and reconstructed pixels at every step size, threshold and tie |
+| 2 (complete) | Predictor neighborhood and component quantization leaves, modulo boundaries and subtract-green compensation | Predictor leaf adapters (complete) | 645,384 exact native comparisons and 120 portable fixtures; independent restored-color error bounds, alpha endpoints and strided neighborhood checks |
 | 3 | `GetResidual`, plane masks, candidate predictor search and final residual generation with reconstruction feedback | 2 | Exact histograms, mode maps, sampling bits, scratch/context updates and residual images on active/bypass branches |
 | 4 | Per-candidate preprocessing/palette/predictor routing, config propagation, buffer state and inherited stream integration | 1, 3 | Exact candidate transform data, stream selection and complete internal VP8L bytes; no changes at 100 |
 | 5 | Public Rust wrapper, portable fixtures, native and full-Wasm regression coverage | 4 | Exact complete bytes against pin across corpus; decoded-reference RGBA agreement, valid errors, unchanged input and 100 identity |
 
 For the next implementation batch:
 
-1. Copy the reviewed custom wrapper into test support and add public C requests
-   and compact fixtures at 0/100. Check 100 against the existing simple API and
-   independently decode the lower-strength reference output.
-2. Extend predictor adapters and evaluators; port neighborhood differences,
-   `NearLosslessComponent`, residual quantization and subtract-green
-   compensation, with boundary/tie cases (milestone 2).
-3. Thread quantization through predictor search and final generation, testing
+1. Extend the residual/search adapters to accept strength and subtract-green
+   state, returning initialized reconstructed rows and difference data. Retain
+   the existing strength-100 requests and fixtures.
+2. Thread quantization through predictor search and final generation, testing
    reconstructed rows and right-edge context before stream integration
    (milestone 3). Reuse the existing plane-mask guard.
-4. Add the private setting, per-candidate routing and public wrapper
+3. Add the private setting, per-candidate routing and public wrapper
    (milestones 4–5), retaining all inherited strength-100 regressions. Reuse
    milestone 1's preprocessing unchanged unless integration reveals a mismatch.
+   Complete milestone 0's branch traces for evaluated and selected candidates.
 
 CLI support below 100 can follow the public wrapper by replacing the existing
 explicit rejection with a call to it; it is not a prerequisite for the library
@@ -365,16 +372,16 @@ encode time and memory; quality measurements supplement exact parity.
 
 Run formatting, the relevant portable and opt-in native-oracle suites, public
 validation in debug/release, the Wasm regression, and a normal library build
-proving no production C/Wasm dependency. Standalone preprocessing verification
-is already available with:
+proving no production C/Wasm dependency. Preprocessing, predictor leaves and
+the C public wrapper can already be verified with:
 
 ```sh
-cargo test -p libwebpop --test near_lossless
-cargo test -p libwebpop --features native-oracle --test near_lossless -- --nocapture
+cargo test -p libwebpop --test near_lossless --test near_lossless_predictors --test near_lossless_public
+cargo test -p libwebpop --features native-oracle --test near_lossless --test near_lossless_predictors --test near_lossless_public -- --nocapture
 ```
 
-Add predictor, stream and public-API coverage as their milestones land; the
-standalone suite alone does not establish complete encoder parity.
+Add predictor feedback, stream and Rust public-API coverage as their milestones
+land; the current suites do not establish near-lossless Rust encoder parity.
 
 Deferred to the later lossy plan: `WebPEncodeRGBA`, independent alpha quality,
 VP8/YUV/ALPH and their dependencies. Also deferred: public advanced config,

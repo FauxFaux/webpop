@@ -48,6 +48,8 @@ unsigned WebpopClustering(const uint32_t*, unsigned, uint32_t*);
 extern void VP8LOptimizeSampling(uint32_t*, int, int, int, int, int*);
 extern int VP8LDistanceToPlaneCode(int, int);
 int WebpopNearLossless(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
+int WebpopNearLosslessPredictor(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
+size_t WebPEncodeRGBAWithNearLossless(const uint8_t*, int, int, int, int, uint8_t**);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -477,11 +479,21 @@ int main(void) {
         VP8LCollectColorRedTransforms_C(in + 261, (int)in[0], (int)in[1], (int)in[2], (int)in[3], out);
       else VP8LCollectColorBlueTransforms_C(in + 261, (int)in[0], (int)in[1], (int)in[2], (int)in[3], (int)in[4], out);
       count = 256;
-    } else if (IS(WebPEncodeLosslessRGBA) || IS(WebPEncodeRGBAOptions)) {
+    } else if (IS(NearLosslessWrapperErrors)) {
+      uint8_t rgba[4] = {1, 2, 3, 255}, *encoded;
+      const int strengths[] = {-1, 101};
+      REQUIRE(n == 0);
+      out[count++] = WebPEncodeRGBAWithNearLossless(rgba, 1, 1, 4, 0, NULL) == 0;
+      for (i = 0; i < sizeof(strengths) / sizeof(strengths[0]); ++i) {
+        encoded = rgba;  // The wrapper must reset the caller's output slot.
+        out[count++] = WebPEncodeRGBAWithNearLossless(rgba, 1, 1, 4, strengths[i], &encoded) == 0;
+        out[count++] = encoded == NULL;
+      }
+    } else if (IS(WebPEncodeLosslessRGBA) || IS(WebPEncodeRGBAOptions) || IS(WebPEncodeRGBAWithNearLossless)) {
       uint8_t *allocation, *rgba, *encoded = NULL;
       size_t size;
       uint64_t required;
-      const unsigned offset = IS(WebPEncodeLosslessRGBA) ? 3 : 6;
+      const unsigned offset = IS(WebPEncodeLosslessRGBA) ? 3 : IS(WebPEncodeRGBAWithNearLossless) ? 4 : 6;
       REQUIRE(n >= 3 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
       REQUIRE(in[2] >= in[0] * 4 && in[2] <= INT32_MAX);
       required = (uint64_t)(in[1] - 1) * in[2] + in[0] * 4;
@@ -492,6 +504,9 @@ int main(void) {
       for (i = offset; i < n; ++i) { REQUIRE(in[i] <= 255); rgba[i - offset] = (uint8_t)in[i]; }
       if (IS(WebPEncodeLosslessRGBA)) {
         size = WebPEncodeLosslessRGBA(rgba, (int)in[0], (int)in[1], (int)in[2], &encoded);
+      } else if (IS(WebPEncodeRGBAWithNearLossless)) {
+        REQUIRE(in[3] <= 100);
+        size = WebPEncodeRGBAWithNearLossless(rgba, (int)in[0], (int)in[1], (int)in[2], (int)in[3], &encoded);
       } else {
         WebPConfig config;
         WebPPicture pic;
@@ -507,11 +522,14 @@ int main(void) {
         size = writer.size; encoded = writer.mem;
       }
       REQUIRE(size > 0 && size <= LIMIT && encoded != NULL);
+      for (i = offset; i < n; ++i) REQUIRE(rgba[i - offset] == in[i]);
       for (i = 0; i < size; ++i) out[count++] = encoded[i];
       WebPFree(encoded);
       free(allocation);
     } else if (WebpopNearLossless(name, in, n, out, &count)) {
       // Standalone near-lossless leaves and preprocessing passes.
+    } else if (WebpopNearLosslessPredictor(name, in, n, out, &count)) {
+      // Predictor quantization leaves, with reconstructed pixels.
     } else REQUIRE(0);
     printf("%u", count);
     for (i = 0; i < count; ++i) printf(" %08" PRIx32, out[i]);

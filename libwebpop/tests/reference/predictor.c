@@ -4,6 +4,58 @@
 #define VP8LColorSpaceTransform WebpopIncludedColorSpaceTransform
 #include "src/enc/predictor_enc.c"
 
+// Separate names distinguish the predictor's static NearLossless from the
+// standalone preprocessor. Return only initialized data (including sentinel
+// border values in max_diffs), never scratch padding.
+int WebpopNearLosslessPredictor(const char* name, const uint32_t* in, unsigned n,
+                                uint32_t* out, unsigned* count) {
+  unsigned i;
+  *count = 1;
+  if (strcmp(name, "MaxDiffBetweenPixels") == 0) {
+    if (n != 2) abort();
+    out[0] = MaxDiffBetweenPixels(in[0], in[1]);
+  } else if (strcmp(name, "MaxDiffAroundPixel") == 0) {
+    if (n != 5) abort();
+    out[0] = MaxDiffAroundPixel(in[0], in[1], in[2], in[3], in[4]);
+  } else if (strcmp(name, "AddGreenToBlueAndRed") == 0) {
+    if (n != 1) abort();
+    out[0] = AddGreenToBlueAndRed(in[0]);
+  } else if (strcmp(name, "MaxDiffsForRow") == 0) {
+    // width, pixel stride, subtract-green, then three rows (no final padding).
+    uint8_t* diffs;
+    unsigned w, stride;
+    if (n < 3) abort();
+    w = in[0]; stride = in[1];
+    if (w == 0 || stride < w || in[2] > 1 ||
+        n != 3 + 2 * (uint64_t)stride + w || w > (1u << 20)) abort();
+    diffs = (uint8_t*)malloc(w);
+    if (!diffs) abort();
+    memset(diffs, 0xa5, w);
+    MaxDiffsForRow(w, stride, in + 3 + stride, diffs, in[2]);
+    for (i = 0; i < w; ++i) out[i] = diffs[i];
+    *count = w;
+    free(diffs);
+  } else if (strcmp(name, "NearLosslessComponent") == 0) {
+    if (n != 4 || in[0] > 255 || in[1] > 255 || in[2] > 255 ||
+        in[3] == 0 || in[3] > 32 || (in[3] & (in[3] - 1))) abort();
+    out[0] = NearLosslessComponent(in[0], in[1], in[2], in[3]);
+    out[1] = (in[1] + out[0]) & 255;
+    *count = 2;
+  } else if (strcmp(name, "NearLosslessDiff") == 0) {
+    if (n != 2 || in[0] > 255 || in[1] > 255) abort();
+    out[0] = NearLosslessDiff(in[0], in[1]);
+  } else if (strcmp(name, "PredictorNearLossless") == 0) {
+    if (n != 5 || in[2] == 0 || in[2] > 32 || (in[2] & (in[2] - 1)) ||
+        in[3] > 255 || in[4] > 1) abort();
+    out[0] = NearLossless(in[0], in[1], in[2], in[3], in[4]);
+    out[1] = VP8LAddPixels(in[1], out[0]);
+    *count = 2;
+  } else {
+    return 0;
+  }
+  return 1;
+}
+
 unsigned WebpopPredictor(const uint32_t* in, unsigned n, uint32_t* out) {
   unsigned count = 0, i;
   const unsigned op = in[0];

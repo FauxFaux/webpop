@@ -1,5 +1,7 @@
 // Copyright 2012 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/predictor_enc.c.
+// Copyright 2016 Google Inc. All Rights Reserved.
+// Derived from upstream/src/enc/predictor_enc.c at
+// 1844042d1ca751e62e61df7617dba19c98588339.
 // Use of this source code is governed by the BSD license in upstream/COPYING.
 // See upstream/PATENTS for the additional intellectual property rights grant.
 
@@ -183,6 +185,147 @@ pub fn PredictBatch(
         let x = x_start + i;
         *residual = VP8LSubPixels(current[x], PredictPixel(mode, x, y, current, upper));
     }
+}
+
+/// Largest absolute byte difference over the four ARGB components.
+pub fn MaxDiffBetweenPixels(p1: u32, p2: u32) -> u8 {
+    (0..4)
+        .map(|shift| ((p1 >> (8 * shift)) as u8).abs_diff((p2 >> (8 * shift)) as u8))
+        .max()
+        .unwrap()
+}
+
+pub fn MaxDiffAroundPixel(current: u32, up: u32, down: u32, left: u32, right: u32) -> u8 {
+    [up, down, left, right]
+        .into_iter()
+        .map(|neighbor| MaxDiffBetweenPixels(current, neighbor))
+        .max()
+        .unwrap()
+}
+
+/// Undo subtract-green for local smoothness measurements, wrapping each lane.
+pub fn AddGreenToBlueAndRed(argb: u32) -> u32 {
+    let green = (argb >> 8) & 255;
+    let red_blue = ((argb & 0x00ff00ff) + ((green << 16) | green)) & 0x00ff00ff;
+    (argb & 0xff00ff00) | red_blue
+}
+
+/// Write interior differences for a row with both an upper and a lower row.
+/// `row_start` is the pixel offset of the current row in strided `argb`.
+/// Boundary entries are unused by quantization and remain untouched.
+pub fn MaxDiffsForRow(
+    width: usize,
+    stride: usize,
+    argb: &[u32],
+    row_start: usize,
+    max_diffs: &mut [u8],
+    used_subtract_green: bool,
+) {
+    assert!(stride >= width && max_diffs.len() >= width);
+    if width <= 2 {
+        return;
+    }
+    assert!(row_start >= stride);
+    assert!(
+        row_start
+            .checked_add(stride)
+            .and_then(|end| end.checked_add(width))
+            .is_some_and(|end| end <= argb.len())
+    );
+    let restore = |pixel| {
+        if used_subtract_green {
+            AddGreenToBlueAndRed(pixel)
+        } else {
+            pixel
+        }
+    };
+    let mut current = restore(argb[row_start]);
+    let mut right = restore(argb[row_start + 1]);
+    for x in 1..width - 1 {
+        let up = restore(argb[row_start - stride + x]);
+        let down = restore(argb[row_start + stride + x]);
+        let left = current;
+        current = right;
+        right = restore(argb[row_start + x + 1]);
+        max_diffs[x] = MaxDiffAroundPixel(current, up, down, left, right);
+    }
+}
+
+/// Quantize a modulo-256 residual without crossing the inclusive boundary.
+/// Ties favor the reconstructed component closer to its prediction.
+pub fn NearLosslessComponent(value: u8, predict: u8, boundary: u8, quantization: u32) -> u8 {
+    assert!(quantization.is_power_of_two() && quantization <= 32);
+    let residual = u32::from(value.wrapping_sub(predict));
+    let boundary_residual = u32::from(boundary.wrapping_sub(predict));
+    let lower = residual & !(quantization - 1);
+    let upper = lower + quantization;
+    let bias = u32::from(u32::from(boundary.wrapping_sub(value)) < boundary_residual);
+    if residual - lower < upper - residual + bias {
+        if residual > boundary_residual && lower <= boundary_residual {
+            (lower + (quantization >> 1)) as u8
+        } else {
+            lower as u8
+        }
+    } else if residual <= boundary_residual && upper > boundary_residual {
+        (lower + (quantization >> 1)) as u8
+    } else {
+        upper as u8
+    }
+}
+
+#[inline]
+pub fn NearLosslessDiff(a: u8, b: u8) -> u8 {
+    a.wrapping_sub(b)
+}
+
+/// Quantize ARGB residuals using the local difference, compensating red/blue
+/// for any green change when the subtract-green transform precedes prediction.
+/// Corresponds to predictor_enc.c's static NearLossless (not the preprocessor).
+pub fn NearLossless(
+    value: u32,
+    predict: u32,
+    max_quantization: u32,
+    max_diff: u8,
+    used_subtract_green: bool,
+) -> u32 {
+    assert!(max_quantization.is_power_of_two() && max_quantization <= 32);
+    if max_diff <= 2 {
+        return VP8LSubPixels(value, predict);
+    }
+    let mut quantization = max_quantization;
+    while quantization >= u32::from(max_diff) {
+        quantization >>= 1;
+    }
+    let alpha = (value >> 24) as u8;
+    let a = if alpha == 0 || alpha == 255 {
+        NearLosslessDiff(alpha, (predict >> 24) as u8)
+    } else {
+        NearLosslessComponent(alpha, (predict >> 24) as u8, 255, quantization)
+    };
+    let g = NearLosslessComponent((value >> 8) as u8, (predict >> 8) as u8, 255, quantization);
+    let new_green = if used_subtract_green {
+        ((predict >> 8) as u8).wrapping_add(g)
+    } else {
+        0
+    };
+    let green_diff = if used_subtract_green {
+        NearLosslessDiff(new_green, (value >> 8) as u8)
+    } else {
+        0
+    };
+    let r = NearLosslessComponent(
+        NearLosslessDiff((value >> 16) as u8, green_diff),
+        (predict >> 16) as u8,
+        255 - new_green,
+        quantization,
+    );
+    let b = NearLosslessComponent(
+        NearLosslessDiff(value as u8, green_diff),
+        predict as u8,
+        255 - new_green,
+        quantization,
+    );
+    (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
 /// Lossless (max_quantization=1) GetResidual. Transparent RGB cleanup mutates
