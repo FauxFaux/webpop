@@ -64,6 +64,7 @@ unsigned WebpopVP8DspTables(uint32_t*);
 unsigned WebpopVP8Quantize(const uint32_t*, uint32_t*);
 unsigned WebpopVP8Metric(const uint32_t*, uint32_t*);
 unsigned WebpopVP8Histogram(const uint32_t*, int, uint32_t*);
+int WebpopBooleanWriter(const uint32_t*, unsigned, uint32_t*, unsigned*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -106,7 +107,9 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(QUANTDIV)) {
+    if (IS(VP8BitWriter)) {
+      REQUIRE(WebpopBooleanWriter(in, n, out, &count));
+    } else if (IS(QUANTDIV)) {
       REQUIRE(n == 3);
       out[count++] = QUANTDIV(in[0], in[1], in[2]);
     } else if (IS(BIAS)) {

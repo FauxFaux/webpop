@@ -58,7 +58,7 @@ Color quality 100 still uses YUV420 and quantization; it is not lossless RGB.
 
 ## Current repository (revalidated 2026-10-23)
 
-Continued from `701f3c7` against the unchanged, clean upstream pin.
+Continued from `e96c3da` against the unchanged, clean upstream pin.
 **Milestones 0 and 1 are complete.** The scalar VP8 prediction, transform,
 quantization and metric leaves match C. The dependency graph below still applies;
 the public lossy Rust APIs remain unimplemented.
@@ -121,10 +121,19 @@ the public lossy Rust APIs remain unimplemented.
   DSP batches, 34,554 exact native requests and 290 portable DSP fixtures pass.
   `enc/quant_enc.rs` currently contains scan/offset tables; segment-quality
   mapping and matrix construction remain in milestone 4.
+- **Milestone 2 boolean writer is ported.** `VP8BitWriterInit`, probability
+  and uniform bit coding, unsigned/signed fields, finish, append, position,
+  buffer/size access and wipe now share `utils/bit_writer_utils.rs` with VP8L.
+  Allocation failures propagate through `Result`; numeric state, deferred
+  bytes, carry propagation, MSB-first fields and padding match the pin. There
+  are 8,280 exact native traces and 128 portable fixtures. An independent
+  interval decoder recovers 1,278,333 bits from 8,273 streams; explicit checks
+  include a 511-byte deferred run and carry/no-carry resolution. Cost and
+  probability tables, residual costs and buffered tokens remain in milestone 2.
 - **Shared input/output glue remains ARGB/VP8L-only.** Checked geometry,
   owned pixels/output and error propagation exist. `WebPPicture` has only
   width, height and packed ARGB; import, transparency detection and cleanup
-  operate on that representation. YUVA storage/import/cleanup, `VP8BitWriter`,
+  operate on that representation. YUVA storage/import/cleanup,
   VP8 syntax and `VP8X`/`ALPH` assembly have not been ported.
 - **Reuse the native oracle and committed corpus.** The
   [CMake harness](../libwebpop/tests/reference/CMakeLists.txt) links the full
@@ -601,7 +610,7 @@ work; integrate parents only after their dependencies match the oracle.
 | --- | --- | --- | --- |
 | 0 (complete) | Extend existing oracle/fixtures with a VP8 leaf, both lossy public C wrappers and their provenance | Completed lossless (satisfied) | `FTransform_C`, both public C entry points, 48 portable fixtures and 3,566 independent VP8/ALPH decodes; lossless and near-lossless regressions pass |
 | 1 (complete) | VP8 tables/scans, clipping, predictions, transforms/inverse WHT, scalar quantization, SSE/texture/histogram DSP `[B]` | 0 | 34,554 exact native requests and 290 portable DSP fixtures; independent border, rounding, Hadamard, quantization, histogram and padding checks |
-| 2 | Boolean bit writer, cost/probability tables, residual cost leaves, buffered token recording/emission `[C]` | 0 | Exact bits/bytes and state across carry/0xff runs, probabilities 0/255, finish boundaries, coefficient categories and token storage boundaries |
+| 2 | **Boolean bit writer complete**; cost/probability tables, residual cost leaves, buffered token recording/emission `[C]` | 0 | Exact bits/bytes and state across carry/0xff runs, probabilities 0/255, finish boundaries, coefficient categories and token storage boundaries |
 | 3 | YUVA picture storage, default RGBA import and cleanup `[A]`; iterator/block geometry/borders/contexts `[D]` | 0 | Exact YUVA planes, gamma/alpha-weighting results, padded blocks, row transitions and Intra4 rotations |
 | 4 | Analysis/segment assignment `[E]`; segment params, matrix expansion and filter-strength leaves `[F foundations]` | 1, 3 | Exact susceptibility histograms/centers, segment remaps, q/deltas, matrices/lambdas and initial filter strengths |
 | 5 | Candidate reconstruction, mode costs, Intra16/Intra4/UV selection, diffusion and scratch commits `[F remainder]` | 1, 2, 3, 4 | Exact levels, reconstructed blocks, scores, winning modes, saved contexts/borders and diffusion errors |
@@ -621,12 +630,11 @@ path and alpha feature range are covered.
 The lossy oracle and scalar VP8 DSP milestones are complete. Next small units
 (milestones 2–3, and independent alpha leaves) are:
 
-1. Boolean writer traces with carry propagation, deferred 0xff runs and finish.
-2. Probability/cost tables, residual last-nonzero detection and costs, then
+1. Probability/cost tables, residual last-nonzero detection and costs, then
    buffered token recording/emission with coefficient contexts and statistics.
-3. Default RGB→Y and UV accumulation/conversion, gamma/interpolation and
+2. Default RGB→Y and UV accumulation/conversion, gamma/interpolation and
    alpha-weighted cases; import last-row/odd-column handling before whole images.
-4. Alpha-to-green dispatch and direct comparisons of the existing headerless
+3. Alpha-to-green dispatch and direct comparisons of the existing headerless
    `VP8LEncodeStream` at method 4/quality 32/`exact=1`, then alpha filter kernels,
    filter estimator and centroid `QuantizeLevels`. This branch can proceed
    independently of VP8 mode search; near-lossless quantization is not a

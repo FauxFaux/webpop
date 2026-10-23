@@ -13,6 +13,7 @@ pub mod public_images;
 pub mod references;
 pub mod streams;
 pub mod token_streams;
+pub mod vp8_boolean;
 pub mod vp8_dsp;
 pub mod vp8_predictions;
 pub mod vp8_transforms;
@@ -40,6 +41,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8BitWriter" => vp8_boolean::evaluate(self),
             "BIAS"
             | "QUANTDIV"
             | "VP8DspTables"

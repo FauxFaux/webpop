@@ -298,3 +298,80 @@ with `native-oracle`, `cargo fmt --all -- --check`,
 timing/large-corpus tests remain ignored; the upstream checkout is clean.
 Milestone 1 is complete, with 34,554 exact native requests and 290 portable DSP
 fixtures across all batches. Public lossy integration remains later in the plan.
+
+### Milestone 2: VP8 boolean writer
+
+Continued from `e96c3da` against the same clean upstream pin. Compiler and
+configuration remain GCC 15.2.0-16ubuntu1, CMake 4.2.3, Release `-O3 -DNDEBUG`,
+SIMD/threading off, and Rust 1.101.0-nightly (`7189d39d9`). The test-only
+`boolean_writer.c` calls the normally linked upstream writer functions; it
+contains no copied arithmetic-coding algorithm.
+
+`VP8BitWriter` extends the existing Rust `utils/bit_writer_utils.rs` alongside
+VP8L, preserving the VP8 range/value state, pending-bit count and deferred
+`0xff` run, probability/uniform coding, MSB-first fields, zero/nonzero signed
+flag, carry propagation and termination padding. Buffer capacity and allocation
+growth are Rust-owned. Allocation errors propagate immediately through
+`Result<T, TryReserveError>` instead of C's sticky error flag; callers must stop
+on error. Append returns `Ok(false)` without changing state if pending bits
+prevent appending. Initialization and wipe keep their distinct upstream states.
+Finish terminates one coded stream, with append permitted afterward; it is not
+an idempotent VP8L-style flush. Three upstream inline buffer/size/position
+accessors retain `#[inline]`.
+
+The `VP8BitWriter` request starts with `(expected_size, full_trace)`, followed
+by `(opcode, value, bits)` triples:
+
+- 0: `VP8PutBit(value, bits)`; bits is the probability in `0..=255`.
+- 1: `VP8PutBitUniform(value)`; bits is unused.
+- 2: `VP8PutBits(value, bits)`; widths `1..=31`, including values with
+  ignored high bits.
+- 3: `VP8PutSignedBits(value, bits)`; signed i32 as a u32 word, magnitude
+  fits the requested width `0..=30` (zero emits only its nonzero flag).
+- 4: finish; unused value/bits are zero.
+- 5: append `value` byte words following this triple. Zero-size native
+  appends use an allocated destination so C's memcpy receives a valid pointer.
+- 6: wipe; may be repeated, then reinitialize before coding again.
+- 7: wipe/reinitialize with reservation `value`.
+
+A state record has nine words: operation return value, range, value, run,
+pending-bit count (signed i32 words), approximate bit position low/high,
+written-byte size, and FNV-1a hash of the current written prefix. Numeric bit
+returns preserve noncanonical truthy arguments. The initial state is always
+recorded, then either every operation or the final state, according to
+`full_trace`. The response ends with byte count and all written bytes; no
+implicit finish occurs. Capacity, addresses and allocator details are excluded.
+The adapter validates field domains and bounds request/response sizes.
+
+`support/vp8_boolean.rs` supplies 8,280 exact native requests. These cover every
+probability, zero/one/alternating/grouped inputs around flush boundaries, all
+4,096 twelve-bit uniform strings, every supported unsigned/signed field width,
+noncanonical truthy inputs, 768 seeded mixed streams, long deferred-byte runs,
+append sizes around 1,024-byte growth boundaries, rejected unaligned appends,
+empty streams, wipe and reinitialization. A minimized 23-bit sequence explicitly
+forces carry across a pending byte; noise alone rarely reaches this branch.
+There are 128 portable C fixtures, with compact final-state records for large
+requests. Existing fixtures and the source/toolchain pin are unchanged.
+
+Independent portable tests use an interval-size streaming decoder, without the
+encoder's normalization tables or carry/flush logic, to recover 1,278,333 bits
+from 8,273 streams. They check unsigned field order, signed magnitude/sign and
+zero flags, input truthiness, and terminated-stream bounds. Other checks assert
+a maximum 511-byte pending run, both zero/`0xff` resolutions and mutation of
+only the preceding byte on carry, append state preservation, reservation
+failure, position/size and wipe/reuse behavior.
+
+Review the pin and `target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_boolean boolean_writer_fixtures_match_pinned_reference
+```
+
+The boolean writer portion of milestone 2 is complete. Cost/probability tables,
+residual costs and buffered tokens remain; public lossy encoding is still later
+work in this plan.
+
+Validation: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet` pass, as do all six boolean-writer
+tests in release, `cargo fmt --all -- --check`, the normal library-only build,
+and `git diff --check`. The upstream checkout remains clean at the recorded pin.
