@@ -41,3 +41,6 @@ corpus. This is a pure safe Rust encoder; normal builds do not compile or run C.
 See the [CLI documentation](cwebpop/README.md) for settings and input formats and
 the [lossless plan](docs/LOSSLESS_PORT_PLAN.md) for validation and timing baselines.
 
+Build a mostly static upstream `cwebp` executable for comparisons with the
+[reference Docker build](reference-cwebp/README.md).
+
