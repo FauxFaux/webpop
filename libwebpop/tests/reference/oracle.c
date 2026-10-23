@@ -34,6 +34,8 @@ int WebpopClampBits(const uint32_t*);
 unsigned WebpopPredictorTransform(const uint32_t*, uint32_t*);
 unsigned WebpopAuxiliary(const uint32_t*, uint32_t*);
 unsigned WebpopMainImage(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnalysis(const char*, const uint32_t*, uint32_t*);
+unsigned WebpopEncodeStream(const uint32_t*, uint32_t*);
 unsigned WebpopCosts(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopTrace(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopGetRefs(const uint32_t*, unsigned, uint32_t*);
@@ -88,7 +90,28 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(CrossColorTransform)) {
+    if (IS(VP8LEncodeStream)) {
+      REQUIRE(n >= 8 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] >= in[0]);
+      REQUIRE(in[3] <= 6 && in[4] <= 100 && in[5] <= 1 && in[6] <= 97);
+      REQUIRE(n == 7 + (uint64_t)(in[1] - 1) * in[2] + in[0] && n < 20000);
+      count = WebpopEncodeStream(in, out);
+    } else if (IS(AnalysisSizing)) {
+      REQUIRE(n == 4 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
+      REQUIRE(in[2] <= 6 && in[3] <= 1);
+      count = WebpopAnalysis(name, in, out);
+    } else if (IS(AnalyzeEntropy) || IS(EncoderAnalyze)) {
+      unsigned offset;
+      REQUIRE(n >= 6 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] >= in[0]);
+      if (IS(AnalyzeEntropy)) {
+        REQUIRE(in[3] >= 2 && in[3] <= 9 && in[4] <= 256);
+        offset = 5 + in[4];
+      } else {
+        REQUIRE(in[3] <= 6 && in[4] <= 100);
+        offset = 5;
+      }
+      REQUIRE(n == offset + (uint64_t)(in[1] - 1) * in[2] + in[0]);
+      count = WebpopAnalysis(name, in, out);
+    } else if (IS(CrossColorTransform)) {
       REQUIRE(n >= 9 && in[0] > 0 && in[1] > 0 && in[0] <= 16383 && in[1] <= 16383);
       REQUIRE(in[2] >= 2 && in[2] <= 9 && in[3] <= 100 && in[4] <= 1 && in[5] <= 1 && in[6] <= 3 && in[7] <= 97);
       REQUIRE((uint64_t)in[0] * in[1] == n - 8);

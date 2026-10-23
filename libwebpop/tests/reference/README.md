@@ -494,3 +494,57 @@ tile boundaries, and reproduce/invert all 6,480 selected maps with exact ARGB
 Another 768 complete-file decodes cover cross-color alone and after every
 subtract-green/predictor combination, optionally preceded by packed palettes.
 They exercise all four transforms in sequence and reused hash/reference scratch.
+
+### Milestone 8 analysis and stream trials
+
+`huffman.c` calls the original `AnalyzeEntropy`, `GetHistoBits`,
+`GetTransformBits`, `EncoderAnalyze` and synchronous `VP8LEncodeStream`.
+The prepared input is positive-stride ARGB, with no final-row padding required.
+No analysis or trial-selection algorithms are copied into the C adapter.
+
+- `AnalysisSizing`: `(width, height, method, use_palette)`; returns histogram
+  bits and initial transform bits. Geometry ranges through 16,383 in both axes
+  without allocating full-size images.
+- `AnalyzeEntropy`: `(width, height, stride, transform_bits, palette_size)`,
+  sorted palette words, then pixels. Zero palette size disables palette
+  analysis. Returns selected entropy mode and the original/transformed
+  red/blue-zero flags.
+- `EncoderAnalyze`: `(width, height, stride, method, quality)`, then pixels.
+  Returns palette size and active sorted entries, histogram/predictor/cross-color
+  bits, transformed-zero flag, config count, then each config's entropy mode,
+  palette sorting method (5 means unused), sub-config count and
+  `(LZ77 mask, do_no_cache)` pairs. The transformed-zero flag starts at zero,
+  matching the stream entry point's low-effort initialization.
+- `VP8LEncodeStream`: `(width, height, stride, method, quality, exact,
+  prefix_bits)`, then pixels. Returns selected features, histogram/predictor/
+  cross-color bits, cache bits, palette size, total/header/data stream sizes,
+  then the complete stream with the standard `0x05ad5ad5` prefix and 11-bit
+  `0x5ad` sentinel. Near-lossless strength is 100, threading is off, and stats
+  are collected from the original encoder. Transparent RGB is supplied as-is;
+  public import/cleanup behavior belongs to milestone 9.
+
+There are 13,534 exact analysis/entropy/sizing comparisons and 4,341 complete
+stream/statistics comparisons with seed `6d2b79f5`. Assertions require every
+entropy guess and trial mode, both zero flags, every palette sorting method,
+exhaustive trials with/without subtract-green and all four selected transforms.
+Inputs cross palette sizes 1/2/3/4/5/16/17/224/225/256/257, methods 0–6,
+quality 49/50 and 99/100 boundaries, both exact settings and writer prefixes
+through 97 bits. Padding contains unrelated colors. All results match C.
+
+`fixtures/analysis.txt` contains the 64 `support::analysis::fixture_cases`;
+`fixtures/streams.txt` contains the 21 `support::streams::fixture_cases`.
+Provenance remains Ubuntu x86_64, GCC 15.2.0-16ubuntu1, Release `-O3 -DNDEBUG`,
+SIMD/threading off, with the unchanged source pin. Review the pin and
+`target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle analysis_fixtures_match_pinned_reference
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle encoder_stream_fixtures_match_pinned_reference
+```
+
+Independent tests check first-pixel zero flags, entropy ties, small-palette
+packing/reference trials, padding and sampling limits. The combined stream is
+compared to every individually encoded trial to check rounded byte selection,
+different streams tied for size and later winning configurations. Another
+1,296 complete-file decodes check dimensions, alpha, visible RGB and all RGB
+in exact mode, and verify that prepared source pixels remain unchanged.

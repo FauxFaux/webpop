@@ -240,8 +240,8 @@ common starting width, not a claim that one width is optimal everywhere.
 For browser Wasm, SIMD is a module feature: a scalar branch inside a module
 containing SIMD instructions does not let a non-SIMD engine load it. If those
 engines must remain supported, distribute separate scalar/SIMD modules and
-select before instantiation. The existing Wasmtime regression exercises a
-bundled C encoder; it does not establish a future Rust SIMD backend's parity.
+select before instantiation. A future Rust SIMD backend needs its own parity
+checks against the scalar implementation.
 
 Measure tiny rows/tiles as well as large images, mismatch-at-first versus long
 matches, sparse/dense histograms, repeated bins, padded strides and vector-tail

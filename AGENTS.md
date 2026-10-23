@@ -5,7 +5,7 @@
 This Cargo workspace contains `libwebpop`, a Rust 2024 port of pinned libwebp code. Work currently focuses on lossless encoder internals; the public Rust image encoder is not implemented yet.
 
 - `libwebpop/src/`: `dsp/` contains pixel operations, `enc/` encoder algorithms, `utils/` shared helpers, and `webp/` format constants.
-- `libwebpop/tests/`: portable regression tests, shared evaluators in `support/`, committed fixtures in `fixtures/`, native C wrappers in `reference/`, and the Wasm regression in `integration/`.
+- `libwebpop/tests/`: portable regression tests, shared evaluators in `support/`, committed fixtures in `fixtures/`, native C wrappers in `reference/`.
 - `upstream/`: pinned libwebp reference submodule. Keep it unmodified; place oracle wrappers outside it.
 - `docs/`: algorithm notes and lossless, near-lossless, and lossy port plans.
 
@@ -14,8 +14,7 @@ This Cargo workspace contains `libwebpop`, a Rust 2024 port of pinned libwebp co
 Run commands from the repository root:
 
 - `cargo build -p libwebpop --lib`: build the Rust library without native oracle tooling.
-- `cargo test`: run portable fixtures, independent checks, and the Wasmtime regression.
-- `cargo test -p libwebpop --test integration`: run only the Wasm round-trip regression.
+- `cargo test`: run portable fixtures and independent checks.
 - `cargo test --features native-oracle -- --nocapture`: compare against pinned scalar C; requires Git, CMake >= 3.16, a C99 compiler, and a clean upstream checkout.
 - `cargo fmt --all -- --check`: check standard Rust formatting.
 

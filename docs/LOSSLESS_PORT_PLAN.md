@@ -57,7 +57,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1–7 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–8 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
@@ -68,7 +68,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   cache selection and rewriting, fixed-point traceback with bounded interval
   maintenance, and full reference trial selection. The checked
   `encode_lossless_rgba` entry point now produces complete images using a fixed
-  transform policy; full upstream analysis/configuration parity remains ahead.
+  transform policy; integration with the upstream trial loop remains ahead.
   Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
@@ -77,15 +77,16 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   implemented. Predictor cost/mask helpers, automatic tile-mode/sampling search
   and lossless residual conversion are implemented, including the predictor
   transform writer. Cross-color multiplier search and all four transform
-  writers are complete. Encoder analysis/state and the upstream-compatible
-  simple API remain in milestones 8–9.
+  writers are complete. Milestone 8 adds encoder analysis/state and the
+  synchronous configuration trial loop. The upstream-compatible simple API
+  and integration with the checked RGBA entry point remain in milestone 9.
 - `encode_lossless_rgba` imports checked positive-stride RGBA without changing
   the source, optionally preserves hidden RGB, uses default-sorted palettes
   when eligible, otherwise subtract-green, then prediction and non-palette
   cross-color at nonzero methods. It writes main-image data and the RIFF
   container with reusable hash/reference scratch and propagated allocation
   errors. `LosslessOptions` exposes quality, method and exact handling. This
-  is an early usable API, not completion of milestones 8–9: it does not run
+  is an early usable API, not completion of milestone 9: it does not run
   upstream's entropy/configuration trials and makes no compressed-byte parity
   promise. There are 350 deterministic independent RGBA round trips spanning
   palettes, non-palette images, transparent pixels, padded strides and effort
@@ -183,7 +184,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   and tie order. Allocation failures propagate through `Result`. No numerical
   divergence was observed. The full portable and native-oracle suites, release
   clustering/main-image/Wasm tests, formatting and the production library build
-  pass. The public encoder still awaits milestones 8–9.
+  pass. Public default-API integration remains in milestone 9.
 - Milestone 7 (complete) adds `GetColorPalette`, `SearchColorNoIdx`,
   `PrepareMapToPalette`, and the default and greedy delta branches of
   `PaletteSort` in `utils/palette.rs`. These pass 552 exact scalar C comparisons
@@ -194,7 +195,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   sets, reconstruct mapping entries, preserve palette populations and check
   the monotonic shortcut before transparent relocation. Missing-color lookup
   returns `None` rather than entering C's unbounded internal search. The full
-  portable suite (including Wasm), all 18 native-oracle tests, release palette
+  portable suite, all 18 native-oracle tests, release palette
   tests, formatting and the production library build pass with no divergence.
   Spatial ordering now adds `CoOccurrenceBuild`, `CoOccurrenceFindMax`, modified
   Zeng construction, `MinLACutProfile`, `MinLABestSlot`, `PaletteMinLARefine`,
@@ -207,7 +208,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   brute-force full arrangement cost (including zero and maximum-u32 weights).
   The original-position tie rule and the 40-sweep limit are preserved. Rust
   uses one owned index row instead of C's two rows; allocation failures return
-  `Result`. The full portable suite (including Wasm), all 20 native-oracle
+  `Result`. The full portable suite, all 20 native-oracle
   tests, release palette/unit tests, formatting and the production library
   build pass. `ApplyPalette`, `MapImageFromPalette` and `EncodePalette` now
   add packed index mapping and palette transform serialization. All 600 new
@@ -220,8 +221,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   index and decode 200 complete files with exact RGBA (including hidden RGB).
   The full portable suite, all 22 native-oracle tests, release palette/unit
   tests, formatting and the production library build pass without divergence.
-  Encoder-state integration remains for milestone 8: the internal mapping API
-  currently returns owned packed pixels/current width, and the writer accepts
+  Milestone 8 now integrates encoder state; the internal mapping API
+  returns owned packed pixels/current width, and the writer accepts
   reusable hash-chain/reference scratch explicitly.
   Predictor foundations now add `PredictionCostBias`,
   `PredictionCostSpatialHistogram`, `GetPlaneDiffMask`, `UpdateHisto`,
@@ -235,7 +236,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   eligibility and decode 192 complete files with supplied maps, preserving
   alpha everywhere and RGB wherever alpha is nonzero (all RGB in exact or
   low-effort conversions). Scratch rows are owned and allocation failures
-  propagate. The full portable suite (including Wasm), all 24 native-oracle
+  propagate. The full portable suite, all 24 native-oracle
   tests, release predictor tests, formatting and the production library build
   pass without divergence.
   Automatic selection now adds `ComputeResidualsForTile`,
@@ -252,7 +253,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   reconstruction covers 5,280 automatically selected residual images and
   constant-image tie/compaction checks. Complete-file decoding now covers 336
   supplied/selected predictor maps with alpha and visible/exact RGB preserved.
-  The full portable suite (including Wasm), all 25 native-oracle tests, release
+  The full portable suite, all 25 native-oracle tests, release
   predictor tests, formatting and the production library build pass.
   `ClampBits` and lossless `ApplyPredictFilter` now connect method-dependent
   predictor search to the transform header and auxiliary-image writer. The
@@ -268,7 +269,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   including subtract-green and 2/4/16/17-color palettes before prediction,
   exercising packed widths and reused hash/reference scratch. Conversion
   supports max quantization 1; standalone near-lossless preprocessing remains
-  separate. The full portable suite (including Wasm), all 26 native-oracle
+  separate. The full portable suite, all 26 native-oracle
   tests, release predictor tests, formatting and the production library build
   pass.
   Cross-color now adds multiplier packing/unpacking,
@@ -288,23 +289,42 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   complete-file decodes cover both effort/exact modes and every preceding
   subtract-green/predictor combination, optionally after packed palettes,
   including all four transforms in sequence. The owned map allocation is
-  fallible and happens before pixels are modified. Encoder-state integration
-  remains in milestone 8; transform writers accept explicit settings and
+  fallible and happens before pixels are modified. Milestone 8 now integrates
+  encoder state; transform writers accept explicit settings and
   reusable hash-chain/reference scratch. The complete `libwebpop` portable
-  suite (including Wasm), all 30 native-oracle tests, release cross-color and
+  suite, all 30 native-oracle tests, release cross-color and
   predictor tests, workspace formatting and the production library build pass.
+- Milestone 8 (complete) adds `AnalyzeEntropy`, `GetHistoBits`,
+  `GetTransformBits`, `AddPaletteSortingConfigs`, `EncoderAnalyze`, owned
+  `VP8LEncoder` storage, `MakeInputImageCopy`, synchronous `EncodeStreamHook`
+  and `VP8LEncodeStream` with near-lossless strength fixed to 100. All 13,534
+  entropy/analysis/sizing comparisons and 4,341 complete selected streams
+  match pinned scalar C with seed `6d2b79f5`, including selected transform,
+  cache and size statistics. Coverage asserts all five entropy guesses, both
+  original/transformed red/blue-zero flags, all six trial modes, all palette
+  sorting methods and the unused marker, exhaustive palette trials with and
+  without subtract-green, and all four transforms in selected streams.
+  The trial loop retains palette sorting order, skips duplicate palettes
+  within each entropy mode, restores immutable prepared input, reuses matching
+  scratch, and keeps the first minimum by rounded byte size. Prefixes through
+  97 bits exercise flushed data and pending bits. Eighty-five new C fixtures
+  preserve analysis and stream coverage without native tooling. Independent
+  checks cover first-pixel flags, entropy ties, packing/reference trials,
+  padding, sampling limits and combined versus individual trial selection
+  (including different equal-size streams and later winners). All 1,296
+  complete-file decode cases preserve dimensions, alpha and visible RGB,
+  including hidden RGB in exact mode; prepared source pixels remain unchanged.
+  Allocation failures propagate through `Result`; the public RGBA encoder
+  retains its earlier fixed policy until milestone 9 integrates this stream.
+  The full workspace suite with all 34 native-oracle tests, release library/
+  analysis/stream tests, formatting and the production library build pass.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
   `cargo test --features native-oracle`; normal builds never compile C.
-- [`tests/integration/main.rs`](../libwebpop/tests/integration/main.rs) already
-  invokes a bundled C encoder in Wasmtime and decodes its output using `image`.
-  Keep this working while developing the Rust encoder.
-- That Wasm binary is documented as a scalar, lossless-only v1.6.0 build from
-  another repository. It is useful existing evidence, but is not established as
-  an exact oracle for the current upstream commit. The current checkout includes
-  additional palette and transform-selection code. Both reference backends
-  now use the same synthetic image cases and independent decoding checks.
+- The older bundled Wasm public-API regression has been removed. The pinned
+  native oracle covers the shared synthetic image cases with independent
+  decoding checks; portable fixtures keep normal tests independent of C tooling.
 - [`ALGORITHM.md`](ALGORITHM.md) concerns lossy encoding and is background, not
   the implementation plan for this target.
 
@@ -576,31 +596,21 @@ conversions and signed shifts in cross-color math. The pinned code uses fixed
 point entropy/cost calculations, with floating-point logarithms in large-value
 fallbacks: do not replace it with a generic floating-point cost model.
 
-## Reference testing: choose the backend after a small spike
+## Reference testing: pinned native scalar C
 
-Define the comparison data first: inputs and logical outputs for a named
-function, including mutated buffers, lengths, selected modes, and errors. Avoid
-serializing pointers, padding, allocation capacity, or linked-list addresses.
-Use fixed random seeds and record upstream revision, build flags, toolchain,
-and fixture provenance. Shared test cases should not depend on C execution
-being native or Wasm.
+The primary oracle is a local scalar C build from the pinned source, with
+wrappers for internal functions and public encode cases. It replaces the older
+bundled Wasm regression and provides direct access to the code being ported.
 
-| Backend | Advantages | Costs |
-| --- | --- | --- |
-| Local scalar C build | Direct access to pinned source; straightforward wrappers for internal functions; convenient debugging | Requires a C toolchain and repeatable build configuration on each host |
-| Wasm build from pinned source | Consistent guest architecture and arithmetic environment; portable test binary; existing Wasmtime integration | Requires rebuilding/exporting internal wrappers, guest-memory marshaling, and artifact provenance; cannot inspect leaves through the existing single public export |
-
-Initial preference: local scalar C for leaf comparisons, while keeping the
-existing Wasm public-API regression. This is provisional. In milestone 0, try
-the same small leaf wrapper and public encode case with the available backends,
-then choose one primary pinned-source oracle. Do not build two complete leaf
-harnesses as a prerequisite for porting. If Wasm wins, produce an instrumented
-build from this pinned checkout, rather than assuming the bundled binary matches.
+Define comparison data as inputs and logical outputs for a named function,
+including mutated buffers, lengths, selected modes, and errors. Avoid serializing
+pointers, padding, allocation capacity, or linked-list addresses. Use fixed random
+seeds and record upstream revision, build flags, toolchain, and fixture provenance.
 
 For static C helpers, compile test-only wrappers in the same translation unit
 as the original source, exporting only the operations needed by tests. Keep
 these wrappers outside `upstream/` and leave production Rust independent of C.
-Whichever backend is selected, a normal Rust build must not compile or execute
+A normal Rust build must not compile or execute
 the reference encoder. Keep committed fixtures for fast portable tests; use the
 live oracle for broader differential testing.
 
@@ -636,7 +646,7 @@ milestone implements just one part of a file.
 | 5 (complete) | `GetHuffBitLengthsAndCodes`, `StoreImageToBitMask`, `EncodeImageNoHuffman` `[F]`; RIFF/image header helpers | 2, 4 | Exact auxiliary streams; a test-only untransformed/no-cache image wrapped in RIFF decodes correctly |
 | 6 (complete) | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | 4,388 exact staged clustering/sampling comparisons and 1,068 main streams match C; 31 portable fixtures and 168 exact RGBA decodes cover caches, multi-group images, sampling and trial resets |
 | 7 (complete) | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Palette orders/packed indices, predictor and cross-color maps, transformed pixels and complete auxiliary streams match pinned C; portable fixtures, independent replay and complete-file decoding cover all four transforms |
-| 8 | `AnalyzeEntropy`, sizing heuristics, `EncoderAnalyze` `[H]`; encoder storage and `EncodeStreamHook`; `VP8LEncodeStream` | 6, 7 | Matching analysis decisions, tried configurations, and selected stream; full palette trial selection included |
+| 8 (complete) | `AnalyzeEntropy`, sizing heuristics, `EncoderAnalyze` `[H]`; encoder storage and `EncodeStreamHook`; `VP8LEncodeStream` | 6, 7 | 13,534 entropy/analysis/sizing comparisons and 4,341 selected streams/statistics match C; 85 portable fixtures, independent first-minimum trial checks and 1,296 RGBA decodes pass; full palette trial selection included |
 | 9 | Picture/config/import/writer glue; `WebPEncode`, `VP8LEncodeImage`, and public `WebPEncodeLosslessRGBA` | 8, header helpers | All public corpus cases match the pinned reference and independently decode; invalid inputs fail without panic |
 
 Milestone 5 is an internal integration checkpoint, not a temporary implementation

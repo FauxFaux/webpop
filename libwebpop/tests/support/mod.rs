@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod analysis;
 pub mod clustering;
 pub mod cross_color;
 pub mod entropy_coding;
@@ -8,6 +9,7 @@ pub mod matches;
 pub mod palette;
 pub mod predictors;
 pub mod references;
+pub mod streams;
 pub mod token_streams;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
@@ -33,6 +35,8 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8LEncodeStream" => streams::evaluate(self),
+            "AnalysisSizing" | "AnalyzeEntropy" | "EncoderAnalyze" => analysis::evaluate(self),
             "CrossColor" => cross_color::evaluate(self),
             "CrossColorTransform" => cross_color::transform_evaluate(self),
             "ClampBits" | "PredictorTransform" => predictors::transform_evaluate(self),

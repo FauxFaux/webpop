@@ -114,8 +114,9 @@ color qualities `0, 30, 50, 75, 98, 98.5, 99, 100` established:
 
 These were structural and byte-comparison smoke checks, not pixel decoding,
 branch-complete coverage, or a comparison against Rust lossy output. No lossy
-Rust implementation is added by this document. Preserve the artifact's identity
-when adding a durable Wasmtime regression; enable SIMD in that test runtime.
+Rust implementation is added by this document. These historical artifact checks
+do not require retaining a Wasm runtime dependency; use the pinned native oracle
+for ongoing differential testing.
 
 ## Configuration actually reachable
 

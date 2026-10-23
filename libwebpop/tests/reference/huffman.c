@@ -5,6 +5,95 @@
 #define VP8LEncodeImage WebpopIncludedVP8LEncodeImage
 #include "src/enc/vp8l_enc.c"
 
+// Prepared ARGB inputs: width, height, stride, then operation-specific settings.
+unsigned WebpopAnalysis(const char* name, const uint32_t* in, uint32_t* out) {
+  unsigned count = 0, i, j;
+  if (strcmp(name, "AnalysisSizing") == 0) {
+    const int bits = GetHistoBits(in[2], in[3], in[0], in[1]);
+    out[count++] = bits;
+    out[count++] = GetTransformBits(in[2], bits);
+  } else if (strcmp(name, "AnalyzeEntropy") == 0) {
+    EntropyIx mode;
+    int original_zero, transformed_zero;
+    if (!AnalyzeEntropy(in + 5 + in[4], in[0], in[1], in[2], in[4] != 0,
+                        in[4], in + 5, in[3], &mode, &original_zero,
+                        &transformed_zero)) abort();
+    out[count++] = mode;
+    out[count++] = original_zero;
+    out[count++] = transformed_zero;
+  } else {
+    VP8LEncoder enc;
+    WebPPicture pic;
+    WebPConfig config;
+    // vp8l_enc.c undefines CRUNCH_CONFIGS_MAX at the end of the file.
+    CrunchConfig configs[kNumEntropyIx + 2 * kPaletteSortingNum];
+    int size, transformed_zero = 0;
+    memset(&enc, 0, sizeof(enc));
+    if (!WebPPictureInit(&pic) || !WebPConfigInit(&config)) abort();
+    pic.width = in[0]; pic.height = in[1]; pic.argb_stride = in[2];
+    pic.argb = (uint32_t*)(in + 5); pic.use_argb = 1;
+    config.method = in[3]; config.quality = in[4];
+    enc.pic = &pic; enc.config = &config;
+    if (!EncoderAnalyze(&enc, configs, &size, &transformed_zero)) abort();
+    out[count++] = enc.palette_size;
+    for (i = 0; i < (unsigned)enc.palette_size; ++i) out[count++] = enc.palette_sorted[i];
+    out[count++] = enc.histo_bits;
+    out[count++] = enc.predictor_transform_bits;
+    out[count++] = enc.cross_color_transform_bits;
+    out[count++] = transformed_zero;
+    out[count++] = size;
+    for (i = 0; i < (unsigned)size; ++i) {
+      out[count++] = configs[i].entropy_idx;
+      out[count++] = configs[i].palette_sorting_type;
+      out[count++] = configs[i].sub_configs_size;
+      for (j = 0; j < (unsigned)configs[i].sub_configs_size; ++j) {
+        out[count++] = configs[i].sub_configs[j].lz77;
+        out[count++] = configs[i].sub_configs[j].do_no_cache;
+      }
+    }
+  }
+  return count;
+}
+
+// width, height, stride, method, quality, exact, prefix bits, prepared ARGB.
+unsigned WebpopEncodeStream(const uint32_t* in, uint32_t* out) {
+  WebPPicture pic;
+  WebPConfig config;
+  WebPAuxStats stats;
+  VP8LBitWriter bw;
+  unsigned count = 0, remaining = in[6];
+  size_t i, size;
+  memset(&stats, 0, sizeof(stats));
+  if (!WebPPictureInit(&pic) || !WebPConfigInit(&config) ||
+      !VP8LBitWriterInit(&bw, 0)) abort();
+  pic.width = in[0]; pic.height = in[1]; pic.argb_stride = in[2];
+  pic.use_argb = 1; pic.argb = (uint32_t*)(in + 7); pic.stats = &stats;
+  config.method = in[3]; config.quality = in[4]; config.exact = in[5];
+  config.lossless = 1; config.near_lossless = 100; config.thread_level = 0;
+  while (remaining) {
+    const unsigned bits = remaining > 32 ? 32 : remaining;
+    const uint32_t mask = bits == 32 ? 0xffffffffu : (1u << bits) - 1;
+    VP8LPutBits(&bw, 0x05ad5ad5u & mask, bits);
+    remaining -= bits;
+  }
+  if (!WebpopIncludedVP8LEncodeStream(&config, &pic, &bw)) abort();
+  out[count++] = stats.lossless_features;
+  out[count++] = stats.histogram_bits;
+  out[count++] = stats.transform_bits;
+  out[count++] = stats.cross_color_transform_bits;
+  out[count++] = stats.cache_bits;
+  out[count++] = stats.palette_size;
+  out[count++] = stats.lossless_size;
+  out[count++] = stats.lossless_hdr_size;
+  out[count++] = stats.lossless_data_size;
+  VP8LPutBits(&bw, 0x5ad, 11);
+  VP8LBitWriterFinish(&bw);
+  size = VP8LBitWriterNumBytes(&bw);
+  for (i = 0; i < size; ++i) out[count++] = bw.buf[i];
+  VP8LBitWriterWipeOut(&bw);
+  return count;
+}
+
 void WebpopStoreHuffmanCode(VP8LBitWriter* bw, const HuffmanTreeCode* code) {
   HuffmanTree* scratch = (HuffmanTree*)calloc(3 * (code->num_symbols + 19), sizeof(*scratch));
   HuffmanTreeToken* tokens = (HuffmanTreeToken*)calloc(code->num_symbols + 1, sizeof(*tokens));

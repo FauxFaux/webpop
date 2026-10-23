@@ -7,6 +7,129 @@ use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases
 use support::references::{foundation_cases, foundation_fixture_cases};
 
 #[test]
+fn encoder_streams_match_pinned_reference() {
+    let cases = support::streams::cases();
+    let mut features = [false; 4];
+    let mut cache = false;
+    for (case, expected) in cases.iter().zip(native::run("encoder-streams", &cases)) {
+        native::compare(case, &expected, &case.rust());
+        for (i, reached) in features.iter_mut().enumerate() {
+            *reached |= expected[0] & (1 << i) != 0;
+        }
+        cache |= expected[4] != 0;
+        assert_eq!(expected[6], expected[7] + expected[8]);
+    }
+    assert_eq!(features, [true; 4], "all four selected transforms");
+    assert!(cache, "selected color caches");
+    eprintln!(
+        "Compared {} complete encoder streams and selected statistics",
+        cases.len()
+    );
+}
+
+#[test]
+fn encoder_stream_fixtures_match_pinned_reference() {
+    let cases = support::streams::fixture_cases();
+    let outputs = native::run("encoder-stream-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C complete encoder streams and selected statistics.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/streams.txt"),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn analysis_matches_pinned_reference() {
+    let mut cases = support::analysis::cases();
+    cases.extend(support::analysis::sizing_cases());
+    let mut modes = [false; 5];
+    let mut flags = [[false; 2]; 2];
+    let mut trials = [false; 6];
+    let mut sorts = [false; 6];
+    let mut exhaustive = [false; 2];
+    for (case, expected) in cases.iter().zip(native::run("analysis", &cases)) {
+        native::compare(case, &expected, &case.rust());
+        if case.function == "AnalyzeEntropy" {
+            modes[expected[0] as usize] = true;
+            flags[0][expected[1] as usize] = true;
+            flags[1][expected[2] as usize] = true;
+        } else if case.function == "EncoderAnalyze" {
+            let mut pos = 1 + expected[0] as usize + 4;
+            let count = expected[pos] as usize;
+            if case.input[3] == 6 && case.input[4] == 100 {
+                exhaustive[usize::from(count == 10)] |= count == 8 || count == 10;
+            }
+            pos += 1;
+            for _ in 0..count {
+                trials[expected[pos] as usize] = true;
+                sorts[expected[pos + 1] as usize] = true;
+                pos += 3 + 2 * expected[pos + 2] as usize;
+            }
+            assert_eq!(pos, expected.len());
+        }
+    }
+    assert_eq!(modes, [true; 5], "every guessed entropy mode");
+    assert_eq!(
+        flags, [[true; 2]; 2],
+        "both values of original/transformed zero flags"
+    );
+    assert_eq!(trials, [true; 6], "every transform trial");
+    assert_eq!(sorts, [true; 6], "all palette methods and unused marker");
+    assert_eq!(
+        exhaustive, [true; 2],
+        "exhaustive palette trials with/without subtract green"
+    );
+    eprintln!("Compared {} analysis/entropy/sizing cases", cases.len());
+}
+
+#[test]
+fn analysis_fixtures_match_pinned_reference() {
+    let cases = support::analysis::fixture_cases();
+    let outputs = native::run("analysis-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C entropy/encoder analysis and sizing fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases.iter().zip(outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/analysis.txt"),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn main_image_streams_match_pinned_reference() {
     let cases = support::main_images::cases();
     for (case, expected) in cases.iter().zip(native::run("main-images", &cases)) {

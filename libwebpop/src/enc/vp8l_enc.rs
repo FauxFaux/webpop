@@ -1,5 +1,5 @@
 // Copyright 2012 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/vp8l_enc.c (streams, transforms and Huffman storage).
+// Derived from upstream/src/enc/vp8l_enc.c (analysis, streams and transforms).
 // See COPYING and PATENTS.
 
 use std::collections::TryReserveError;
@@ -8,8 +8,575 @@ use crate::utils::bit_writer_utils::{VP8LBitWriter, VP8LPutBits};
 use crate::utils::huffman_encode_utils::{
     HuffmanTreeCode, HuffmanTreeToken, VP8LCreateCompressedHuffmanTree, VP8LCreateHuffmanTree,
 };
+use crate::utils::palette::PaletteSorting;
 use crate::utils::utils::BitsLog2Floor;
 use crate::webp::format_constants::CODE_LENGTH_CODES;
+
+/// Transform candidates, in the upstream analysis/tie-breaking order.
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntropyIx {
+    kDirect,
+    kSpatial,
+    kSubGreen,
+    kSpatialSubGreen,
+    kPalette,
+    kPaletteAndSpatial,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EntropyAnalysis {
+    pub min_entropy_ix: EntropyIx,
+    pub red_and_blue_always_zero: bool,
+    pub red_and_blue_transformed_always_zero: bool,
+}
+
+fn AddSingle(p: u32, histograms: &mut [[u32; 256]], channels: [usize; 4]) {
+    for (channel, shift) in channels.into_iter().zip([24, 16, 8, 0]) {
+        histograms[channel][((p >> shift) & 255) as usize] += 1;
+    }
+}
+
+fn AddSingleSubGreen(p: u32, histograms: &mut [[u32; 256]], red: usize, blue: usize) {
+    let green = p >> 8;
+    histograms[red][((p >> 16).wrapping_sub(green) & 255) as usize] += 1;
+    histograms[blue][(p.wrapping_sub(green) & 255) as usize] += 1;
+}
+
+fn HashPix(pix: u32) -> usize {
+    (pix.wrapping_add(pix >> 19).wrapping_mul(0x39c5fba7) >> 24) as usize
+}
+
+/// Estimate transform costs using the pinned encoder's fixed-point entropy
+/// model. Geometry, sampling bits and the optional sorted palette must already
+/// be validated. Padding is ignored; final-row padding is unnecessary.
+pub fn AnalyzeEntropy(
+    argb: &[u32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    palette_sorted: Option<&[u32]>,
+    transform_bits: u32,
+) -> Result<EntropyAnalysis, TryReserveError> {
+    use super::histogram_enc::VP8LBitsEntropy;
+    use crate::dsp::lossless_common::{LOG_2_PRECISION_BITS, VP8LFastLog2, VP8LSubPixels};
+    use EntropyIx::*;
+
+    assert!(width > 0 && height > 0 && stride >= width);
+    assert!(
+        (height - 1)
+            .checked_mul(stride)
+            .and_then(|n| n.checked_add(width))
+            .is_some_and(|n| n <= argb.len())
+    );
+    if let Some(palette) = palette_sorted {
+        assert!(!palette.is_empty() && palette.len() <= 256);
+        if palette.len() <= 16 {
+            return Ok(EntropyAnalysis {
+                min_entropy_ix: kPalette,
+                red_and_blue_always_zero: palette.iter().all(|p| p & 0x00ff00ff == 0),
+                red_and_blue_transformed_always_zero: true,
+            });
+        }
+    }
+
+    // HistoIx in upstream: alpha/pred, green/pred, red/pred, blue/pred,
+    // subgreen red/pred, subgreen blue/pred, palette hash.
+    const A: usize = 0;
+    const AP: usize = 1;
+    const G: usize = 2;
+    const GP: usize = 3;
+    const R: usize = 4;
+    const RP: usize = 5;
+    const B: usize = 6;
+    const BP: usize = 7;
+    const RS: usize = 8;
+    const RPS: usize = 9;
+    const BS: usize = 10;
+    const BPS: usize = 11;
+    const P: usize = 12;
+    let mut histo = Vec::new();
+    histo.try_reserve_exact(13)?;
+    histo.resize(13, [0u32; 256]);
+    let mut pix_prev = argb[0];
+    for y in 0..height {
+        for x in 0..width {
+            let pix = argb[y * stride + x];
+            let pix_diff = VP8LSubPixels(pix, pix_prev);
+            // Retain the previous pixel across row boundaries, including when
+            // this pixel is skipped because it matches the row above.
+            pix_prev = pix;
+            if pix_diff == 0 || (y > 0 && pix == argb[(y - 1) * stride + x]) {
+                continue;
+            }
+            AddSingle(pix, &mut histo, [A, R, G, B]);
+            AddSingle(pix_diff, &mut histo, [AP, RP, GP, BP]);
+            AddSingleSubGreen(pix, &mut histo, RS, BS);
+            AddSingleSubGreen(pix_diff, &mut histo, RPS, BPS);
+            histo[P][HashPix(pix)] += 1;
+        }
+    }
+    for channel in [RPS, BPS, RP, GP, BP, AP] {
+        histo[channel][0] += 1;
+    }
+    let comp: [u64; 13] = std::array::from_fn(|i| VP8LBitsEntropy(&histo[i]));
+    let tiles =
+        width.div_ceil(1 << transform_bits) as u64 * height.div_ceil(1 << transform_bits) as u64;
+    let entropy = [
+        comp[A] + comp[R] + comp[G] + comp[B],
+        comp[AP] + comp[RP] + comp[GP] + comp[BP] + tiles * u64::from(VP8LFastLog2(14)),
+        comp[A] + comp[RS] + comp[G] + comp[BS],
+        comp[AP] + comp[RPS] + comp[GP] + comp[BPS] + tiles * u64::from(VP8LFastLog2(24)),
+        comp[P] + ((palette_sorted.map_or(0, <[u32]>::len) as u64 * 8) << LOG_2_PRECISION_BITS),
+    ];
+    let modes = [kDirect, kSpatial, kSubGreen, kSpatialSubGreen, kPalette];
+    let mut best = 0;
+    let last = if palette_sorted.is_some() { 4 } else { 3 };
+    for i in 1..=last {
+        if entropy[i] < entropy[best] {
+            best = i;
+        }
+    }
+    let (red, blue) = [(R, B), (RP, BP), (RS, BS), (RPS, BPS), (R, B)][best];
+    Ok(EntropyAnalysis {
+        min_entropy_ix: modes[best],
+        red_and_blue_always_zero: argb[0] & 0x00ff00ff == 0
+            && (1..256).all(|i| histo[R][i] | histo[B][i] == 0),
+        red_and_blue_transformed_always_zero: (1..256).all(|i| histo[red][i] | histo[blue][i] == 0),
+    })
+}
+
+pub fn GetHistoBits(method: u32, use_palette: bool, width: usize, height: usize) -> u32 {
+    use crate::webp::format_constants::{MIN_HUFFMAN_BITS, NUM_HUFFMAN_BITS};
+    assert!(method <= 6);
+    ClampBits(
+        width,
+        height,
+        (if use_palette { 9 } else { 7 }) - method as i32,
+        MIN_HUFFMAN_BITS,
+        MIN_HUFFMAN_BITS + (1 << NUM_HUFFMAN_BITS) - 1,
+        2600,
+    )
+}
+
+pub fn GetTransformBits(method: u32, histo_bits: u32) -> u32 {
+    assert!(method <= 6);
+    histo_bits.min(if method < 4 {
+        6
+    } else if method > 4 {
+        4
+    } else {
+        5
+    })
+}
+
+/// One transform/palette trial, followed by one or two reference trials.
+/// `None` corresponds to upstream's kUnusedPalette.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CrunchConfig {
+    pub entropy_idx: EntropyIx,
+    pub palette_sorting_type: Option<PaletteSorting>,
+    pub sub_configs: [CrunchSubConfig; 2],
+    pub sub_configs_size: usize,
+}
+
+/// Owned analysis state. Palette entries beyond palette_size are unspecified.
+#[derive(Clone, Debug)]
+pub struct EncoderAnalysis {
+    pub palette_sorted: [u32; 256],
+    pub palette_size: usize,
+    pub histo_bits: u32,
+    pub predictor_transform_bits: u32,
+    pub cross_color_transform_bits: u32,
+    pub red_and_blue_transformed_always_zero: bool,
+    pub crunch_configs: Vec<CrunchConfig>,
+}
+
+fn AddPaletteSortingConfigs(
+    entropy_idx: EntropyIx,
+    include_modified_zeng: bool,
+    configs: &mut Vec<CrunchConfig>,
+    template: &CrunchConfig,
+) {
+    use PaletteSorting::*;
+    for sorting in [
+        kMinimizeDelta,
+        kModifiedZeng,
+        kMinLAFromZeng,
+        kMinLAFromDelta,
+    ] {
+        if sorting == kModifiedZeng && !include_modified_zeng {
+            continue;
+        }
+        if matches!(sorting, kMinLAFromZeng | kMinLAFromDelta)
+            && entropy_idx != EntropyIx::kPaletteAndSpatial
+        {
+            continue;
+        }
+        configs.push(CrunchConfig {
+            entropy_idx,
+            palette_sorting_type: Some(sorting),
+            ..template.clone()
+        });
+    }
+}
+
+/// Analyze prepared positive-stride ARGB and retain the original configuration
+/// order, including palette refinements and first-minimum entropy ties. This
+/// internal entry point assumes validated image geometry and settings.
+pub fn EncoderAnalyze(
+    argb: &[u32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    method: u32,
+    quality: u32,
+) -> Result<EncoderAnalysis, TryReserveError> {
+    use super::backward_references_enc::{kLZ77Box, kLZ77RLE, kLZ77Standard};
+    use crate::utils::palette::GetColorPalette;
+    use EntropyIx::*;
+    use PaletteSorting::*;
+
+    assert!(method <= 6 && quality <= 100);
+    let mut palette_sorted = [0; 256];
+    let count = GetColorPalette(argb, width, height, stride, &mut palette_sorted);
+    let use_palette = count <= 256;
+    let palette_size = if use_palette { count } else { 0 };
+    let histo_bits = GetHistoBits(method, use_palette, width, height);
+    let transform_bits = GetTransformBits(method, histo_bits);
+    let low_effort = method == 0;
+    let n_lz77s = if !low_effort && (1..=16).contains(&palette_size) {
+        2
+    } else {
+        1
+    };
+    let do_no_cache = (method == 6 && quality == 100) || (method == 5 && quality >= 50);
+    let template = CrunchConfig {
+        entropy_idx: kDirect,
+        palette_sorting_type: None,
+        sub_configs: [
+            CrunchSubConfig {
+                lz77: kLZ77Standard | kLZ77RLE,
+                do_no_cache,
+            },
+            CrunchSubConfig {
+                lz77: kLZ77Box,
+                do_no_cache,
+            },
+        ],
+        sub_configs_size: n_lz77s,
+    };
+    let mut configs = Vec::new();
+    // CRUNCH_CONFIGS_MAX = six entropy modes + twice six palette methods.
+    // Reserve once so appending trials cannot introduce unchecked allocations.
+    configs.try_reserve_exact(18)?;
+    let mut transformed_zero = false; // VP8LEncodeStream's initial value.
+    if low_effort {
+        configs.push(CrunchConfig {
+            entropy_idx: if use_palette {
+                kPalette
+            } else {
+                kSpatialSubGreen
+            },
+            palette_sorting_type: use_palette.then_some(kSortedDefault),
+            ..template
+        });
+    } else {
+        let analysis = AnalyzeEntropy(
+            argb,
+            width,
+            height,
+            stride,
+            use_palette.then_some(&palette_sorted[..palette_size]),
+            transform_bits,
+        )?;
+        transformed_zero = analysis.red_and_blue_transformed_always_zero;
+        if method == 6 && quality == 100 {
+            for entropy_idx in [
+                kDirect,
+                kSpatial,
+                kSubGreen,
+                kSpatialSubGreen,
+                kPalette,
+                kPaletteAndSpatial,
+            ] {
+                if matches!(entropy_idx, kSubGreen | kSpatialSubGreen)
+                    && analysis.red_and_blue_always_zero
+                {
+                    continue;
+                }
+                if matches!(entropy_idx, kPalette | kPaletteAndSpatial) {
+                    if use_palette {
+                        AddPaletteSortingConfigs(entropy_idx, true, &mut configs, &template);
+                    }
+                } else {
+                    configs.push(CrunchConfig {
+                        entropy_idx,
+                        ..template.clone()
+                    });
+                }
+            }
+        } else {
+            configs.push(CrunchConfig {
+                entropy_idx: analysis.min_entropy_ix,
+                palette_sorting_type: use_palette.then_some(kMinimizeDelta),
+                ..template.clone()
+            });
+            if method >= 4
+                && quality >= 50
+                && use_palette
+                && (analysis.min_entropy_ix == kPalette || palette_size >= 225)
+            {
+                AddPaletteSortingConfigs(kPaletteAndSpatial, false, &mut configs, &template);
+            }
+        }
+    }
+    Ok(EncoderAnalysis {
+        palette_sorted,
+        palette_size,
+        histo_bits,
+        predictor_transform_bits: transform_bits,
+        cross_color_transform_bits: transform_bits,
+        red_and_blue_transformed_always_zero: transformed_zero,
+        crunch_configs: configs,
+    })
+}
+
+/// The lossless subset of upstream WebPAuxStats for the selected stream.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LosslessStreamStats {
+    pub lossless_features: u32,
+    pub histogram_bits: u32,
+    pub transform_bits: u32,
+    pub cross_color_transform_bits: u32,
+    pub cache_bits: u32,
+    pub palette_size: usize,
+    pub lossless_size: usize,
+    pub lossless_hdr_size: usize,
+    pub lossless_data_size: usize,
+}
+
+/// Synchronous encoder storage. The prepared source remains immutable across
+/// trials; all transform and matching storage belongs to this encoder.
+struct VP8LEncoder<'a> {
+    source: &'a [u32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    method: u32,
+    quality: u32,
+    exact: bool,
+    analysis: EncoderAnalysis,
+    argb: Vec<u32>,
+    current_width: usize,
+    hash_chain: super::backward_references_enc::VP8LHashChain,
+    refs: [super::backward_references_enc::VP8LBackwardRefs; 4],
+}
+
+fn MakeInputImageCopy(enc: &mut VP8LEncoder<'_>) -> Result<(), TryReserveError> {
+    enc.argb.clear();
+    enc.argb.try_reserve_exact(
+        enc.width
+            .checked_mul(enc.height)
+            .expect("validated image size"),
+    )?;
+    for y in 0..enc.height {
+        enc.argb
+            .extend_from_slice(&enc.source[y * enc.stride..y * enc.stride + enc.width]);
+    }
+    enc.current_width = enc.width;
+    Ok(())
+}
+
+fn EncodeStreamHook(
+    enc: &mut VP8LEncoder<'_>,
+    bw: &mut VP8LBitWriter,
+) -> Result<LosslessStreamStats, TryReserveError> {
+    use super::backward_references_enc::VP8LBackwardRefsClear;
+    use crate::utils::bit_writer_utils::*;
+    use crate::utils::palette::PaletteSort;
+    use EntropyIx::*;
+
+    let low_effort = enc.method == 0;
+    let byte_position = VP8LBitWriterNumBytes(bw);
+    let bw_init = VP8LBitWriterClone(bw)?;
+    let mut bw_best = if enc.analysis.crunch_configs.len() > 1 {
+        VP8LBitWriterClone(bw)?
+    } else {
+        VP8LBitWriterInit(0)?
+    };
+    let mut best_size = usize::MAX;
+    let mut best_stats = LosslessStreamStats::default();
+    let mut tested_palettes = [[0u32; 256]; 6];
+    let mut num_tested_palettes = 0;
+
+    for idx in 0..enc.analysis.crunch_configs.len() {
+        let config = enc.analysis.crunch_configs[idx].clone();
+        let entropy_idx = config.entropy_idx;
+        let use_palette = matches!(entropy_idx, kPalette | kPaletteAndSpatial);
+        let use_subtract_green = matches!(entropy_idx, kSubGreen | kSpatialSubGreen);
+        let use_predict = matches!(
+            entropy_idx,
+            kSpatial | kSpatialSubGreen | kPaletteAndSpatial
+        );
+        let use_cross_color = !low_effort
+            && !use_palette
+            && use_predict
+            && !enc.analysis.red_and_blue_transformed_always_zero;
+        let mut cache_bits = 0;
+        let mut predictor_bits = 0;
+        let mut cross_color_bits = 0;
+        VP8LBackwardRefsClear(&mut enc.refs[0]);
+        VP8LBackwardRefsClear(&mut enc.refs[1]);
+
+        if use_palette {
+            let size = enc.analysis.palette_size;
+            let mut palette = [0; 256];
+            PaletteSort(
+                config.palette_sorting_type.expect("palette sorting method"),
+                enc.source,
+                enc.width,
+                enc.height,
+                enc.stride,
+                &enc.analysis.palette_sorted[..size],
+                &mut palette[..size],
+            )?;
+            if idx == 0 || entropy_idx != enc.analysis.crunch_configs[idx - 1].entropy_idx {
+                num_tested_palettes = 0;
+            }
+            if tested_palettes[..num_tested_palettes]
+                .iter()
+                .any(|previous| previous[..size] == palette[..size])
+            {
+                continue;
+            }
+            tested_palettes[num_tested_palettes][..size].copy_from_slice(&palette[..size]);
+            num_tested_palettes += 1;
+            EncodePalette(
+                bw,
+                &palette[..size],
+                &mut enc.hash_chain,
+                &mut enc.refs[..2],
+                low_effort,
+            )?;
+            (enc.current_width, enc.argb) = MapImageFromPalette(
+                enc.source,
+                enc.stride,
+                &palette[..size],
+                enc.width,
+                enc.height,
+            )?;
+            cache_bits = BitsLog2Floor(size as u32) + 1;
+        } else {
+            MakeInputImageCopy(enc)?;
+        }
+        if use_subtract_green {
+            ApplySubtractGreen(bw, &mut enc.argb)?;
+        }
+        if use_predict {
+            predictor_bits = ApplyPredictFilter(
+                bw,
+                &mut enc.argb,
+                &mut enc.hash_chain,
+                &mut enc.refs[..2],
+                enc.current_width,
+                enc.height,
+                enc.analysis.predictor_transform_bits as i32,
+                enc.method,
+                enc.quality,
+                low_effort,
+                enc.exact,
+            )?;
+        }
+        if use_cross_color {
+            cross_color_bits = ApplyCrossColorFilter(
+                bw,
+                &mut enc.argb,
+                &mut enc.hash_chain,
+                &mut enc.refs[..2],
+                enc.current_width,
+                enc.height,
+                enc.analysis.cross_color_transform_bits,
+                enc.quality,
+                low_effort,
+            )?;
+        }
+        VP8LPutBits(bw, 0, 1)?; // No more transforms.
+        let (header, data) = EncodeImageInternal(
+            bw,
+            &enc.argb,
+            &mut enc.hash_chain,
+            &mut enc.refs,
+            enc.current_width,
+            enc.height,
+            enc.quality,
+            low_effort,
+            &config.sub_configs[..config.sub_configs_size],
+            &mut cache_bits,
+            enc.analysis.histo_bits,
+            byte_position,
+        )?;
+        let size = VP8LBitWriterNumBytes(bw);
+        if size < best_size {
+            best_size = size;
+            VP8LBitWriterSwap(bw, &mut bw_best);
+            best_stats = LosslessStreamStats {
+                lossless_features: u32::from(use_predict)
+                    | (u32::from(use_cross_color) << 1)
+                    | (u32::from(use_subtract_green) << 2)
+                    | (u32::from(use_palette) << 3),
+                histogram_bits: enc.analysis.histo_bits,
+                transform_bits: predictor_bits,
+                cross_color_transform_bits: cross_color_bits,
+                cache_bits,
+                palette_size: enc.analysis.palette_size,
+                lossless_size: size - byte_position,
+                lossless_hdr_size: header,
+                lossless_data_size: data,
+            };
+        }
+        if enc.analysis.crunch_configs.len() > 1 {
+            VP8LBitWriterReset(&bw_init, bw);
+        }
+    }
+    VP8LBitWriterSwap(bw, &mut bw_best);
+    Ok(best_stats)
+}
+
+/// Analyze and encode prepared ARGB using the upstream synchronous trial loop.
+/// The caller supplies image/container headers and prepared input (including
+/// transparent-RGB cleanup when desired). Geometry/settings must be validated.
+/// This lossless path uses near_lossless=100 and no worker threads or callbacks.
+#[allow(clippy::too_many_arguments)]
+pub fn VP8LEncodeStream(
+    bw: &mut VP8LBitWriter,
+    argb: &[u32],
+    width: usize,
+    height: usize,
+    stride: usize,
+    method: u32,
+    quality: u32,
+    exact: bool,
+) -> Result<LosslessStreamStats, TryReserveError> {
+    use super::backward_references_enc::{VP8LBackwardRefsInit, VP8LHashChainInit};
+    let analysis = EncoderAnalyze(argb, width, height, stride, method, quality)?;
+    let size = width.checked_mul(height).expect("validated image size");
+    let mut enc = VP8LEncoder {
+        source: argb,
+        width,
+        height,
+        stride,
+        method,
+        quality,
+        exact,
+        analysis,
+        argb: Vec::new(),
+        current_width: width,
+        hash_chain: VP8LHashChainInit(size)?,
+        refs: std::array::from_fn(|_| VP8LBackwardRefsInit((size - 1) / 16 + 1)),
+    };
+    EncodeStreamHook(&mut enc, bw)
+}
 
 /// Clamp a histogram/transform sampling size, respecting the auxiliary-image
 /// size limit and choosing the smallest tile size when only one tile remains.
@@ -317,7 +884,7 @@ pub fn EncodeImageNoHuffman(
 }
 
 /// Parameters for one main-image reference trial (upstream CrunchSubConfig).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CrunchSubConfig {
     pub lz77: u32,
     pub do_no_cache: bool,
@@ -650,7 +1217,7 @@ pub fn ApplyPalette(
     Ok(())
 }
 
-/// Upstream MapImageFromPalette without the not-yet-integrated encoder state.
+/// MapImageFromPalette with explicit source and palette storage.
 /// Returns the current (packed) width and owned transformed pixels.
 pub fn MapImageFromPalette(
     src: &[u32],
@@ -816,6 +1383,77 @@ pub fn ApplyCrossColorFilter(
         low_effort,
     )?;
     Ok(bits)
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    use crate::enc::backward_references_enc::{VP8LBackwardRefsInit, VP8LHashChainInit};
+    use crate::utils::bit_writer_utils::*;
+
+    #[test]
+    fn combined_trials_retain_first_minimum_by_rounded_byte_count() {
+        let mut tied = false;
+        let mut distinct_tie = false;
+        let mut later_winner = false;
+        for pattern in 0..4 {
+            let pixels: Vec<_> = (0..323)
+                .map(|i| match pattern {
+                    0 => 0xff123456,
+                    1 => 0xff000000 | ((i % 4) * 0x010307),
+                    2 => (i % 17) * 0x123457,
+                    _ => 0xff000000 | (i * 0x010307),
+                })
+                .collect();
+            let analysis = EncoderAnalyze(&pixels, 19, 17, 19, 6, 100).unwrap();
+            let make_encoder = |analysis| VP8LEncoder {
+                source: &pixels,
+                width: 19,
+                height: 17,
+                stride: 19,
+                method: 6,
+                quality: 100,
+                exact: true,
+                analysis,
+                argb: Vec::new(),
+                current_width: 19,
+                hash_chain: VP8LHashChainInit(pixels.len()).unwrap(),
+                refs: std::array::from_fn(|_| VP8LBackwardRefsInit(256)),
+            };
+            for prefix_bits in 0..=7 {
+                let mut prefix = VP8LBitWriterInit(0).unwrap();
+                VP8LPutBits(&mut prefix, 0x55 & (0x7f >> (7 - prefix_bits)), prefix_bits).unwrap();
+                let mut best_size = usize::MAX;
+                let mut best_bytes = Vec::new();
+                let mut best_stats = LosslessStreamStats::default();
+                for (i, config) in analysis.crunch_configs.iter().enumerate() {
+                    let mut one = analysis.clone();
+                    one.crunch_configs = vec![config.clone()];
+                    let mut bw = VP8LBitWriterClone(&prefix).unwrap();
+                    let stats = EncodeStreamHook(&mut make_encoder(one), &mut bw).unwrap();
+                    let size = VP8LBitWriterNumBytes(&bw);
+                    let bytes = VP8LBitWriterFinish(&mut bw).unwrap().to_vec();
+                    if size < best_size {
+                        later_winner |= i > 0;
+                        best_size = size;
+                        best_bytes = bytes;
+                        best_stats = stats;
+                    } else if size == best_size {
+                        tied = true;
+                        distinct_tie |= bytes != best_bytes;
+                    }
+                }
+                let stats =
+                    EncodeStreamHook(&mut make_encoder(analysis.clone()), &mut prefix).unwrap();
+                assert_eq!(stats, best_stats);
+                assert_eq!(VP8LBitWriterFinish(&mut prefix).unwrap(), best_bytes);
+            }
+        }
+        assert!(
+            tied && distinct_tie && later_winner,
+            "equal sizes with different streams, and later winning trials"
+        );
+    }
 }
 
 #[cfg(test)]

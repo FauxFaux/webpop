@@ -13,11 +13,6 @@ thiserror = "2"
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["webp"] }
-wasmtime = { version = "49", default-features = false, features = ["anyhow", "cranelift", "runtime", "std"] }
-
-[[test]]
-name = "integration"
-path = "tests/integration/main.rs"
 
 [[test]]
 name = "native_oracle"
