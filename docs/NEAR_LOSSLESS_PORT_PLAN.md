@@ -2,10 +2,11 @@
 
 ## Target and order
 
-Assume the [lossless port](LOSSLESS_PORT_PLAN.md) is complete. Implement
-`WebPEncodeRGBAWithNearLossless` next, before the
-[lossy VP8 port](LOSSY_PORT_PLAN.md). This document is the implementation plan
-for that extension; it does not claim the lossless baseline is complete today.
+The [lossless port](LOSSLESS_PORT_PLAN.md) is complete for its initial scalar
+RGBA scope, including the public API, native oracle, independent decoding and
+recorded size/timing baseline. Complete `WebPEncodeRGBAWithNearLossless` next,
+before the [lossy VP8 port](LOSSY_PORT_PLAN.md). Standalone near-lossless
+preprocessing is already implemented; this plan tracks the remaining extension.
 
 Near-lossless encoding changes pixels within the existing VP8L pipeline and
 returns the same still-image WebP container. Reuse the completed ARGB importer,
@@ -22,6 +23,33 @@ Keep the upstream pin at `1844042d1ca751e62e61df7617dba19c98588339`. The pinned
 scalar C implementation, with near-lossless support enabled, is the byte-exact
 oracle under the recorded build/toolchain. The older full Wasm is an additional
 wrapper/export regression backend, not the source of algorithm truth.
+
+## Current repository (2026-10-23)
+
+- **Milestone 1 is complete.**
+  [`enc/near_lossless_enc.rs`](../libwebpop/src/enc/near_lossless_enc.rs)
+  implements discretization, smoothness tests, saved-row passes and checked
+  `VP8ApplyNearLossless`, reusing `VP8LNearLosslessBits`. It packs immutable
+  strided ARGB before the first pass, then processes the owned buffer in place.
+  Its stride is in pixels; the public RGBA API uses a byte stride.
+- The standalone [test/provenance record](../libwebpop/tests/reference/NEAR_LOSSLESS.md)
+  documents 49 committed C fixtures and 26,201 native comparisons. Portable
+  tests independently check rounding and saved-row neighborhoods, dimension
+  shortcuts, active quantization, alpha endpoints, strength buckets, unchanged
+  input and validation. Reuse these adapters and cases rather than recreating
+  the preprocessing harness.
+- **Milestone 0 is partial.** The scalar oracle already builds near-lossless
+  support and exposes standalone helpers. The custom public wrapper,
+  near-lossless predictor adapters and candidate branch traces remain to add.
+- **Milestones 2–5 remain.** `GetResidual`, predictor search and final residual
+  generation are specialized to strength 100. `GetPlaneDiffMask` already has
+  the active-quantization guard, but search currently calls it with 1.
+  `VP8LEncodeStream`/`EncodeStreamHook` have no near-lossless setting or routing.
+  The public wrapper is not exported, and `cwebpop` rejects strengths below 100.
+
+The next batch should finish the public C oracle and predictor leaf adapters,
+then port predictor quantization and reconstruction feedback. Completing the
+lossless encoder and re-porting standalone preprocessing are no longer tasks.
 
 ## Public API and compatibility
 
@@ -62,6 +90,14 @@ Require `near_lossless=100` to produce exactly the same bytes as
 unchanged default setting; share a private config-bearing VP8L path rather than
 creating another encoder or re-importing already quantized pixels through the
 simple lossless API.
+
+The existing `WebPEncodingError` is an alias for `LosslessEncodeError`; retain
+that API and add a distinct invalid-near-lossless-strength error. The current
+public `LosslessOptions { quality, method, exact }` and `encode_lossless_rgba`
+must retain their lossless pixel contract. Introduce a private configuration
+carrying near-lossless strength, with existing callers selecting 100 and the
+new wrapper selecting quality 70, method 4 and exact false. Validate the signed
+strength before converting it to an unsigned internal value.
 
 **Alpha is not generally exact below 100.** The standalone preprocessor rounds
 all four ARGB channels. Predictor quantization preserves alpha 0 and 255 but
@@ -109,7 +145,8 @@ before analysis would produce a different encoder.
 
 ### Standalone pixel preprocessing
 
-Port `VP8ApplyNearLossless` and its static helpers in `near_lossless_enc.c`:
+Already ported in `enc/near_lossless_enc.rs`; preserve these behaviors while
+connecting `VP8ApplyNearLossless` to the candidate loop:
 
 - `FindClosestDiscretized` rounds to a multiple of `1 << bits`, with banker
   ties and a special clamp to 255. Apply it independently to all ARGB lanes.
@@ -120,7 +157,8 @@ Port `VP8ApplyNearLossless` and its static helpers in `near_lossless_enc.c`:
   in-place passes.
 - Start with `VP8LNearLosslessBits(quality)`, then repeat at each lower bit
   count down to 1. The first pass reads picture ARGB with its pixel stride;
-  later passes read and write the tightly packed destination.
+  later passes read and write the tightly packed destination. The existing Rust
+  port packs first, then runs every pass in place with equivalent neighborhoods.
 - Copy without preprocessing when **both** dimensions are below 64, or height
   is below 3. This rule belongs only to the standalone route; it does not turn
   off predictor quantization on small images. Widths 1 and 2 have no interior
@@ -173,13 +211,13 @@ WebPEncodeRGBAWithNearLossless                        custom test wrapper / Rust
         ├── EncoderAnalyze / EncoderInit             inherited
         └── EncodeStreamHook [candidate loop]        extend routing/state
             ├── no palette/predict, strength<100
-            │   └── VP8ApplyNearLossless              enc/near_lossless_enc.c, new
+            │   └── VP8ApplyNearLossless              ported; connect routing
             │       └── NearLossless → IsSmooth / ClosestDiscretizedArgb
             ├── palette encode/map                   inherited, no quantization
             ├── ApplySubtractGreen                   inherited, after preprocessing
             ├── ApplyPredictFilter                   extend strength routing
             │   └── VP8LResidualImage                enc/predictor_enc.c, extend
-            │       ├── GetPlaneDiffMask             extend active-plane handling
+            │       ├── GetPlaneDiffMask             pass active quantization
             │       ├── predictor search → ComputeResidualsForTile
             │       │   ├── MaxDiffsForRow
             │       │   └── GetResidual → NearLossless → NearLosslessComponent
@@ -190,17 +228,23 @@ WebPEncodeRGBAWithNearLossless                        custom test wrapper / Rust
                                                         inherited, changed inputs
 ```
 
-Add `libwebpop/src/enc/near_lossless_enc.rs`; extend the inherited
-`enc/{predictor_enc,vp8l_enc,config_enc,picture_enc,webp_enc}.rs` and public API
-as their responsibilities require. Reuse `dsp/lossless_common.rs` and its
-strength mapping. Keep upstream function names, source references, constants,
-license and patent notices. The two C files each have a static `NearLossless`;
-retain separate module scopes.
+Reuse `libwebpop/src/enc/near_lossless_enc.rs`; extend the inherited
+`enc/{predictor_enc,vp8l_enc,config_enc,webp_enc}.rs`, `encode.rs`, error type
+and crate-root exports as their responsibilities require. The checked picture
+importer already supplies the required owned ARGB input. Reuse
+`dsp/lossless_common.rs` and its strength mapping. Keep upstream function names,
+source references, constants, license and patent notices; carry `WEBP_INLINE`
+annotations into new ports as plain `#[inline]`, including macro-generated
+helpers. The two C files each have a static `NearLossless`; retain separate
+module scopes.
 
 Carry `near_lossless` through the private config and preserve
 `argb_content`/`kEncoderNearLossless` semantics, buffer invalidation, and input
-copies across trials. Retain the synchronous scalar implementation. Use owned
-buffers, explicit row offsets, checked lengths and `Result`; restrict wrapping
+copies across trials. The current Rust loop copies immutable source pixels for
+each non-palette trial instead of tracking `argb_content`; preserve equivalent
+candidate inputs and never reuse quantized pixels for an unrelated trial.
+Retain the synchronous scalar implementation. Use owned buffers, explicit row
+offsets, checked lengths and `Result`; restrict wrapping
 to the source's demonstrated pixel arithmetic. No new crate, DSP dispatch
 framework, production C build, or production Wasm dependency is needed.
 
@@ -208,10 +252,13 @@ framework, production C build, or production Wasm dependency is needed.
 
 Extend the existing [native oracle](../libwebpop/tests/reference/README.md),
 logical request protocol, fixture evaluator and seeded corpus. Its CMake build
-already has `WEBP_NEAR_LOSSLESS=ON`, SIMD off and threading off. Add the reviewed
-custom public wrapper against this pin and same-translation-unit adapters for
-static near-lossless/predictor helpers, outside `upstream/`. Rename external
-definitions as in the existing wrappers to avoid duplicate symbols; public
+already has `WEBP_NEAR_LOSSLESS=ON`, SIMD off and threading off. Standalone
+adapters and their evaluator already exist in `reference/near_lossless.c` and
+`support/near_lossless.rs`. Add the reviewed custom public wrapper against this
+pin and extend the existing `reference/predictor.c` adapters to expose active
+quantization (they currently specialize residual/search calls to 100), outside
+`upstream/`. Rename external definitions as in the existing wrappers to avoid
+duplicate symbols; public
 encoding comparisons must still use the normally built reference library.
 
 Compare in layers:
@@ -246,23 +293,38 @@ lower-strength coverage or require old-Wasm/new-pin byte identity.
 
 ## Implementation order and acceptance gates
 
-All milestones assume completed lossless. Dependencies below are additional
+The lossless prerequisite is satisfied. Standalone preprocessing was completed
+ahead of the full milestone-0 oracle work. Dependencies below are additional
 near-lossless milestones; no lossy VP8 milestone is required.
 
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
-| 0 | Audit inherited config/predictor specializations; extend existing oracle with custom wrapper, leaf adapters and branch traces | Completed lossless | Pinned C wrapper exercised at 0 and 100; independent decode; 100 equals simple lossless; inherited regressions pass |
-| 1 | Strength mapping audit, discretization/smoothness leaves, row buffering and complete `VP8ApplyNearLossless` | 0 | Exact leaves, each pass and complete planes, including stride, dimension shortcuts and in-place updates |
+| 0 (partial) | Audit inherited config/predictor specializations; extend existing oracle with custom wrapper, predictor leaf adapters and branch traces | Completed lossless | Pinned C wrapper exercised at 0 and 100; independent decode; 100 equals simple lossless; inherited regressions pass |
+| 1 (complete) | Strength mapping, discretization/smoothness leaves, row buffering and complete `VP8ApplyNearLossless` | Standalone oracle adapters (complete) | 26,201 exact native comparisons and 49 portable fixtures; independent rounding/neighborhood checks, stride, dimension shortcuts, in-place updates and invalid inputs |
 | 2 | Predictor neighborhood and component quantization leaves, modulo boundaries and subtract-green compensation | 0 | Exact residuals and reconstructed pixels at every step size, threshold and tie |
 | 3 | `GetResidual`, plane masks, candidate predictor search and final residual generation with reconstruction feedback | 2 | Exact histograms, mode maps, sampling bits, scratch/context updates and residual images on active/bypass branches |
 | 4 | Per-candidate preprocessing/palette/predictor routing, config propagation, buffer state and inherited stream integration | 1, 3 | Exact candidate transform data, stream selection and complete internal VP8L bytes; no changes at 100 |
 | 5 | Public Rust wrapper, portable fixtures, native and full-Wasm regression coverage | 4 | Exact complete bytes against pin across corpus; decoded-reference RGBA agreement, valid errors, unchanged input and 100 identity |
 
-For the first implementation batch, add the wrapper and a compact reference
-fixture at 0/100, exhaust the 256-byte discretization cases for bits 1..5,
-cover the standalone dimension shortcuts, and port `NearLosslessComponent`
-with boundary/tie cases. Then integrate predictor feedback before the candidate
-loop. Milestones 1 and 2 have no dependency on each other.
+For the next implementation batch:
+
+1. Copy the reviewed custom wrapper into test support and add public C requests
+   and compact fixtures at 0/100. Check 100 against the existing simple API and
+   independently decode the lower-strength reference output.
+2. Extend predictor adapters and evaluators; port neighborhood differences,
+   `NearLosslessComponent`, residual quantization and subtract-green
+   compensation, with boundary/tie cases (milestone 2).
+3. Thread quantization through predictor search and final generation, testing
+   reconstructed rows and right-edge context before stream integration
+   (milestone 3). Reuse the existing plane-mask guard.
+4. Add the private setting, per-candidate routing and public wrapper
+   (milestones 4–5), retaining all inherited strength-100 regressions. Reuse
+   milestone 1's preprocessing unchanged unless integration reveals a mismatch.
+
+CLI support below 100 can follow the public wrapper by replacing the existing
+explicit rejection with a call to it; it is not a prerequisite for the library
+API. Keep the wrapper's fixed effort/exact settings explicit when deciding how
+the CLI combines near-lossless with its existing options.
 
 ## Corpus and completion
 
@@ -303,9 +365,16 @@ encode time and memory; quality measurements supplement exact parity.
 
 Run formatting, the relevant portable and opt-in native-oracle suites, public
 validation in debug/release, the Wasm regression, and a normal library build
-proving no production C/Wasm dependency. This is a documentation plan; adding
-the wrappers, fixtures, artifact and Rust implementation belongs to those
-milestones.
+proving no production C/Wasm dependency. Standalone preprocessing verification
+is already available with:
+
+```sh
+cargo test -p libwebpop --test near_lossless
+cargo test -p libwebpop --features native-oracle --test near_lossless -- --nocapture
+```
+
+Add predictor, stream and public-API coverage as their milestones land; the
+standalone suite alone does not establish complete encoder parity.
 
 Deferred to the later lossy plan: `WebPEncodeRGBA`, independent alpha quality,
 VP8/YUV/ALPH and their dependencies. Also deferred: public advanced config,
