@@ -39,7 +39,8 @@ layouts and fixture regeneration commands. The Rust near-lossless public
 encoder matches pinned C. An independent older-full-Wasm regression is opt-in
 through `wasm-oracle`; see [artifact and host provenance](full-wasm/README.md).
 
-The [lossy reference record](LOSSY.md) describes the complete scalar VP8 DSP,
+The [lossy reference record](LOSSY.md) describes scalar VP8 DSP, YUVA import,
+iterator borders/contexts, susceptibility analysis/segment assignment,
 boolean-writer state traces, residual costs/statistics, probability headers,
 paginated tokens and adaptive fitting,
 both lossy public C adapters, the copied alpha-quality wrapper, portable

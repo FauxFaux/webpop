@@ -104,6 +104,48 @@ pub const Y_OFF_ENC: usize = 0;
 pub const U_OFF_ENC: usize = 16;
 pub const V_OFF_ENC: usize = 24;
 pub type DError = [[i8; 2]; 2];
+pub const NUM_MB_SEGMENTS: usize = 4;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VP8EncSegmentHeader {
+    pub num_segments: usize,
+    pub update_map: bool,
+    pub size: i32,
+}
+
+impl Default for VP8EncSegmentHeader {
+    fn default() -> Self {
+        Self {
+            num_segments: 4,
+            update_map: true,
+            size: 0,
+        }
+    }
+}
+
+/// Segment susceptibility and quantizer state. Alpha measures coding
+/// susceptibility here, independently of image transparency.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VP8SegmentInfo {
+    pub y1: VP8Matrix,
+    pub y2: VP8Matrix,
+    pub uv: VP8Matrix,
+    pub alpha: i32,
+    pub beta: i32,
+    pub quant: i32,
+    pub fstrength: i32,
+    pub max_edge: i32,
+    pub min_disto: i32,
+    pub lambda_i16: i32,
+    pub lambda_i4: i32,
+    pub lambda_uv: i32,
+    pub lambda_mode: i32,
+    pub tlambda: i32,
+    pub lambda_trellis_i16: i32,
+    pub lambda_trellis_i4: i32,
+    pub lambda_trellis_uv: i32,
+    pub i4_penalty: i64,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VP8MBInfo {
@@ -133,11 +175,15 @@ pub struct VP8ModeScore {
     pub derr: [[i8; 3]; 2],
 }
 
-/// Frame-persistent iterator foundations. Additional segment, configuration
-/// and bitstream state will be added with the corresponding port milestones.
+/// Frame-persistent encoder foundations. Additional configuration, quantizer
+/// setup and bitstream state follow in the corresponding port milestones.
 /// Prediction storage includes the constant top row and left column; nz[0]
 /// is the constant left sentinel, followed by one packed context per column.
 pub struct VP8Encoder {
+    pub segment_hdr: VP8EncSegmentHeader,
+    pub dqm: [VP8SegmentInfo; NUM_MB_SEGMENTS],
+    pub alpha: i32,
+    pub uv_alpha: i32,
     pub mb_w: usize,
     pub mb_h: usize,
     pub preds_w: usize,
@@ -188,6 +234,10 @@ impl VP8Encoder {
         let mut proba = VP8EncProba::default();
         super::tree_enc::VP8DefaultProbas(&mut proba);
         Ok(Self {
+            segment_hdr: VP8EncSegmentHeader::default(),
+            dqm: std::array::from_fn(|_| VP8SegmentInfo::default()),
+            alpha: 0,
+            uv_alpha: 0,
             mb_w,
             mb_h,
             preds_w,

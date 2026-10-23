@@ -82,6 +82,11 @@ unsigned WebpopYuvaImport(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopIteratorScan(const uint32_t*, uint32_t*);
 unsigned WebpopIteratorNz(const uint32_t*, uint32_t*);
 unsigned WebpopIteratorCosts(const uint32_t*, uint32_t*);
+unsigned WebpopSusceptibility(const uint32_t*, uint32_t*);
+unsigned WebpopSegmentAlphas(const uint32_t*, uint32_t*);
+unsigned WebpopAssignSegments(const uint32_t*, uint32_t*);
+unsigned WebpopAnalysisProbe(const uint32_t*, uint32_t*);
+unsigned WebpopAnalysisFrame(const uint32_t*, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -124,7 +129,37 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8IteratorNz)) {
+    if (IS(VP8Susceptibility)) {
+      REQUIRE(n == 3 && in[0] <= 256 && in[1] <= 31 && (int32_t)in[2] >= -1048576 && (int32_t)in[2] <= 1048576);
+      count = WebpopSusceptibility(in, out);
+    } else if (IS(VP8SegmentAlphas)) {
+      unsigned lo = 255, hi = 0;
+      REQUIRE(n == 6 && in[0] >= 1 && in[0] <= 4);
+      for (i = 2; i < n; ++i) REQUIRE(in[i] <= 255);
+      for (i = 2; i < 2 + in[0]; ++i) {if (in[i] < lo) lo = in[i]; if (in[i] > hi) hi = in[i];}
+      if (hi == lo) ++hi;
+      REQUIRE(in[1] >= lo && in[1] <= hi);
+      count = WebpopSegmentAlphas(in, out);
+    } else if (IS(VP8AssignSegments)) {
+      uint64_t total = 0;
+      REQUIRE(n == 257 && in[0] >= 1 && in[0] <= 4);
+      for (i = 1; i < n; ++i) total += in[i];
+      REQUIRE(total > 0 && total <= 1048576);
+      count = WebpopAssignSegments(in, out);
+    } else if (IS(VP8AnalysisProbe)) {
+      REQUIRE(n == 587 && in[0] <= 3);
+      for (i = 1; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopAnalysisProbe(in, out);
+    } else if (IS(VP8AnalysisFrame)) {
+      uint64_t pixels, mbw, mbh, output_size;
+      REQUIRE(n >= 3 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383 && in[2] >= 1 && in[2] <= 4);
+      pixels = (uint64_t)in[0]*in[1] + 2*(uint64_t)((in[0]+1)/2)*((in[1]+1)/2);
+      mbw = (in[0]+15)/16; mbh = (in[1]+15)/16;
+      output_size = 273 + 10*mbw*mbh + (4*mbw+1)*(4*mbh+1);
+      REQUIRE(n == 3 + pixels && output_size <= LIMIT);
+      for (i = 3; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopAnalysisFrame(in, out);
+    } else if (IS(VP8IteratorNz)) {
       REQUIRE(n == 22 && in[0] <= 1 && in[3] <= 1);
       for (i = 4; i < n; ++i) REQUIRE(in[i] <= 1);
       count = WebpopIteratorNz(in, out);

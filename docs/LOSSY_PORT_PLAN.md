@@ -8,9 +8,10 @@ points covered here, exposed by quad-image's full WebP Wasm encoder. The
 near-lossless extension reuses VP8L and needs none of this plan's VP8/YUV/ALPH
 milestones. Both lossless and near-lossless are complete for the initial
 scalar scope, including their public APIs and pinned-reference validation.
-Lossy milestones 0–3 are complete; analysis/segmentation, VP8 mode search/frame
-coding and ALPH remain to port. Preserve upstream function names and source
-layout where practical. The result is a
+Lossy milestones 0–3 and milestone 4's analysis/segment assignment are complete;
+segment quantizer/filter setup, VP8 mode search/frame coding and ALPH remain
+to port. Preserve upstream function names and source layout where practical.
+The result is a
 pure Rust library accepting prepared RGBA pixels and returning a complete
 still-image WebP file containing VP8, with a separate alpha stream when needed.
 
@@ -59,11 +60,12 @@ Color quality 100 still uses YUV420 and quantization; it is not lossless RGB.
 
 ## Current repository (revalidated 2026-10-23)
 
-Continued from `a41d65c` against the unchanged, clean upstream pin.
+Continued from `1276a5b` against the unchanged, clean upstream pin.
 **Milestones 0–3 are complete.** The scalar VP8 prediction, transform,
 quantization and metric leaves, YUVA import/cleanup and iterator match C.
-Iterator-based macroblock residual costs are also implemented. The dependency
-graph below still applies; the public lossy Rust APIs remain unimplemented.
+Iterator-based macroblock residual costs and default analysis/segment assignment
+are also implemented. The dependency graph below still applies; the public
+lossy Rust APIs remain unimplemented.
 
 - **Lossless milestones 1–9 are complete.** The public simple API and
   configurable `encode_lossless_rgba` use the full synchronous analysis/trial
@@ -121,8 +123,8 @@ graph below still applies; the public lossy Rust APIs remain unimplemented.
   thresholds, sharpening, level saturation, both coefficient outputs, paired
   nonzero masks, full-width weights, empty histograms and padding. Across all
   DSP batches, 34,554 exact native requests and 290 portable DSP fixtures pass.
-  `enc/quant_enc.rs` currently contains scan/offset tables; segment-quality
-  mapping and matrix construction remain in milestone 4.
+  `enc/quant_enc.rs` includes scan/offset tables and iterator prediction wrappers;
+  segment-quality mapping and matrix construction remain in milestone 4.
 - **Milestone 2 boolean writer is ported.** `VP8BitWriterInit`, probability
   and uniform bit coding, unsigned/signed fields, finish, append, position,
   buffer/size access and wipe now share `utils/bit_writer_utils.rs` with VP8L.
@@ -186,7 +188,24 @@ graph below still applies; the public lossy Rust APIs remain unimplemented.
   macroblock costs under default/extreme/asymmetric probabilities. Independent
   coordinate checks, syntax-tree costs and context-grid walks pass. Across
   milestone 3, there are 25,245 native requests and 167 portable fixtures.
-  Analysis/segment assignment and quantizer/filter foundations are next.
+  Analysis/segment assignment is covered below; quantizer/filter foundations
+  remain next.
+- **Milestone 4's default analysis and segment assignment are ported.** New
+  [`enc/analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) supplies
+  susceptibility mixing/clipping, the two-mode luma/UV probes, synchronous
+  source-border analysis, ordered centroid assignment and per-segment alpha/beta
+  scaling. `VP8MakeLuma16Preds` / `VP8MakeChroma8Preds` now connect iterator
+  borders to prediction DSP. `VP8EncSegmentHeader` and `VP8SegmentInfo` retain
+  state for subsequent quantizer setup. Another 17,004 exact native requests
+  and 82 portable fixtures cover all scalar histogram summaries, weighted
+  distributions, empty/tied centers, cutoff/cap decisions, mode ties and full
+  image analysis. Independent checks validate 7,798 analysis macroblocks,
+  explicit DC/TM predictions, coefficient-bin populations and ordered centroid
+  iteration. C's stale final assignments and tied-adjacent-center barriers are
+  retained explicitly. Analysis sums use i64 to avoid overflowing on large
+  pictures. The required method-4/preprocessing-0 path is implemented; segment
+  quantizer mapping, matrices/lambdas, equivalent-segment merging and initial
+  filter strengths remain in milestone 4.
 - **Shared output glue remains VP8L-only.** Owned output and checked geometry/
   allocation errors are inherited. VP8 syntax and `VP8X`/`ALPH` assembly remain
   unimplemented.
@@ -656,9 +675,9 @@ names do not prove that Intra4, diffusion, raw fallback, or frame retries ran.
 ## Implementation order and acceptance gates
 
 The completed lossless and near-lossless ports satisfy the project order.
-**Lossy milestones 0–3 are complete.** The next checkpoint is analysis/segment
-assignment and quantizer/filter foundations (4). Milestone 8 reuses the implemented
-configurable VP8L stream. Split large files into leaf/subgraph
+**Lossy milestones 0–3 are complete.** Milestone 4's analysis/segment assignment
+is complete; the next checkpoint is quantizer/filter foundations (4).
+Milestone 8 reuses the implemented configurable VP8L stream. Split large files into leaf/subgraph
 work; integrate parents only after their dependencies match the oracle.
 
 | ID | Work | Depends on | Acceptance gate |
@@ -667,7 +686,7 @@ work; integrate parents only after their dependencies match the oracle.
 | 1 (complete) | VP8 tables/scans, clipping, predictions, transforms/inverse WHT, scalar quantization, SSE/texture/histogram DSP `[B]` | 0 | 34,554 exact native requests and 290 portable DSP fixtures; independent border, rounding, Hadamard, quantization, histogram and padding checks |
 | 2 (complete) | Boolean writer, cost/probability tables, residual leaves, buffered token recording/emission and fitting `[C]` | 0 | 17,738 native requests and 242 portable fixtures; independent bit/tree decoding, counter/tie checks, exact token packing, page boundaries, late-bound probabilities and final-pass disposal |
 | 3 (complete) | YUVA picture storage, default RGBA import and cleanup `[A]`; iterator/block geometry/borders/contexts `[D]`; iterator-based residual costs | 0–2 | 25,245 exact native requests and 167 portable fixtures; independent gamma/alpha, padding, source/reconstructed border, row-transition, nonzero-context, Intra4 and syntax-tree cost checks |
-| 4 | Analysis/segment assignment `[E]`; segment params, matrix expansion and filter-strength leaves `[F foundations]` | 1, 3 | Exact susceptibility histograms/centers, segment remaps, q/deltas, matrices/lambdas and initial filter strengths |
+| 4 (analysis complete) | Analysis/segment assignment `[E]` complete; segment params, matrix expansion and filter-strength leaves `[F foundations]` next | 1, 3 | Analysis: 17,004 exact native requests and 82 portable fixtures; remaining: q/deltas, equivalent-segment remaps, matrices/lambdas and initial filter strengths |
 | 5 | Candidate reconstruction, mode costs, Intra16/Intra4/UV selection, diffusion and scratch commits `[F remainder]` | 1, 2, 3, 4 | Exact levels, reconstructed blocks, scores, winning modes, saved contexts/borders and diffusion errors |
 | 6 | VP8 partition-0 syntax, modes, frame headers and opaque RIFF assembly `[H]` | 2, 3, 4 | Synthetic coding state emits exact header bytes; test-only fixed-mode opaque image decodes independently |
 | 7 | Default token frame loop, probability feedback, segment probabilities, header-budget retries, final filter adjustment `[G]` | 2, 4, 5, 6 | Exact tokens, update timing/probabilities, modes, partitions/filter headers and complete opaque default-path files |
@@ -683,10 +702,11 @@ path and alpha feature range are covered.
 ### Next implementation batches
 
 The lossy oracle, scalar VP8 DSP, boolean/cost/token milestones, default
-YUVA import/cleanup and iterator are complete. Next small units are:
+YUVA import/cleanup, iterator and analysis/segment assignment are complete.
+Next small units are:
 
-1. Analysis/susceptibility histograms, segment clustering/remapping, then
-   segment-quality mapping, matrices/lambdas and initial filter-strength leaves.
+1. Segment-quality mapping, quantizer tables/matrix expansion, matrices/lambdas,
+   initial filter strengths and merging/remapping equivalent segments.
 2. Alpha-to-green dispatch and direct comparisons of the existing headerless
    `VP8LEncodeStream` at method 4/quality 32/`exact=1`, then alpha filter kernels,
    filter estimator and centroid `QuantizeLevels`. This branch can proceed

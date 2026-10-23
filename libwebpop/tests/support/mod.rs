@@ -13,6 +13,7 @@ pub mod public_images;
 pub mod references;
 pub mod streams;
 pub mod token_streams;
+pub mod vp8_analysis;
 pub mod vp8_boolean;
 pub mod vp8_cost;
 pub mod vp8_dsp;
@@ -45,6 +46,8 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8Susceptibility" | "VP8SegmentAlphas" | "VP8AssignSegments" | "VP8AnalysisProbe"
+            | "VP8AnalysisFrame" => vp8_analysis::evaluate(self),
             "VP8IteratorScan" | "VP8IteratorNz" | "VP8IteratorCosts" => {
                 vp8_iterator::evaluate(self)
             }

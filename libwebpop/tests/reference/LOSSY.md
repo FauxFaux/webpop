@@ -789,3 +789,123 @@ Validation passes: full workspace `cargo test --quiet` and
 release with `native-oracle`, formatting, normal library-only build and
 `git diff --check`. Existing manual tests remain ignored; upstream remains
 clean at the recorded pin.
+
+### Milestone 4 analysis: susceptibility probes and segment assignment
+
+Continued from `1276a5b` against the unchanged, clean pin and the same scalar
+GCC 15.2.0-16ubuntu1 / CMake 4.2.3 / Release `-O3 -DNDEBUG` configuration,
+SIMD/threading off, Rust 1.101.0-nightly `7189d39d9`. `lossy_analysis.c` includes
+original `analysis_enc.c` with its exported entry point renamed to expose the
+private probes, centroid assignment and synchronous job. Complete-frame checks
+also call the normally linked `VP8EncAnalyze`. Only allocation/serialization
+and state seeding live in the adapter; no analysis algorithm is copied.
+
+`enc/analysis_enc.rs` ports the required method-4/preprocessing-0 path:
+`GetAlpha`, `FinalAlphaValue`, histogram initialization, `SetSegmentAlphas`,
+`AssignSegments`, both best-mode probes, `MBAnalyze`, synchronous
+`DoSegmentsJob`, default macroblock reset and `VP8EncAnalyze`.
+`quant_enc.rs` adds `VP8MakeLuma16Preds` and `VP8MakeChroma8Preds`, copying only
+sixteen top samples onto the stack so mutable prediction scratch stays separate
+from the borrowed borders. There are no new production allocations in analysis.
+The upstream inline clipping helper retains plain `#[inline]`.
+`VP8EncSegmentHeader` and `VP8SegmentInfo` now retain the segment state; matrix
+construction/quantizer and initial filter setup remain the next batch.
+
+The two luma and two UV probe modes are DC and true motion. Luma chooses the
+larger raw susceptibility with the earliest mode winning ties. UV chooses the
+smaller raw susceptibility for its mode but contributes the larger score to
+complexity analysis. Mixing uses `(3 * luma + uv + 2) >> 2`, then subtracts from
+255 and clips. Macroblocks record this value before centroid assignment. Frame
+averages truncate the accumulated raw sums. Rust uses i64 for the two aggregate
+sums, avoiding signed overflow on very large pictures; block and centroid
+arithmetic retains the pinned integers. A direct check crosses signed 32-bit
+and unsigned 32-bit aggregate boundaries. Native corpus sums remain within C's
+defined signed range.
+
+The ordered centroid algorithm has two explicit compatibility cases:
+
+- With uniform populations in bins 0..255 and four segments, initial centers
+  `[31,95,159,223]` move to `[32,96,160,224]`. Total displacement four stops
+  iteration. Bin 64 retains segment 1/center 96 from the preceding assignment,
+  even though it now ties between centers 32 and 96. Do not reassign after the
+  last center update.
+- With populations one at bin 0 and seven at bin 2, four initial centers are
+  `[0,0,1,1]`. The tied adjacent centers prevent advancing from segment zero,
+  even for bin 2, which is closer to later centers. Both bins remain assigned
+  to segment zero, whose center becomes 2; displacement two stops iteration.
+  Do not replace the ordered adjacent-improvement search with a global nearest
+  center search or deduplicate empty/tied centers.
+
+The single-segment control path resets macroblock fields, the first segment's
+alpha/beta and frame complexities, preserving predictor contents and unused
+segments. Other methods' fast analysis, JPEG-size emulation, spatial smoothing,
+worker threads and progress callbacks remain deferred as in the port plan.
+
+Logical requests extend the existing word protocol:
+
+- `VP8Susceptibility`: `(max_histogram_population, last_nonzero_bin,
+  signed_raw_alpha)`, populations `0..=256`, bins `0..=31`; returns `GetAlpha`
+  and independent `FinalAlphaValue(raw)`. Signed words use i32 as u32.
+- `VP8SegmentAlphas`: `(segment_count, midpoint, four_centers)`; returns all
+  four alpha/beta pairs, including untouched trailing segments. Centers are
+  byte values and the midpoint lies within the adjusted min/max interval.
+- `VP8AssignSegments`: segment count and 256 histogram populations. Weights
+  must be nonempty, nonnegative and total at most 1,048,576. The adapter creates
+  one representative macroblock per occupied bin; the supplied weights describe
+  the full population. Returns four alpha/beta pairs and all five logical
+  macroblock fields (type, UV mode, skip, segment, remapped alpha).
+- `VP8AnalysisProbe`: border flags (left=1, top=2), 17 left-Y bytes, 25 packed
+  left-U/V bytes including corners, sixteen top-Y/sixteen top-UV bytes and 512
+  source cache bytes. Returns both raw best probe scores, 256 mixed-alpha counts
+  and low/high pairs for the two sums, four logical macroblock records, the
+  complete 1,792-byte prediction scratch and complete 9×9 predictor map. Input
+  cache and unused prediction areas use explicit sentinel bytes.
+- `VP8AnalysisFrame`: `(width, height, segment_count)` and tightly packed Y/U/V
+  byte planes. Returns the job's histogram/sums and pre-assignment macroblock
+  records; then normal full-entry-point frame complexities, segment header,
+  four alpha/beta pairs, final macroblock records and full predictor map. Segment
+  count one skips the collection job and exercises the normal reset branch.
+  The picture planes remain unchanged. Request/response sizes are checked.
+
+There are 17,004 exact native requests: 8,233 scalar susceptibility checks,
+3,072 signed segment-scaling cases, 3,844 weighted assignments, 1,288 complete
+probe checks and 567 image-analysis checks. The assignment corpus includes
+constant/adjacent/extreme populations, up to the full macroblock population,
+dense/sparse weighted distributions, unused centers and both explicit cases
+above. Independent ordered replay reaches six iterations in six cases, the
+exact displacement cutoff five in 136 decisions and 3,842 empty clusters.
+
+Probe cases cover all border combinations, every constant byte and seeded
+asymmetric borders/caches. Independent checks observe luma mode counts
+`[1247,41]`, UV counts `[1056,232]`, 1,025 probe ties, 272 distinct UV score
+pairs and 257 blocks clipped to mixed alpha zero. They build DC/TM predictions
+from pixel averages and clipped neighbor arithmetic, then count transformed
+coefficients using explicit spatial 4×4 tiles. Independent weighted iteration
+uses exhaustive reachable-center selection and rational centroid rounding,
+retaining adjacent tie barriers and the pre-update assignment map.
+
+Frame cases cover dimensions around 8/16/32, all segment counts, constant,
+gradient, checkerboard, noise, smooth/textured, blockwise and impulse planes,
+partial edges, both 16,383-pixel skinny geometries and the committed real-image
+sample converted by the previously validated YUVA importer. Independent checks
+validate 7,798 analysis macroblocks, conserve histogram populations, recompute
+frame averages, compare modes/predictors/remapped centers, and check source,
+scratch and single-segment reset preservation.
+
+`fixtures/lossy_analysis.txt` contains 82 portable C fixtures. Earlier fixtures
+and source pin are unchanged. Review the pin, wrapper and toolchain record in
+`target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_analysis analysis_fixtures_match_pinned_reference
+```
+
+Milestone 4's analysis/segment-assignment portion is complete. Segment-quality
+mapping, quantizer tables/matrix expansion, lambdas, equivalent-segment merging
+and initial filter strengths remain next; the public lossy APIs remain later.
+
+Validation passes: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all eight new analysis tests in
+release with `native-oracle`, formatting, normal library-only build and
+`git diff --check`. Existing manual tests remain ignored; upstream remains clean
+at the recorded pin.
