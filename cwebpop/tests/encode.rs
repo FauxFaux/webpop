@@ -53,7 +53,7 @@ fn decode(bytes: &[u8]) -> image::RgbaImage {
 }
 
 #[test]
-fn default_cli_matches_the_simple_library_api() {
+fn default_cli_matches_upstream_cli_effort() {
     let temp = Scratch::new();
     let input = temp.file("input.png");
     let output = temp.file("output.webp");
@@ -70,11 +70,15 @@ fn default_cli_matches_the_simple_library_api() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let expected = libwebpop::WebPEncodeLosslessRGBA(
+    let expected = libwebpop::encode_lossless_rgba(
         image.as_raw(),
         image.width(),
         image.height(),
         image.width() as usize * 4,
+        &libwebpop::LosslessOptions {
+            quality: 75,
+            ..Default::default()
+        },
     )
     .unwrap();
     assert_eq!(fs::read(output).unwrap(), expected);

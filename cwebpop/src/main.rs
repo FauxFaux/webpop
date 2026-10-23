@@ -27,7 +27,7 @@ struct Args {
     #[arg(short = 'o', long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
 
-    /// Lossless compression effort, 0..100 (default: 70).
+    /// Lossless compression effort, 0..100 (upstream CLI default: 75).
     #[arg(short = 'q', long)]
     quality: Option<f32>,
 
@@ -264,7 +264,7 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions,
             "near-lossless encoding is not implemented; --near_lossless must be 100".into(),
         );
     }
-    let quality = args.quality.unwrap_or(70.0);
+    let quality = args.quality.unwrap_or(75.0);
     if !quality.is_finite() || !(0.0..=100.0).contains(&quality) {
         return Err("quality must be a finite number in 0..=100".into());
     }
@@ -341,6 +341,18 @@ mod tests {
     #[test]
     fn command_is_consistent() {
         Args::command().debug_assert();
+        let matches = Args::command()
+            .try_get_matches_from(["cwebpop", "input.png"])
+            .unwrap();
+        let args = Args::from_arg_matches(&matches).unwrap();
+        assert_eq!(
+            encoder_options(&args, &matches).unwrap(),
+            LosslessOptions {
+                quality: 75,
+                method: 4,
+                exact: false,
+            }
+        );
     }
 
     #[test]

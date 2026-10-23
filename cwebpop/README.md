@@ -17,7 +17,7 @@ formats are PNG, JPEG, PNM, TGA, TIFF, BMP and WebP. Content determines the inpu
 format, with the filename extension as a fallback for formats such as TGA.
 Use `-` for stdin or stdout. Diagnostics and statistics go to stderr.
 
-Supported settings are `-q` (lossless compression effort, 0–100, default 70),
+Supported settings are `-q` (lossless compression effort, 0–100, default 75),
 `-m` (effort method, 0–6, default 4), `--exact` (preserve hidden RGB),
 `--noalpha`, `--quiet`, `--short` (only the byte count) and `-v` (timing).
 Fractional quality values are truncated to the integer effort used by the
@@ -30,11 +30,12 @@ below 100, fail before opening input or output. Invalid input or encoding
 failure leaves the output untouched.
 
 The library uses upstream entropy analysis and configuration trials, including
-palette ordering, transform, LZ77 and cache selection. Default output matches
+palette ordering, transform, LZ77 and cache selection. Library defaults match
 the pinned scalar libwebp `WebPEncodeLosslessRGBA` implementation in the
 regression corpus. Quality, method and exact settings are also compared with
-the corresponding upstream configuration. The CLI's default bytes match the
-library simple API.
+the corresponding upstream configuration. The CLI defaults to quality 75,
+matching upstream `cwebp -lossless`; the library simple API defaults to 70.
+Pass `-q 70` to match `WebPEncodeLosslessRGBA`.
 
 This uses clap conventions: upstream's multi-letter `-lossless`, `-alpha_q`, etc.
 are spelled `--lossless`, `--alpha_q`, etc. Single-letter encoding options retain

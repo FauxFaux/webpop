@@ -584,6 +584,8 @@ WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test
 Portable tests also cover invalid geometry/effort errors, byte-count overflow,
 input immutability, layout-independent default output and the equivalence of
 simple/default-configured APIs. The CLI's default output is byte-compared with
-the library API. `public_encode_baseline` is an explicitly ignored timing test;
+library encoding at quality 75, matching upstream `cwebp -lossless`; the library
+simple API retains quality 70. `public_encode_baseline` is an explicitly ignored
+timing test;
 its release invocation and first size/time measurements are recorded in the
 lossless port plan. Timings do not affect test success.

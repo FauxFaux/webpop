@@ -330,8 +330,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   without native tooling. Existing public leaf fixtures now also compare
   Rust bytes. Invalid dimensions, strides, short input, arithmetic overflow and
   invalid effort settings return errors in debug and release. The default CLI
-  output is checked against the library simple API. No numerical divergence
-  was observed on the recorded scalar toolchain. Release timing/size baselines
+  output is checked against library encoding at quality 75, matching upstream
+  `cwebp -lossless`; the library simple API retains quality 70. No numerical
+  divergence was observed on the recorded scalar toolchain. Release timing/size baselines
   are recorded below; performance parity remains a separate target.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
