@@ -1,0 +1,145 @@
+{
+  "started_utc": "2026-10-23T10:19:17.205136+00:00",
+  "command": [
+    "scripts/benchmark.py",
+    "--rust",
+    "v3=target/bench-lossless/bin/v3",
+    "--case",
+    "75:4",
+    "--runs",
+    "4",
+    "--cpu",
+    "2",
+    "--output",
+    "target/bench-invite",
+    "--build-note",
+    "Archived original default release x86-64-v3 binary from target/bench-lossless; same C artifact and CPU affinity as initial comparison; no flag sweep",
+    "samples/graphic-invite.webp"
+  ],
+  "build_note": "Archived original default release x86-64-v3 binary from target/bench-lossless; same C artifact and CPU affinity as initial comparison; no flag sweep",
+  "cpu": "Intel Core i9-13900KF; logical CPU 2; powersave governor",
+  "affinity": [
+    2
+  ],
+  "initial_load_average": [
+    0.38037109375,
+    0.92138671875,
+    1.4033203125
+  ],
+  "binaries": {
+    "c": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+    "v3": "725a4d88951a8b0c9491760c6a0c8cb4c71d02d02c4ffc9ef1721c9db1f2865d"
+  },
+  "input": {
+    "source_sha256": "8c705c674dbe319e505326ecd25acf6f24552abf3ac7861b8cebf8c6b7daacc2",
+    "sha256": "0527685b67eb8ccc569f3f405fe99e39ef77a32cbc9d640f0742e05fe88210cf",
+    "bytes": 325479240,
+    "layout": "packed RGBA8 PAM",
+    "width": 10416,
+    "height": 7812
+  },
+  "input_name": "graphic-invite.webp",
+  "visible_colours_lower_bound": 257,
+  "summary": {
+    "image": 0,
+    "quality": 75,
+    "method": 4,
+    "exact": false,
+    "results": {
+      "c": {
+        "median_seconds": 15.233577974500001,
+        "min_seconds": 15.185355084,
+        "max_seconds": 15.390753899,
+        "iqr_percent": 0.516768474430469,
+        "megapixels_per_second": 5.341476056131241,
+        "matches_c_bytes": true,
+        "bytes": 2783988,
+        "sha256": "8f87a9647e59f4df25a358bbbf599e2af4421b6ee0a3a2e66339e0c09df0c669"
+      },
+      "v3": {
+        "median_seconds": 16.1465147065,
+        "min_seconds": 15.976344464,
+        "max_seconds": 16.265115214,
+        "iqr_percent": 0.8818009201247526,
+        "megapixels_per_second": 5.03946476865645,
+        "matches_c_bytes": true,
+        "bytes": 2783988,
+        "sha256": "8f87a9647e59f4df25a358bbbf599e2af4421b6ee0a3a2e66339e0c09df0c669",
+        "paired_geomean_speedup": 0.9459101619629623,
+        "bootstrap_95_percent": [
+          0.9415323266928151,
+          0.9497001653477243
+        ],
+        "versus_first_rust": {
+          "paired_geomean_speedup": 1.0,
+          "bootstrap_95_percent": [
+            1.0,
+            1.0
+          ]
+        }
+      }
+    }
+  },
+  "samples": [
+    {
+      "label": "c",
+      "block": 0,
+      "warmup": true,
+      "seconds": 15.281209569
+    },
+    {
+      "label": "v3",
+      "block": 0,
+      "warmup": true,
+      "seconds": 15.990785818
+    },
+    {
+      "label": "c",
+      "block": 0,
+      "warmup": false,
+      "seconds": 15.185355084
+    },
+    {
+      "label": "v3",
+      "block": 0,
+      "warmup": false,
+      "seconds": 15.976344464
+    },
+    {
+      "label": "v3",
+      "block": 1,
+      "warmup": false,
+      "seconds": 16.265115214
+    },
+    {
+      "label": "c",
+      "block": 1,
+      "warmup": false,
+      "seconds": 15.390753899
+    },
+    {
+      "label": "c",
+      "block": 2,
+      "warmup": false,
+      "seconds": 15.251826391
+    },
+    {
+      "label": "v3",
+      "block": 2,
+      "warmup": false,
+      "seconds": 16.099723088
+    },
+    {
+      "label": "v3",
+      "block": 3,
+      "warmup": false,
+      "seconds": 16.193306325
+    },
+    {
+      "label": "c",
+      "block": 3,
+      "warmup": false,
+      "seconds": 15.215329558
+    }
+  ]
+}

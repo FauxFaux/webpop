@@ -43,4 +43,6 @@ the [lossless plan](docs/LOSSLESS_PORT_PLAN.md) for validation and timing baseli
 
 Build a mostly static upstream `cwebp` executable for comparisons with the
 [reference Docker build](reference-cwebp/README.md).
+Run repeatable lossless CLI comparisons and compiler-flag experiments with the
+[benchmark harness](docs/BENCHMARKS.md).
 

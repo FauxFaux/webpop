@@ -3,7 +3,8 @@
 Examined on 2026-10-22 against upstream revision
 `1844042d1ca751e62e61df7617dba19c98588339`. Tool capabilities below are a dated
 assessment; check the installed version before relying on particular options.
-This is a measurement plan, not benchmark results or an implemented harness.
+This is a measurement plan. The implemented CLI harness, reproduction commands
+and initial results are in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Recommendation
 
@@ -24,9 +25,8 @@ Keep the executables thin enough to represent library use. The Rust driver
 calls the ordinary Rust API; the C driver calls the pinned upstream API.
 Build once, save the artifacts and build records, then execute those artifacts
 directly. Timing `cargo run`, CMake, or the test runner would measure additional
-work. The public Rust image encoder is still incomplete, so complete-encoder
-comparisons must wait; we can apply the same approach to matched internal
-stages in the meantime.
+work. The public Rust lossless encoder and CLI now support complete-encoder
+comparisons; matched internal stages remain useful for diagnosing differences.
 
 ## What a library would buy us
 
