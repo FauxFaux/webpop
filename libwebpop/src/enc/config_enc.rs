@@ -1,8 +1,31 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/{config_enc,picture_enc}.c (lossless defaults).
+// Derived from upstream/src/enc/{config_enc,picture_enc}.c, encoder defaults.
 // See COPYING and PATENTS.
 
 use crate::webp::encode::LosslessEncodeError;
+
+/// VP8 setup parameters used by the bottom-up encoder. The public lossy API
+/// will use these defaults; alternate mode-search paths are not implemented yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VP8EncoderConfig {
+    pub method: i32,
+    pub sns_strength: i32,
+    pub filter_strength: i32,
+    pub filter_sharpness: i32,
+    pub filter_type: i32,
+}
+
+impl Default for VP8EncoderConfig {
+    fn default() -> Self {
+        Self {
+            method: 4,
+            sns_strength: 50,
+            filter_strength: 60,
+            filter_sharpness: 0,
+            filter_type: 1,
+        }
+    }
+}
 
 /// Lossless compression effort and transparent-pixel policy.
 /// With `encode_lossless_rgba`, near-lossless strength is 100. These options can

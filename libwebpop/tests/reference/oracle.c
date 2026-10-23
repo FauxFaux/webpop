@@ -28,6 +28,9 @@ void WebpopClearHuffmanTree(HuffmanTreeCode*);
 void WebpopWriteHuffmanCodeWithExtraBits(VP8LBitWriter*, const HuffmanTreeCode*, int, int, int);
 unsigned WebpopTokenStream(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
+unsigned WebpopExpandMatrix(const uint32_t*, uint32_t*);
+unsigned WebpopQuantSetup(const uint32_t*, uint32_t*);
+unsigned WebpopAnalysisQuant(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
 unsigned WebpopNearLosslessFeedback(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopPredictor(const uint32_t*, unsigned, uint32_t*);
@@ -129,7 +132,35 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8Susceptibility)) {
+    if (IS(VP8AnalysisQuant)) {
+      uint64_t pixels, mbw, mbh, output_size;
+      float quality;
+      REQUIRE(n >= 4 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383 && in[2] >= 1 && in[2] <= 4);
+      memcpy(&quality, in+3, sizeof(quality)); REQUIRE(quality >= 0.f && quality <= 100.f);
+      pixels = (uint64_t)in[0]*in[1] + 2*(uint64_t)((in[0]+1)/2)*((in[1]+1)/2);
+      mbw = (in[0]+15)/16; mbh = (in[1]+15)/16;
+      output_size = 1039 + 5*mbw*mbh + (4*mbw+1)*(4*mbh+1);
+      REQUIRE(n == 4 + pixels && output_size <= LIMIT);
+      for (i = 4; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopAnalysisQuant(in, out);
+    } else if (IS(VP8FilterStrengthFromDelta)) {
+      REQUIRE(n == 2 && in[0] <= 7 && in[1] <= 0x7fffffff);
+      out[0] = VP8FilterStrengthFromDelta(in[0], in[1]); count = 1;
+    } else if (IS(VP8ExpandMatrix)) {
+      REQUIRE(n == 3 && in[0] < 3 && in[1] >= 4 && in[1] <= 440 && in[2] >= 4 && in[2] <= 440);
+      count = WebpopExpandMatrix(in, out);
+    } else if (IS(VP8QuantSetup)) {
+      float quality;
+      REQUIRE(n == 32 && in[0] <= 4 && in[1] >= 1 && in[1] <= 4 && in[2] <= 6);
+      REQUIRE(in[3] <= 100 && in[4] <= 100 && in[5] <= 7 && in[6] <= 1 && in[7] <= 7 && in[8] <= 7905);
+      memcpy(&quality, in + 9, sizeof(quality)); REQUIRE(quality >= 0.f && quality <= 100.f);
+      memcpy(&quality, in + 31, sizeof(quality)); REQUIRE(quality >= 0.f && quality <= 100.f);
+      for (i = 10; i < 15; ++i) REQUIRE((int32_t)in[i] >= -15 && (int32_t)in[i] <= 15);
+      for (i = 15; i < 31; i += 4) {
+        REQUIRE((int32_t)in[i] >= -127 && (int32_t)in[i] <= 127 && in[i+1] <= 255 && in[i+2] <= 127 && in[i+3] <= 63);
+      }
+      count = WebpopQuantSetup(in, out);
+    } else if (IS(VP8Susceptibility)) {
       REQUIRE(n == 3 && in[0] <= 256 && in[1] <= 31 && (int32_t)in[2] >= -1048576 && (int32_t)in[2] <= 1048576);
       count = WebpopSusceptibility(in, out);
     } else if (IS(VP8SegmentAlphas)) {

@@ -107,6 +107,25 @@ pub type DError = [[i8; 2]; 2];
 pub const NUM_MB_SEGMENTS: usize = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VP8EncFilterHeader {
+    pub simple: bool,
+    pub level: i32,
+    pub sharpness: i32,
+    pub i4x4_lf_delta: i32,
+}
+
+impl Default for VP8EncFilterHeader {
+    fn default() -> Self {
+        Self {
+            simple: true,
+            level: 0,
+            sharpness: 0,
+            i4x4_lf_delta: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VP8EncSegmentHeader {
     pub num_segments: usize,
     pub update_map: bool,
@@ -175,11 +194,19 @@ pub struct VP8ModeScore {
     pub derr: [[i8; 3]; 2],
 }
 
-/// Frame-persistent encoder foundations. Additional configuration, quantizer
-/// setup and bitstream state follow in the corresponding port milestones.
+/// Frame-persistent encoder foundations. Bitstream state follows in the
+/// corresponding port milestones.
 /// Prediction storage includes the constant top row and left column; nz[0]
 /// is the constant left sentinel, followed by one packed context per column.
 pub struct VP8Encoder {
+    pub config: super::config_enc::VP8EncoderConfig,
+    pub filter_hdr: VP8EncFilterHeader,
+    pub base_quant: i32,
+    pub dq_y1_dc: i32,
+    pub dq_y2_dc: i32,
+    pub dq_y2_ac: i32,
+    pub dq_uv_dc: i32,
+    pub dq_uv_ac: i32,
     pub segment_hdr: VP8EncSegmentHeader,
     pub dqm: [VP8SegmentInfo; NUM_MB_SEGMENTS],
     pub alpha: i32,
@@ -234,6 +261,14 @@ impl VP8Encoder {
         let mut proba = VP8EncProba::default();
         super::tree_enc::VP8DefaultProbas(&mut proba);
         Ok(Self {
+            config: super::config_enc::VP8EncoderConfig::default(),
+            filter_hdr: VP8EncFilterHeader::default(),
+            base_quant: 0,
+            dq_y1_dc: 0,
+            dq_y2_dc: 0,
+            dq_y2_ac: 0,
+            dq_uv_dc: 0,
+            dq_uv_ac: 0,
             segment_hdr: VP8EncSegmentHeader::default(),
             dqm: std::array::from_fn(|_| VP8SegmentInfo::default()),
             alpha: 0,

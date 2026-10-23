@@ -3,6 +3,7 @@ pub mod backward_references_cost_enc;
 pub mod backward_references_enc;
 pub mod config_enc;
 pub mod cost_enc;
+pub mod filter_enc;
 pub mod frame_enc;
 pub mod histogram_enc;
 pub mod iterator_enc;

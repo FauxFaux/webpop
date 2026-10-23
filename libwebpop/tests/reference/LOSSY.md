@@ -909,3 +909,128 @@ Validation passes: full workspace `cargo test --quiet` and
 release with `native-oracle`, formatting, normal library-only build and
 `git diff --check`. Existing manual tests remain ignored; upstream remains clean
 at the recorded pin.
+
+### Milestone 4 completion: quantizer matrices and initial filter strengths
+
+`enc/quant_enc.rs` now ports `QualityToCompression`, `VP8SetSegmentParams`,
+`ExpandMatrix`, `SetupMatrices`, `SetupFilterStrength` and `SimplifySegments`,
+with the pinned DC/AC/AC2, bias and frequency-sharpening constants.
+`enc/filter_enc.rs` adds `VP8FilterStrengthFromDelta`. The encoder owns the
+required configuration subset, filter header, base quantizer and five deltas.
+Defaults match the simple API's method 4, SNS 50, filtering strength 60/type 1/
+sharpness 0. Method/SNS/filter variations here validate setup leaves; this does
+not add alternate mode-search paths or public advanced configuration. JPEG
+size emulation, automatic filtering and final edge-based filter adjustment are
+outside this batch; the latter remains required in milestone 7.
+
+`lossy_quant.c` includes pinned `quant_enc.c` with its external symbols renamed
+so static leaves can be called without copying algorithms. Full parameter
+setup calls the normally linked `VP8SetSegmentParams`. The composed-image
+adapter in `lossy_analysis.c` calls normally linked `VP8EncAnalyze` followed by
+`VP8SetSegmentParams`. Upstream remains unmodified.
+
+Additional logical requests:
+
+- `VP8FilterStrengthFromDelta`: sharpness `0..7`, nonnegative signed-int delta;
+  returns one strength, clamping delta to 63.
+- `VP8ExpandMatrix`: matrix type `0..2`, DC and AC steps `4..440`; returns the
+  rounded average followed by 80 matrix words: 16 each of q, reciprocal q,
+  bias, zero threshold and sharpening, all in coefficient order.
+- `VP8QuantSetup`: 32 words: operation, segment count, method, SNS strength,
+  filtering strength, configured sharpness, filter type, previous sharpness,
+  raw UV susceptibility, quality f32 bits, five signed deltas (Y1 DC, Y2 DC,
+  Y2 AC, UV DC, UV AC), four `(alpha,beta,quant,strength)` segment records,
+  and second-quality f32 bits. Operations are matrices (0), filter strengths
+  (1), equivalent-segment merging (2), full setup (3), and two consecutive
+  full setups using the two qualities (4). Counts are `1..4`, methods `0..6`,
+  strengths `0..100`, sharpness `0..7`, types `0..1`, UV susceptibility
+  `0..7905`, qualities finite `0..100`, deltas `-15..15`, alpha `-127..127`,
+  beta `0..255`, quant `0..127`, and segment strength `0..63`. Eight seeded
+  macroblocks cycle over the active segment numbers. Matrices, lambdas and
+  penalties start with distinct sentinels, including penalties above u32.
+  The 1,077 output words are 13 frame/header values (segment count, update-map,
+  segment-header size, base quantizer, five deltas, simple-filter flag, level,
+  sharpness and Intra4 filter delta), four 256-word segments, and five metadata
+  words per macroblock (type, UV mode, skip, segment, alpha). Each segment is
+  three matrices in the 80-word layout above, then alpha, beta, quant, strength,
+  maximum edge, minimum distortion, eight lambdas (I16, I4, UV, mode, texture,
+  trellis I16, trellis I4, trellis UV) and low/high words of the Intra4 penalty.
+- `VP8AnalysisQuant`: width, height, segment count, quality f32 bits and tightly
+  packed byte-valued Y/U/V planes. Returns the same frame/segment/metadata
+  state with the actual macroblock count, followed by average luma/UV
+  susceptibility and the complete predictor map including constant borders.
+  Output count is `1039 + 5*mb_w*mb_h + (4*mb_w+1)*(4*mb_h+1)`, checked against
+  the existing logical-word limit. The picture/analysis state is seeded as in
+  `VP8AnalysisFrame`, with the normal initial filter header.
+
+Important retained ordering and rounding:
+
+- Quality enters as f32 and is promoted before division by double `100.`.
+  Mapping uses the original piecewise linear function, cube-root power and
+  susceptibility-dependent second power, with truncation to integer quantizer.
+  The smallest positive f32 qualities can still produce quantizer 127 because
+  `1-c` rounds to exactly one. Chroma AC adaptation truncates twice, before
+  and after multiplying by SNS; negative divisions truncate toward zero.
+- Filter strengths are updated for all four slots using the *previous*
+  header sharpness, before the configured sharpness is stored. Strengths below
+  two are disabled, and strengths above 63 saturate.
+- Segment equivalence compares only quantizer and filter strength. Stable
+  first representatives retain their complete state; macroblocks are remapped
+  and trailing slots within the old active range copy the last representative.
+  Header `update_map` and size remain unchanged here. Setup expands matrices
+  only after merging, leaving copied trailing matrices unexpanded; repeated
+  trials preserve merges and the previous filter header.
+- Reciprocals retain u16 widths; bias/thresholds use u32, matrix averages round
+  with `+8`, UV DC table indices clip to 117, and all eight lambdas have minimum
+  one. Sharpening applies only to Y1 with capped spatial-frequency weighting.
+
+There are 14,153 exact new C requests:
+
+- 1,040 filter lookups: every sharpness, deltas `0..128` and `INT_MAX`.
+- 3,390 matrix expansions: each step `4..440`, each matrix type, endpoint
+  pairings and 768 seeded asymmetric pairs.
+- 1,536 matrix setups cover every quantizer index, signed/clipped deltas,
+  segment counts, SNS 0/50/100 and methods 0/3/4/6.
+- 2,048 initial-filter setups cover all quantizer indices/sharpness values,
+  distinct previous/configured sharpness, beta extremes, both types and
+  strengths 0/1/50/60/100.
+- 340 segment-merging requests exhaust all assignments of up to four segments
+  to four `(quant,strength)` pairs, with distinct non-equivalence fields.
+- 5,599 full/repeated setups cover quarter-point qualities, every alpha,
+  UV susceptibility `0..255` and extreme raw scores through 7905, SNS truncation
+  boundaries, neighboring f32 values around every integer-quantizer transition,
+  qualities around 75, subnormals and 129 repeated trials.
+- 200 composed image requests cover missing borders, odd sizes, multiple
+  macroblock rows, six skinny limit images and the real-image sample at
+  qualities 0/30/75/98.5/100.
+
+Independent portable tests enumerate the first nonzero integer coefficient
+for each reciprocal/bias pair, check reciprocal bounds and rounded averages,
+and run both sides of every threshold through the existing scalar quantizer.
+They derive sharpening from 4×4 spatial coordinates, check lambda/filter
+scaling with wider rational arithmetic, classify equivalence against immutable
+first occurrences, and invert quality intervals in logarithmic space instead
+of repeating nested powers. They also verify unused state, metadata and
+predictor/context preservation, all cutoff/saturation branches and 1,672
+quality trials that merge segments. Seven portable and two native tests pass.
+
+`fixtures/lossy_quant.txt` contains 74 portable C fixtures. Source pin, clean
+upstream checkout and recorded GCC 15.2.0-16ubuntu1/CMake 4.2.3/Release
+`-O3 -DNDEBUG` scalar configuration were reviewed before regeneration; Rust is
+1.101.0-nightly (`7189d39d9`, 2026-10-22) on x86_64 Linux, as in the preceding
+batch. Earlier fixtures remain unchanged. Review the live provenance in
+`target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_quant quantizer_fixtures_match_pinned_reference
+```
+
+Milestone 4 is complete: 31,157 native requests and 156 portable fixtures across
+analysis/assignment and quantizer/filter setup. Candidate reconstruction and
+mode search are next; public lossy Rust APIs remain unimplemented.
+
+Validation passes: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all nine quantizer tests in
+release with `native-oracle`, `cargo fmt --all -- --check`, the normal
+library-only build and `git diff --check`. Existing manual tests remain ignored;
+upstream remains clean at the recorded pin.

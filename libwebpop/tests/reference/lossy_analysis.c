@@ -161,3 +161,23 @@ unsigned WebpopAnalysisFrame(const uint32_t* in, uint32_t* out) {
   ClearContext(&ctx);
   return n;
 }
+
+// Compose the normally linked analysis and setup entry points on image planes.
+unsigned WebpopQuantState(const VP8Encoder*, uint32_t*);
+unsigned WebpopAnalysisQuant(const uint32_t* in, uint32_t* out) {
+  AnalysisContext ctx;
+  unsigned i, n;
+  float quality;
+  const unsigned pixels = in[0]*in[1] + 2*((in[0]+1)/2)*((in[1]+1)/2);
+  InitContext(&ctx, in[0], in[1], in[2]);
+  ctx.enc.filter_hdr.simple = 1;
+  memcpy(&quality, in+3, sizeof(quality));
+  for (i = 0; i < pixels; ++i) ctx.planes[i] = in[4+i];
+  if (!VP8EncAnalyze(&ctx.enc)) abort();
+  VP8SetSegmentParams(&ctx.enc, quality);
+  n = WebpopQuantState(&ctx.enc, out);
+  out[n++] = ctx.enc.alpha; out[n++] = ctx.enc.uv_alpha;
+  for (i = 0; i < ctx.pred_size; ++i) out[n++] = ctx.preds[i];
+  ClearContext(&ctx);
+  return n;
+}
