@@ -151,5 +151,67 @@ Validation passed for this extension: the full workspace `cargo test --quiet`
 and `cargo test --features native-oracle --quiet`, all eight transform tests in
 release with `native-oracle`, `cargo fmt --all -- --check`,
 `cargo build -p libwebpop --lib`, and `git diff --check`. Existing manual
-timing/large-corpus tests remain ignored. Milestone 1's predictions, scans,
-quantization and remaining distortion/histogram DSP are still pending.
+timing/large-corpus tests remain ignored. At this checkpoint, milestone 1's
+predictions, scans, quantization and remaining distortion/histogram DSP were
+still pending.
+
+## Milestone 1: scalar predictions
+
+`dsp/enc.rs` ports `Intra16Preds_C`, `IntraChromaPreds_C`, `Intra4Preds_C`,
+their five inline large-block helpers and all ten Intra4 modes. New
+`enc/vp8i_enc.rs` retains prediction offsets and `PRED_SIZE_ENC=1792` from the
+pinned internal header. The three oracle adapters use the normal scalar DSP
+dispatch entries, including the library's clipping-table initialization.
+
+Rust includes the corner in each left slice: luma's `[corner, left0..left15]`
+has 17 bytes. Chroma's 25-byte window has U's corner at 0, U samples at 1–8,
+V's corner at 16, and V samples at 17–24. Indices 9–15 are ignored; top holds
+eight U followed by eight V samples. Missing borders use `None`. Intra4 takes
+exactly `[L,K,J,I,X,A,B,C,D,E,F,G,H]`, mapping upstream `top[-5..7]` without
+negative indexing. Its caller supplies substituted/replicated borders; iterator
+rotation and actual reconstructed-border integration remain milestone 3 work.
+
+Request layouts:
+
+- `VP8EncPredLuma16`: `(border_flags, sentinel)`, 17 left-window bytes, then
+  16 top bytes. Bit 0 enables left; bit 1 enables top. Bytes for absent borders
+  are still present in the request and must not influence the result.
+- `VP8EncPredChroma8`: the same header, 25 left-window bytes, 16 top bytes.
+- `VP8EncPredLuma4`: `sentinel`, followed by the 13-byte boundary window.
+
+Each returns the entire initialized 1,792-byte prediction scratch buffer,
+including other block families, the unused Intra4 trial slot and padding. This
+checks all prediction offsets and detects writes outside the intended modes.
+
+There are 4,910 exact native comparisons: 1,752 each for luma16/chroma8 (all
+four border-presence combinations, every constant byte, independent U/V
+corners, clipping boundaries, and seeded mixed borders), and 1,406 for luma4
+(all constants, impulses in all thirteen positions, edge triples, seeded
+borders, and 128 replicated top-right windows). There are 51 portable fixtures
+in `fixtures/lossy_predictions.txt`, taking every 97th case.
+
+Independent portable checks compute rounded means from the available border
+samples, verify large-block replication/defaults and clipped gradients, test
+nine mode transpose identities with replicated edges, check constant
+Intra4 predictions, and verify that DC excludes the corner and top-right.
+Half/quarter rounding checks exhaust all byte pairs with third samples 0/255;
+additional checks cover the LD/VL last-pixel averages and HU's repeated final
+left sample. Exact-minimum destination/left/top slices and offset buffers
+verify boundaries, and changing only the unused chroma left gap has no effect.
+
+The pin, compiler, CMake flags, Rust toolchain and seed remain unchanged.
+Review those and the new adapters before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_predictions vp8_prediction_fixtures_match_pinned_reference
+cargo test -p libwebpop --features native-oracle --test lossy_predictions -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test lossy_predictions
+```
+
+Validation passed: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all eight predictor tests in
+release with `native-oracle`, `cargo fmt --all -- --check`,
+`cargo build -p libwebpop --lib`, and `git diff --check`. The upstream checkout
+remains clean. Scans, coefficient quantization and remaining distortion/
+histogram DSP are still pending in milestone 1.

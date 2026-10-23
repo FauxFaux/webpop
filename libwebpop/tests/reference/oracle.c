@@ -56,6 +56,7 @@ unsigned WebpopLossyTransform(const uint32_t*, uint32_t*);
 unsigned WebpopLossyTransform2(const uint32_t*, uint32_t*);
 unsigned WebpopLossyInverseTransform(const uint32_t*, uint32_t*);
 unsigned WebpopLossyWHT(const uint32_t*, int, uint32_t*);
+unsigned WebpopLossyPredictions(const char*, const uint32_t*, uint32_t*);
 unsigned WebpopLossyEncode(const uint32_t*, unsigned, int, uint32_t*);
 unsigned WebpopAlphaWrapperErrors(uint32_t*);
 
@@ -100,7 +101,12 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8FTransform)) {
+    if (IS(VP8EncPredLuma4) || IS(VP8EncPredLuma16) || IS(VP8EncPredChroma8)) {
+      REQUIRE(n == (IS(VP8EncPredLuma4) ? 14 : IS(VP8EncPredChroma8) ? 43 : 35));
+      if (!IS(VP8EncPredLuma4)) REQUIRE(in[0] <= 3);
+      for (i = 0; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopLossyPredictions(name, in, out);
+    } else if (IS(VP8FTransform)) {
       REQUIRE(n == 32);
       for (i = 0; i < n; ++i) REQUIRE(in[i] <= 255);
       count = WebpopLossyTransform(in, out);

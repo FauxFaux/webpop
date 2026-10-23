@@ -58,10 +58,10 @@ Color quality 100 still uses YUV420 and quantization; it is not lossless RGB.
 
 ## Current repository (revalidated 2026-10-23)
 
-Continued from `535aedd` against the unchanged, clean upstream pin.
-**Milestone 0 is complete**, and milestone 1 has its forward/inverse transform
-leaves. The VP8/YUVA/ALPH dependency graph below still applies; the public lossy
-Rust APIs remain unimplemented.
+Continued from `c9b2c1f` against the unchanged, clean upstream pin.
+**Milestone 0 is complete**, and milestone 1 has its forward/inverse transforms
+and scalar predictors. The VP8/YUVA/ALPH dependency graph below still applies;
+the public lossy Rust APIs remain unimplemented.
 
 - **Lossless milestones 1–9 are complete.** The public simple API and
   configurable `encode_lossless_rgba` use the full synchronous analysis/trial
@@ -84,7 +84,7 @@ Rust APIs remain unimplemented.
   [reference record](../libwebpop/tests/reference/NEAR_LOSSLESS.md) retain the
   acceptance evidence. These are VP8L algorithms; ALPH still needs its separate
   centroid `QuantizeLevels`, filters and alpha-plane DSP, and VP8 needs its own
-  predictions and coefficient quantizer.
+  coefficient quantizer and mode search.
 - **Lossy oracle milestone 0 is complete.**
   [`dsp/enc.rs`](../libwebpop/src/dsp/enc.rs) ports `FTransform_C`, with 1,727
   exact native comparisons and an independent exhaustive constant-byte-pair
@@ -101,8 +101,17 @@ Rust APIs remain unimplemented.
   [`dsp/dec.rs`](../libwebpop/src/dsp/dec.rs) supplies only the encoder-required
   inverse `TransformWHT_C`. There are 21,728 additional exact C comparisons
   and 90 portable fixtures, with independent Hadamard matrix products, DC
-  rounding/clipping checks and boundary/padding checks. Predictions,
-  quantization, scans and remaining distortion/histogram DSP are still to port.
+  rounding/clipping checks and boundary/padding checks. Quantization, scans
+  and remaining distortion/histogram DSP are still to port.
+- **Milestone 1 scalar predictions are ported.** `Intra16Preds_C`,
+  `IntraChromaPreds_C` and all ten modes in `Intra4Preds_C` retain the upstream
+  scratch layout, missing-border defaults, chroma corner spacing and explicit
+  13-byte Intra4 boundary window. Prediction offsets now live in
+  [`enc/vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs). There are 4,910 exact C
+  comparisons and 51 portable fixtures, including full scratch preservation.
+  Independent tests check rounded border means, directional transposition,
+  true-motion clipping, byte averaging, replicated edges and minimum buffers.
+  Iterator construction/rotation of these borders remains in milestone 3.
 - **Shared input/output glue remains ARGB/VP8L-only.** Checked geometry,
   owned pixels/output and error propagation exist. `WebPPicture` has only
   width, height and packed ARGB; import, transparency detection and cleanup
@@ -575,10 +584,10 @@ names do not prove that Intra4, diffusion, raw fallback, or frame retries ran.
 
 The completed lossless and near-lossless ports satisfy the project order.
 **Lossy milestone 0 is complete**; milestone 1 has the single/paired forward
-and inverse 4×4 transforms, clipping and both WHTs. Its predictions, scans,
-quantizer and remaining DSP leaves are still to port. Milestone 8 reuses the
-implemented configurable VP8L stream. Split large files into leaf/subgraph work; integrate
-parents only after their dependencies match the oracle.
+and inverse 4×4 transforms, clipping, both WHTs and all scalar predictors.
+Its scans, quantizer and remaining DSP leaves are still to port. Milestone 8
+reuses the implemented configurable VP8L stream. Split large files into
+leaf/subgraph work; integrate parents only after their dependencies match the oracle.
 
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
@@ -599,21 +608,20 @@ milestone 0 and proceed independently of VP8 mode search; its final container
 integration needs milestone 6. Finish the public API only once the real default
 path and alpha feature range are covered.
 
-### First implementation batch
+### Next implementation batches
 
 Milestone 0 has added the lossy adapters; milestone 1 now has the 4×4 and Walsh
-transforms. Next small units (milestones 1–3, and independent alpha leaves) are:
+transforms and scalar Intra16/chroma/Intra4 predictions. Remaining small units
+(milestones 1–3, and independent alpha leaves) are:
 
-1. VP8 scan/zigzag and probability/cost tables, signed clipping/shift helpers.
+1. VP8 scan/zigzag and probability/cost tables.
 2. Boolean writer traces with carry propagation, deferred 0xff runs and finish.
-3. Intra16/UV prediction for all border-presence combinations, then ten Intra4
-   modes with top-right extension and exact boundary layout.
-4. Quantization with explicit synthetic matrices, threshold ties, sharpening
-   and saturation; the forward/inverse 4×4 and WHT transforms are complete.
-5. SSE/texture/histogram leaves, residual last-nonzero detection and token costs.
-6. Default RGB→Y and UV accumulation/conversion, gamma/interpolation and
+3. Quantization with explicit synthetic matrices, threshold ties, sharpening
+   and saturation.
+4. SSE/texture/histogram leaves, residual last-nonzero detection and token costs.
+5. Default RGB→Y and UV accumulation/conversion, gamma/interpolation and
    alpha-weighted cases; import last-row/odd-column handling before whole images.
-7. Alpha-to-green dispatch and direct comparisons of the existing headerless
+6. Alpha-to-green dispatch and direct comparisons of the existing headerless
    `VP8LEncodeStream` at method 4/quality 32/`exact=1`, then alpha filter kernels,
    filter estimator and centroid `QuantizeLevels`. This branch can proceed
    independently of VP8 mode search; near-lossless quantization is not a

@@ -13,6 +13,7 @@ pub mod public_images;
 pub mod references;
 pub mod streams;
 pub mod token_streams;
+pub mod vp8_predictions;
 pub mod vp8_transforms;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
@@ -38,6 +39,9 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8EncPredLuma4" | "VP8EncPredLuma16" | "VP8EncPredChroma8" => {
+                vp8_predictions::evaluate(self)
+            }
             "VP8FTransform" => lossy::transform(self),
             "VP8FTransform2" | "VP8ITransform" | "VP8FTransformWHT" | "VP8TransformWHT" => {
                 vp8_transforms::evaluate(self)

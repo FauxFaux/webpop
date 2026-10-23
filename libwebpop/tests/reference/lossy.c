@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "src/dsp/dsp.h"
+#include "src/enc/vp8i_enc.h"
 #include "src/webp/encode.h"
 
 size_t WebPEncodeRGBAWithAlphaQuality(const uint8_t*, int, int, int, float, int,
@@ -87,6 +88,30 @@ unsigned WebpopLossyWHT(const uint32_t* in, int inverse, uint32_t* out) {
   }
   for (i = 0; i < output_size; ++i) out[i] = (uint32_t)(int32_t)output[i];
   return output_size;
+}
+
+unsigned WebpopLossyPredictions(const char* name, const uint32_t* in,
+                                 uint32_t* out) {
+  uint8_t dst[PRED_SIZE_ENC], left[25], top[16];
+  unsigned i;
+  VP8EncDspInit();
+  if (strcmp(name, "VP8EncPredLuma4") == 0) {
+    for (i = 0; i < 13; ++i) top[i] = in[1 + i];
+    memset(dst, in[0], sizeof(dst));
+    VP8EncPredLuma4(dst, top + 5);
+  } else {
+    const int chroma = strcmp(name, "VP8EncPredChroma8") == 0;
+    const unsigned left_size = chroma ? 25 : 17;
+    const uint8_t* const left_ptr = (in[0] & 1) ? left + 1 : NULL;
+    const uint8_t* const top_ptr = (in[0] & 2) ? top : NULL;
+    for (i = 0; i < left_size; ++i) left[i] = in[2 + i];
+    for (i = 0; i < 16; ++i) top[i] = in[2 + left_size + i];
+    memset(dst, in[1], sizeof(dst));
+    if (chroma) VP8EncPredChroma8(dst, left_ptr, top_ptr);
+    else VP8EncPredLuma16(dst, left_ptr, top_ptr);
+  }
+  for (i = 0; i < sizeof(dst); ++i) out[i] = dst[i];
+  return sizeof(dst);
 }
 
 unsigned WebpopLossyEncode(const uint32_t* in, unsigned n, int custom,
