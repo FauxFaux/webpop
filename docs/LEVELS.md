@@ -214,16 +214,29 @@ The upstream simple lossless functions also hard-code quality 70 in
 [`picture_enc.c`](../upstream/src/enc/picture_enc.c). This differs from quality
 75 in `WebPConfigInit()` and `cwebp -lossless`.
 
-[`cwebpop`](../cwebpop/README.md) currently always encodes losslessly. Its `-q`
-(also `--quality`) and `-m` (also `--method`) map to those Rust fields, but its
+[`cwebpop`](../cwebpop/README.md) encodes VP8L, with lossless pixels by default.
+Its `-q` (also `--quality`) and `-m` (also `--method`) map to those Rust fields, but its
 default quality is **75**, matching upstream's CLI. Fractional `-q` values are
 truncated to integer effort. Multi-letter upstream options use two dashes here,
 for example `--lossless` and `--exact`.
 
-The current CLI accepts `--near_lossless 100` only. It rejects other strengths,
-`-z`, `--alpha_q`, and other unimplemented options, even where argument parsing
-recognizes their names. The public Rust options do not yet expose near-lossless
-strength, alpha quality, or preset levels. The planned
-`WebPEncodeRGBAWithNearLossless(..., near_lossless)` is a custom wrapper API,
-not an upstream simple API; its plan fixes compression quality/method at 70/4
-while exposing near-lossless fidelity independently.
+`--near_lossless N` accepts all integer strengths `0..100`; omission means 100.
+It preserves the CLI's quality 75/method 4 defaults and honors explicit `-q`,
+`-m`, `--exact` and `--noalpha`. For example,
+`cwebpop --near_lossless 60 -q 90 -m 6 input.png -o output.webp` selects fidelity
+60 with effort 90/method 6. Both `--lossless` and `--near_lossless` select VP8L,
+so combining them retains the requested strength. Strength 100 produces the
+same bytes as ordinary lossless encoding at the same effort/exact settings.
+
+The public `encode_near_lossless_rgba(..., near_lossless, &options)` entry point
+shares `LosslessOptions` for compression effort and cleanup, with strength
+supplied independently. `encode_lossless_rgba` always selects strength 100.
+`WebPEncodeRGBAWithNearLossless(..., near_lossless)` is the implemented custom
+wrapper API, with fixed quality 70/method 4/exact false. Match it in the CLI
+with `--near_lossless N -q 70 -m 4` and no `--exact`.
+
+Below 100, RGB and intermediate alpha may change; `--exact` disables cleanup
+and predictor quantization, while standalone preprocessing may still change
+pixels. It does not promise exact alpha. `-z`, `--alpha_q` and other
+unimplemented options remain rejected even where parsing recognizes their
+names. Alpha quality and preset levels are not exposed by the Rust options.

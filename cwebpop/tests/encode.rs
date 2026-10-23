@@ -186,7 +186,7 @@ fn malformed_input_and_unsupported_options_do_not_overwrite_output() {
         vec!["-q", "NaN"],
         vec!["-q", "101"],
         vec!["-m", "7"],
-        vec!["--near_lossless", "90"],
+        vec!["--near_lossless", "101"],
         vec!["--resize", "3", "4"],
     ] {
         let result = command()
@@ -254,4 +254,201 @@ fn decoding_uses_file_content_with_extension_fallback() {
         );
         assert_eq!(decode(&fs::read(copy).unwrap()), source());
     }
+}
+
+#[test]
+fn near_lossless_honors_strength_effort_exact_and_alpha_options() {
+    let temp = Scratch::new();
+    let input = temp.file("noise.png");
+    let output = temp.file("noise.webp");
+    let mut seed = 0x6d2b79f5u32;
+    let source = image::RgbaImage::from_fn(65, 5, |x, _| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        image::Rgba([
+            seed as u8,
+            (seed >> 8) as u8,
+            (seed >> 16) as u8,
+            [0, 127, 253, 255][x as usize % 4],
+        ])
+    });
+    source.save(&input).unwrap();
+    let mut changed = [false; 4];
+    for strength in [0, 20, 60, 99, 100] {
+        // Omitted effort keeps CLI defaults. Explicit values must override
+        // those defaults independently of the near-lossless strength.
+        for (effort, method, exact, noalpha) in [
+            (None, None, false, false),
+            (Some("70"), Some(4), false, false),
+            (Some("90.9"), Some(6), false, false),
+            (Some("0"), Some(0), false, false),
+            (Some("100"), Some(6), true, false),
+            (None, None, false, true),
+        ] {
+            let mut command = command();
+            command
+                .arg(&input)
+                .arg("-o")
+                .arg(&output)
+                .arg("--near_lossless")
+                .arg(strength.to_string());
+            if let Some(q) = effort {
+                command.args(["-q", q]);
+            }
+            if let Some(m) = method {
+                command.arg("-m").arg(m.to_string());
+            }
+            if exact {
+                command.arg("--exact");
+            }
+            if strength == 60 {
+                command.arg("--lossless");
+            }
+            if noalpha {
+                command.arg("--noalpha");
+            }
+            let result = command.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert!(result.stdout.is_empty());
+            let message = String::from_utf8_lossy(&result.stderr);
+            assert!(message.contains(if strength < 100 {
+                "near-lossless WebP"
+            } else {
+                "lossless WebP"
+            }));
+            let mut pixels = source.clone();
+            if noalpha {
+                for p in pixels.pixels_mut() {
+                    p.0[3] = 255;
+                }
+            }
+            let options = libwebpop::LosslessOptions {
+                quality: effort
+                    .map(|q| q.parse::<f32>().unwrap() as u32)
+                    .unwrap_or(75),
+                method: method.unwrap_or(4),
+                exact,
+            };
+            let expected = libwebpop::encode_near_lossless_rgba(
+                pixels.as_raw(),
+                65,
+                5,
+                65 * 4,
+                strength,
+                &options,
+            )
+            .unwrap();
+            let actual = fs::read(&output).unwrap();
+            assert_eq!(actual, expected);
+            let decoded = decode(&actual);
+            assert_eq!(decoded.dimensions(), pixels.dimensions());
+            for (a, b) in pixels.pixels().zip(decoded.pixels()) {
+                if a[3] == 0 || a[3] == 255 {
+                    assert_eq!(a[3], b[3]);
+                }
+                for lane in 0..4 {
+                    if lane == 3 || (a[3] != 0 && b[3] != 0) {
+                        changed[lane] |= a[lane] != b[lane];
+                    }
+                }
+            }
+            if strength == 100 {
+                assert_eq!(
+                    actual,
+                    libwebpop::encode_lossless_rgba(pixels.as_raw(), 65, 5, 65 * 4, &options)
+                        .unwrap()
+                );
+            }
+        }
+    }
+    assert!(
+        changed.into_iter().all(|v| v),
+        "near-lossless must actually change RGB and intermediate alpha"
+    );
+}
+
+#[test]
+fn near_lossless_streams_and_invalid_strengths_preserve_output_contracts() {
+    let temp = Scratch::new();
+    let input = temp.file("input.png");
+    let output = temp.file("output.webp");
+    source().save(&input).unwrap();
+    fs::write(&output, b"keep this").unwrap();
+    for strength in ["-1", "101", "256"] {
+        let result = command()
+            .arg(&input)
+            .arg("-o")
+            .arg(&output)
+            .arg(format!("--near_lossless={strength}"))
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+        assert_eq!(fs::read(&output).unwrap(), b"keep this");
+    }
+    // Settings fail before attempting to open even an absent input file.
+    let result = command()
+        .arg(temp.file("missing.png"))
+        .arg("-o")
+        .arg(&output)
+        .args(["--near_lossless", "101"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr)
+            .contains("near-lossless strength must be in 0..=100")
+    );
+    let mut child = command()
+        .args([
+            "--near_lossless",
+            "60",
+            "-q",
+            "90",
+            "-m",
+            "6",
+            "--quiet",
+            "-",
+            "-o",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&fs::read(&input).unwrap())
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(result.stderr.is_empty());
+    assert_eq!(
+        result.stdout,
+        libwebpop::encode_near_lossless_rgba(
+            source().as_raw(),
+            17,
+            19,
+            17 * 4,
+            60,
+            &libwebpop::LosslessOptions {
+                quality: 90,
+                method: 6,
+                exact: false
+            }
+        )
+        .unwrap()
+    );
 }

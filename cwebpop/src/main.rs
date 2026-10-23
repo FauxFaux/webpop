@@ -9,13 +9,13 @@ use std::{
 };
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
-use libwebpop::{LosslessOptions, encode_lossless_rgba};
+use libwebpop::{LosslessOptions, encode_near_lossless_rgba};
 
-/// Lossless WebP encoder, with options based on upstream/examples/cwebp.c.
+/// Lossless and near-lossless WebP encoder, based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "Lossless WebP encoder",
+    about = "Lossless and near-lossless WebP encoder",
     after_help = "Lossless encoding is the default; -o is required.\nUse --long_option for upstream's -long_option flags; -h/--help and -V/--version work."
 )]
 struct Args {
@@ -87,7 +87,7 @@ struct Args {
     #[arg(long = "alpha_method")]
     alpha_method: Option<u8>,
 
-    /// Near-lossless preprocessing, 0..100 (100 disables it).
+    /// Near-lossless fidelity, 0..100 (default 100). Lower values can change RGB and alpha.
     #[arg(long = "near_lossless")]
     near_lossless: Option<u8>,
 
@@ -167,7 +167,7 @@ struct Args {
     #[arg(long = "print_lsim")]
     print_lsim: bool,
 
-    /// Preserve RGB values in transparent pixels.
+    /// Disable transparent RGB cleanup (near-lossless may still change pixels).
     #[arg(long = "exact")]
     exact: bool,
 
@@ -259,10 +259,8 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions,
             return Err(format!("{flag} is not implemented").into());
         }
     }
-    if args.near_lossless.is_some_and(|q| q != 100) {
-        return Err(
-            "near-lossless encoding is not implemented; --near_lossless must be 100".into(),
-        );
+    if args.near_lossless.is_some_and(|q| q > 100) {
+        return Err("near-lossless strength must be in 0..=100".into());
     }
     let quality = args.quality.unwrap_or(75.0);
     if !quality.is_finite() || !(0.0..=100.0).contains(&quality) {
@@ -308,7 +306,15 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         }
     }
     let (width, height) = rgba.dimensions();
-    let encoded = encode_lossless_rgba(rgba.as_raw(), width, height, width as usize * 4, &options)?;
+    let near_lossless = args.near_lossless.unwrap_or(100);
+    let encoded = encode_near_lossless_rgba(
+        rgba.as_raw(),
+        width,
+        height,
+        width as usize * 4,
+        i32::from(near_lossless),
+        &options,
+    )?;
     if output.as_os_str() == "-" {
         let mut stdout = io::stdout().lock();
         stdout.write_all(&encoded)?;
@@ -321,8 +327,13 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         if args.short {
             eprintln!("{}", encoded.len());
         } else {
+            let mode = if near_lossless < 100 {
+                "near-lossless"
+            } else {
+                "lossless"
+            };
             eprintln!(
-                "Encoded {width}x{height} lossless WebP: {} bytes",
+                "Encoded {width}x{height} {mode} WebP: {} bytes",
                 encoded.len()
             );
         }

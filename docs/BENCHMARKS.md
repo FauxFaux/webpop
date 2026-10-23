@@ -44,8 +44,9 @@ it, the runner uses `75:4`, `75:0`, and `100:6`; the last can be expensive on
 large images. Positional filenames select a subset of inputs; otherwise all
 `samples/*.webp` are used. `--exact` preserves and checks RGB beneath zero alpha.
 Quality is integer compression effort, not visual quality; method is 0–6.
-There is no multithreading option in these comparisons. Near-lossless below
-100, presets, and image hints are not implemented by the Rust CLI.
+There is no multithreading option in these comparisons. These benchmarks use
+strength 100; the Rust CLI also supports lower near-lossless strengths.
+Presets and image hints are not implemented by the Rust CLI.
 
 ## Measurement and validation
 

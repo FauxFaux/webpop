@@ -5,16 +5,19 @@
 use crate::webp::encode::LosslessEncodeError;
 
 /// Lossless compression effort and transparent-pixel policy.
-/// Near-lossless strength is 100, the image hint is default, and encoding
-/// executes synchronously. Other upstream configuration fields are not exposed.
+/// With `encode_lossless_rgba`, near-lossless strength is 100. These options can
+/// also control effort and cleanup in `encode_near_lossless_rgba`, whose strength
+/// is supplied separately. The image hint is default and encoding is synchronous.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LosslessOptions {
-    /// Compression effort, 0..=100. Pixel quality remains lossless.
+    /// Compression effort, 0..=100. Near-lossless strength is supplied separately.
     pub quality: u32,
     /// Effort, 0..=6. Zero uses the low-effort path; higher values refine
     /// transforms, histogram sampling and reference/cache trials.
     pub method: u32,
-    /// Preserve RGB beneath alpha zero as well as all visible channels.
+    /// Disable transparent RGB cleanup. Lossless encoding preserves all channels;
+    /// near-lossless encoding also bypasses predictor quantization, but standalone
+    /// preprocessing may still change pixels.
     pub exact: bool,
 }
 
@@ -39,8 +42,9 @@ pub(crate) fn WebPValidateConfig(config: &LosslessOptions) -> Result<(), Lossles
     Ok(())
 }
 
-/// Private VP8L configuration. Public lossless options always select strength
-/// 100; the custom near-lossless wrapper keeps the simple API's effort defaults.
+/// Private VP8L configuration. The lossless API selects strength 100; the custom
+/// near-lossless wrapper keeps the simple API's effort defaults, while the
+/// configurable entry point supplies effort and strength independently.
 pub(crate) struct EncoderConfig {
     pub options: LosslessOptions,
     pub near_lossless: u32,

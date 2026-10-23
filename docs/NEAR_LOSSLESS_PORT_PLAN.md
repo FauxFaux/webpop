@@ -68,9 +68,11 @@ wrapper/export regression backend, not the source of algorithm truth.
   196 files independently decode, lower strengths change RGB/intermediate
   alpha, endpoints are preserved, and 100 matches its own simple lossless API.
   See its [artifact/host record](../libwebpop/tests/reference/full-wasm/README.md).
-- CLI strengths below 100 remain explicitly rejected, as allowed by this plan.
-  Supporting them with the CLI's existing effort/exact options is a separate
-  interface decision; the custom public wrapper fixes quality 70/method 4.
+- CLI integration is complete. `--near_lossless 0..100` selects fidelity
+  independently of `-q`, `-m` and `--exact`, keeping CLI defaults 75/4.
+  `encode_near_lossless_rgba` accepts strength plus the existing effort/cleanup
+  options; the custom wrapper retains fixed quality 70/method 4/exact false.
+  Another 560 public C comparisons cover these configurable combinations.
 
 The [reference record](../libwebpop/tests/reference/NEAR_LOSSLESS.md) documents
 request layouts, fixture regeneration, toolchain provenance and full-size
@@ -124,6 +126,13 @@ must retain their lossless pixel contract. Introduce a private configuration
 carrying near-lossless strength, with existing callers selecting 100 and the
 new wrapper selecting quality 70, method 4 and exact false. Validate the signed
 strength before converting it to an unsigned internal value.
+
+The subsequent CLI integration adds
+`encode_near_lossless_rgba(rgba, width, height, stride, near_lossless, &options)`.
+It accepts the existing `LosslessOptions` for effort/cleanup and validates
+strength separately. `encode_lossless_rgba` always selects 100, preserving its
+lossless contract. The named custom wrapper keeps its fixed defaults. At 100,
+the configurable entry point matches lossless encoding with the same options.
 
 **Alpha is not generally exact below 100.** The standalone preprocessor rounds
 all four ARGB channels. Predictor quantization preserves alpha 0 and 255 but
@@ -344,10 +353,12 @@ Completed integration batch:
    reusing milestone 1's preprocessing unchanged.
    Completed milestone 0's branch traces for evaluated and selected candidates.
 
-CLI support below 100 can follow the public wrapper by replacing the existing
-explicit rejection with a call to it; it is not a prerequisite for the library
-API. Keep the wrapper's fixed effort/exact settings explicit when deciding how
-the CLI combines near-lossless with its existing options.
+CLI support now uses the configurable near-lossless entry point, preserving
+quality 75/method 4 defaults and explicit effort/exact options. It validates
+strength before file access and supports files, stdin/stdout and `--noalpha`.
+CLI regression tests check byte equality with the configured library API,
+100/lossless identity, active RGB/intermediate-alpha changes and failure output
+preservation. See [LEVELS.md](LEVELS.md) for option meanings and interactions.
 
 ## Corpus and completion
 
@@ -409,6 +420,6 @@ prepared pixels, C outputs and `metrics.csv` under
 committed measurement snapshot and its limitations.
 
 Deferred to the later lossy plan: `WebPEncodeRGBA`, independent alpha quality,
-VP8/YUV/ALPH and their dependencies. Also deferred: public advanced config,
-other compression qualities/methods, an exact-alpha near-lossless API, workers,
+VP8/YUV/ALPH and their dependencies. Also deferred: the remaining upstream
+advanced configuration, an exact-alpha near-lossless API, workers,
 SIMD optimization, negative strides, C ABI compatibility, animation and muxing.

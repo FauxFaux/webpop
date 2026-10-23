@@ -252,6 +252,25 @@ and skinny 16383-pixel dimension limits. All 101 strengths are checked for
 bucket identity on representative inputs, and 100 matches simple lossless.
 Intermediate alpha can change below 100; endpoints remain exact.
 
+CLI integration adds `encode_near_lossless_rgba`, with explicit signed strength
+and `LosslessOptions` for independent quality/method/exact controls. The custom
+wrapper retains quality 70/method 4/exact false, while the CLI keeps defaults
+75/4 and honors its options. The existing lossless API always selects 100.
+`WebPEncodeNearLosslessOptions` extends the normal-library public oracle with
+`(width,height,byte_stride,quality,method,exact,strength)`, followed by RGBA bytes.
+There are 560 additional live C comparisons across skinny/small/65-pixel
+geometries, palettes, alpha, low effort, quality 70/75/90/100, method 0/4/6,
+exact on/off and strengths 0/20/60/99/100. No existing fixture was regenerated.
+Executable CLI tests check independent effort/strength propagation, fractional
+effort truncation, exact/noalpha, active RGB/alpha changes, 100 identity,
+stdin/stdout, diagnostics and output preservation on invalid strengths.
+
+```sh
+cargo test -p cwebpop
+cargo test -p libwebpop --features native-oracle --test near_lossless_public \
+  near_lossless_options_match_pinned_reference -- --nocapture
+```
+
 The [separate full-Wasm artifact and host](full-wasm/README.md) provide 196
 independently decoded semantic/export regressions. They require Node only with
 `wasm-oracle`. Production library builds remain pure safe Rust, with no new

@@ -495,11 +495,13 @@ int main(void) {
         out[count++] = WebPEncodeRGBAWithNearLossless(rgba, 1, 1, 4, strengths[i], &encoded) == 0;
         out[count++] = encoded == NULL;
       }
-    } else if (IS(WebPEncodeLosslessRGBA) || IS(WebPEncodeRGBAOptions) || IS(WebPEncodeRGBAWithNearLossless)) {
+    } else if (IS(WebPEncodeLosslessRGBA) || IS(WebPEncodeRGBAOptions) ||
+               IS(WebPEncodeRGBAWithNearLossless) || IS(WebPEncodeNearLosslessOptions)) {
       uint8_t *allocation, *rgba, *encoded = NULL;
       size_t size;
       uint64_t required;
-      const unsigned offset = IS(WebPEncodeLosslessRGBA) ? 3 : IS(WebPEncodeRGBAWithNearLossless) ? 4 : 6;
+      const unsigned offset = IS(WebPEncodeLosslessRGBA) ? 3 :
+          IS(WebPEncodeRGBAWithNearLossless) ? 4 : IS(WebPEncodeNearLosslessOptions) ? 7 : 6;
       REQUIRE(n >= 3 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
       REQUIRE(in[2] >= in[0] * 4 && in[2] <= INT32_MAX);
       required = (uint64_t)(in[1] - 1) * in[2] + in[0] * 4;
@@ -520,6 +522,10 @@ int main(void) {
         REQUIRE(in[3] <= 100 && in[4] <= 6 && in[5] <= 1);
         REQUIRE(WebPConfigInit(&config) && WebPPictureInit(&pic));
         config.lossless = 1; config.quality = in[3]; config.method = in[4]; config.exact = in[5];
+        if (IS(WebPEncodeNearLosslessOptions)) {
+          REQUIRE(in[6] <= 100);
+          config.near_lossless = in[6];
+        }
         pic.use_argb = 1; pic.width = in[0]; pic.height = in[1];
         WebPMemoryWriterInit(&writer);
         pic.writer = WebPMemoryWrite; pic.custom_ptr = &writer;

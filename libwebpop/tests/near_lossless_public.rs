@@ -339,3 +339,200 @@ fn real_image_corpus_parity_and_metrics() {
         }
     }
 }
+
+#[test]
+fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
+    use libwebpop::{LosslessEncodeError, LosslessOptions, encode_near_lossless_rgba};
+    let pixels = [127, 129, 131, 255];
+    for strength in [i32::MIN, -1, 101, i32::MAX] {
+        assert!(matches!(
+            encode_near_lossless_rgba(&pixels, 1, 1, 4, strength, &LosslessOptions::default()),
+            Err(LosslessEncodeError::InvalidNearLosslessStrength)
+        ));
+    }
+    for strength in [0, 100] {
+        assert!(matches!(
+            encode_near_lossless_rgba(
+                &pixels,
+                1,
+                1,
+                4,
+                strength,
+                &LosslessOptions {
+                    quality: 101,
+                    ..Default::default()
+                }
+            ),
+            Err(LosslessEncodeError::InvalidQuality)
+        ));
+        assert!(matches!(
+            encode_near_lossless_rgba(
+                &pixels,
+                1,
+                1,
+                4,
+                strength,
+                &LosslessOptions {
+                    method: 7,
+                    ..Default::default()
+                }
+            ),
+            Err(LosslessEncodeError::InvalidMethod)
+        ));
+        assert!(matches!(
+            encode_near_lossless_rgba(&pixels[..3], 1, 1, 4, strength, &LosslessOptions::default()),
+            Err(LosslessEncodeError::Input(_))
+        ));
+    }
+    for pattern in [2, 9, 12, 24] {
+        let image = support::public_images::image(65, 5, pattern);
+        for strength in [0, 60, 100] {
+            assert_eq!(
+                encode_near_lossless_rgba(
+                    &image.rgba,
+                    image.width,
+                    image.height,
+                    image.stride,
+                    strength,
+                    &LosslessOptions::default()
+                )
+                .unwrap(),
+                libwebpop::WebPEncodeRGBAWithNearLossless(
+                    &image.rgba,
+                    image.width,
+                    image.height,
+                    image.stride,
+                    strength
+                )
+                .unwrap()
+            );
+        }
+        for options in [
+            LosslessOptions {
+                quality: 75,
+                ..Default::default()
+            },
+            LosslessOptions {
+                quality: 90,
+                method: 6,
+                exact: true,
+            },
+            LosslessOptions {
+                quality: 0,
+                method: 0,
+                exact: false,
+            },
+        ] {
+            assert_eq!(
+                encode_near_lossless_rgba(
+                    &image.rgba,
+                    image.width,
+                    image.height,
+                    image.stride,
+                    100,
+                    &options
+                )
+                .unwrap(),
+                libwebpop::encode_lossless_rgba(
+                    &image.rgba,
+                    image.width,
+                    image.height,
+                    image.stride,
+                    &options
+                )
+                .unwrap()
+            );
+        }
+    }
+}
+
+#[cfg(feature = "native-oracle")]
+#[test]
+fn near_lossless_options_match_pinned_reference() {
+    use libwebpop::{LosslessOptions, encode_near_lossless_rgba};
+    let mut cases = Vec::new();
+    for (w, h) in [(1, 1), (19, 17), (65, 5), (65, 67)] {
+        for pattern in [2, 9, 12, 24] {
+            let image = support::public_images::image(w, h, pattern);
+            for (quality, method, exact) in [
+                (0, 0, false),
+                (70, 4, false),
+                (75, 4, false),
+                (90, 6, false),
+                (100, 6, false),
+                (75, 4, true),
+                (100, 6, true),
+            ] {
+                for strength in [0, 20, 60, 99, 100] {
+                    let mut a = vec![
+                        image.width,
+                        image.height,
+                        image.stride as u32,
+                        quality,
+                        method,
+                        u32::from(exact),
+                        strength,
+                    ];
+                    a.extend(image.rgba.iter().map(|&b| u32::from(b)));
+                    cases.push(support::Case::new("WebPEncodeNearLosslessOptions", a));
+                }
+            }
+        }
+    }
+    let outputs = native::run("near-lossless-public-options", &cases);
+    for (case, expected) in cases.iter().zip(outputs) {
+        let a = &case.input;
+        let mut allocation = vec![0xa5];
+        allocation.extend(a[7..].iter().map(|&b| b as u8));
+        let before = allocation.clone();
+        let options = LosslessOptions {
+            quality: a[3],
+            method: a[4],
+            exact: a[5] != 0,
+        };
+        let actual = encode_near_lossless_rgba(
+            &allocation[1..],
+            a[0],
+            a[1],
+            a[2] as usize,
+            a[6] as i32,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(allocation, before);
+        native::compare(
+            case,
+            &expected,
+            &actual.iter().map(|&b| u32::from(b)).collect::<Vec<_>>(),
+        );
+        let decoded = image::load_from_memory_with_format(&actual, image::ImageFormat::WebP)
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(decoded.dimensions(), (a[0], a[1]));
+        for y in 0..a[1] as usize {
+            for x in 0..a[0] as usize {
+                let alpha = allocation[1 + y * a[2] as usize + x * 4 + 3];
+                if alpha == 0 || alpha == 255 {
+                    assert_eq!(decoded.get_pixel(x as u32, y as u32).0[3], alpha);
+                }
+            }
+        }
+        if a[6] == 100 {
+            assert_eq!(
+                actual,
+                libwebpop::encode_lossless_rgba(
+                    &allocation[1..],
+                    a[0],
+                    a[1],
+                    a[2] as usize,
+                    &options
+                )
+                .unwrap()
+            );
+        }
+    }
+    eprintln!(
+        "{} configurable near-lossless public C comparisons",
+        cases.len()
+    );
+}

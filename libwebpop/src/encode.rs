@@ -35,16 +35,7 @@ pub fn encode_lossless_rgba(
     stride: usize,
     options: &LosslessOptions,
 ) -> Result<Vec<u8>, LosslessEncodeError> {
-    checked_rgba_geometry(rgba.len(), width, height, stride)?;
-    WebPValidateConfig(options)?;
-    let mut picture = WebPPictureImportRGBA(rgba, width, height, stride)?;
-    WebPEncode(
-        &EncoderConfig {
-            options: *options,
-            near_lossless: 100,
-        },
-        &mut picture,
-    )
+    encode_near_lossless_rgba(rgba, width, height, stride, 100, options)
 }
 
 /// Encode positive-stride RGBA as a near-lossless still-image WebP. Strength
@@ -60,12 +51,42 @@ pub fn WebPEncodeRGBAWithNearLossless(
     stride: usize,
     near_lossless: i32,
 ) -> Result<Vec<u8>, LosslessEncodeError> {
+    encode_near_lossless_rgba(
+        rgba,
+        width,
+        height,
+        stride,
+        near_lossless,
+        &LosslessOptions::default(),
+    )
+}
+
+/// Encode positive-stride RGBA as VP8L with independent near-lossless strength
+/// and compression options. `near_lossless` must be in 0..=100; `quality` and
+/// `method` retain their compression-effort meanings. At strength 100 this is
+/// byte-identical to [`encode_lossless_rgba`] with the same options.
+///
+/// Lower strengths can change visible RGB and intermediate alpha, while alpha
+/// endpoints stay exact. `options.exact` disables transparent RGB cleanup and
+/// predictor quantization; standalone preprocessing can still change pixels.
+/// It does not guarantee exact alpha or RGB below strength 100.
+/// Geometry, minimum input length and unchanged-input guarantees follow the
+/// lossless API. Inputs and settings are validated before allocation.
+pub fn encode_near_lossless_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    near_lossless: i32,
+    options: &LosslessOptions,
+) -> Result<Vec<u8>, LosslessEncodeError> {
     if !(0..=100).contains(&near_lossless) {
         return Err(LosslessEncodeError::InvalidNearLosslessStrength);
     }
     checked_rgba_geometry(rgba.len(), width, height, stride)?;
+    WebPValidateConfig(options)?;
     let config = EncoderConfig {
-        options: LosslessOptions::default(),
+        options: *options,
         near_lossless: near_lossless as u32,
     };
     let mut picture = WebPPictureImportRGBA(rgba, width, height, stride)?;
