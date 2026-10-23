@@ -31,6 +31,9 @@ unsigned WebpopImageHeaders(const uint32_t*, uint32_t*);
 unsigned WebpopExpandMatrix(const uint32_t*, uint32_t*);
 unsigned WebpopQuantSetup(const uint32_t*, uint32_t*);
 unsigned WebpopAnalysisQuant(const uint32_t*, uint32_t*);
+unsigned WebpopQuantizeSingle(const uint32_t*, uint32_t*);
+unsigned WebpopDCError(const uint32_t*, uint32_t*);
+unsigned WebpopReconstruct(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
 unsigned WebpopNearLosslessFeedback(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopPredictor(const uint32_t*, unsigned, uint32_t*);
@@ -132,7 +135,22 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8AnalysisQuant)) {
+    if (IS(VP8QuantizeSingle)) {
+      REQUIRE(n == 2 && in[0] >= 4 && in[0] <= 132 && (int32_t)in[1] >= -32768 && (int32_t)in[1] <= 32767);
+      count = WebpopQuantizeSingle(in, out);
+    } else if (IS(VP8DCError)) {
+      REQUIRE(n == 137 && in[0] >= 4 && in[0] <= 132);
+      for (i = 1; i < 9; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
+      for (i = 9; i < n; ++i) REQUIRE((int32_t)in[i] >= -32768 && (int32_t)in[i] <= 32767);
+      count = WebpopDCError(in, out);
+    } else if (IS(VP8Reconstruct)) {
+      REQUIRE(n == 634 && in[0] <= 3 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && in[5] <= 15);
+      REQUIRE(in[4] < ((in[0] == 0 || in[0] == 2) ? 4u : 10u));
+      REQUIRE((int32_t)in[6] >= -15 && (int32_t)in[6] <= 15 && (int32_t)in[7] >= -15 && (int32_t)in[7] <= 15);
+      for (i = 8; i < 16; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
+      for (i = 16; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopReconstruct(in, out);
+    } else if (IS(VP8AnalysisQuant)) {
       uint64_t pixels, mbw, mbh, output_size;
       float quality;
       REQUIRE(n >= 4 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383 && in[2] >= 1 && in[2] <= 4);

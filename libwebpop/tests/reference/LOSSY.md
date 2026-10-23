@@ -1034,3 +1034,117 @@ Validation passes: full workspace `cargo test --quiet` and
 release with `native-oracle`, `cargo fmt --all -- --check`, the normal
 library-only build and `git diff --check`. Existing manual tests remain ignored;
 upstream remains clean at the recorded pin.
+
+### Milestone 5 candidate reconstruction and chroma DC diffusion
+
+`enc/quant_enc.rs` now ports `MakeIntra4Preds`, `ReconstructIntra16`,
+`ReconstructIntra4`, `ReconstructUV`, `QuantizeSingle`, `CorrectDCValues`,
+`StoreDiffusionErrors` and `StoreMaxDelta`. The default method-4 path uses
+scalar quantization without trellis. The two luma reconstruction helpers
+explicitly require `do_trellis=false`; UV follows the pin's always-disabled
+UV trellis branch. Scores, flatness penalties, winning-mode search and final
+`VP8Decimate` integration remain in the next milestone-5 batch.
+
+The existing `lossy_quant.c` adapter calls these original static helpers from
+its renamed pinned translation unit. No reconstruction or diffusion algorithms
+are copied into the wrapper. A seeded score exposes writes to coefficient
+arrays and diffusion errors independently of untouched scores, modes and mask.
+Candidate output starts with a sentinel; requests return complete prediction
+scratch, iterator state and metadata, including padding and borders.
+
+Additional logical requests:
+
+- `VP8QuantizeSingle`: DC step `4..132` and signed i16 coefficient. Expands
+  the chroma matrix using AC step 4, then returns the mutated coefficient and
+  signed descaled error. The scalar helper has no sharpening or level cap;
+  narrowing a reconstructed value outside i16 matches the pinned C toolchain.
+- `VP8DCError`: DC step, four incoming top errors, four incoming left errors
+  (channel-major pairs), and eight raster-order 16-coefficient blocks, totaling
+  137 words. Errors are signed bytes, coefficients signed i16. Uses column 1
+  of a two-column frame; column 0 holds distinct sentinels. Returns 128 mutated
+  coefficients, a 435-word mode-score record, 12 incoming/left errors after
+  correction, then 12 errors after explicit storage of the candidate. Score
+  records contain five signed i64 values (D, SD, H, R, score; low/high words),
+  16 Y DC levels, 256 Y AC levels, 128 UV levels, I16 mode, 16 Intra4 modes,
+  UV mode, nonzero mask and six signed diffusion errors. Total output is 587
+  words; all non-coefficient/non-diffusion score fields stay seeded.
+- `VP8Reconstruct`: kind (I16=0, single I4=1, UV=2, sequential I4=3), base
+  quantizer index, selected segment, border/diffusion flags, mode, I4 index,
+  UV DC/AC deltas, four top errors, four left errors, 17 left-Y bytes (including
+  corner), 25 left-UV bytes (including corners and the U/V gap), 32 top-Y bytes,
+  32 top-UV bytes and the 512-byte source cache. This is 634 input words.
+  Flags select column 1 (bit 0), row 1 (bit 1) and diffusion storage (bit 2)
+  in a 2×2-macroblock frame. Segment quantizers are `(base + 17*segment)%128`,
+  expanded by original `SetupMatrices`; all four macroblocks use the selected
+  segment. UV deltas lie in `-15..15`; single-I4 indices cover `0..15`, luma/UV
+  modes `0..3` and I4 modes `0..9`. Other inputs have byte or signed-byte ranges.
+  Single-I4 setup rotates across sentinel previous blocks. Sequential I4
+  reconstructs all sixteen blocks with mode `(initial_mode+block)%10`, updating
+  boundaries from the actual preceding reconstruction.
+
+  The 2,929 output words are the returned mask, the complete 435-word score,
+  512 candidate bytes, 1,792 prediction-scratch bytes, 12 incoming/left errors,
+  12 errors after optional UV commit, nine top and nine left nonzero-context
+  bytes, I4 index/window offset and 37 boundary bytes, five metadata words for
+  each of four macroblocks, the full 81-byte predictor map, three packed
+  nonzero contexts (including sentinel) and four maximum-edge values. I16
+  requests also call `StoreMaxDelta` on the resulting Y DC levels. As in C,
+  reconstruction returns its nonzero mask separately and does not write the
+  score's mask or selected modes. The adapter commits UV diffusion only after
+  serializing the uncommitted incoming state.
+
+There are 108,833 exact new C requests:
+
+- 101,785 scalar DC quantizations: every step `4..132` over coefficients
+  `-2*q..2*q`, eight signed extremes for each step, and the entire signed-i16
+  domain at step 132. Negative odd errors distinguish floor shifts from
+  truncation; coefficients above the block quantizer's level cap remain uncapped.
+- 1,032 DC-grid corrections and commits: all 129 steps with zero, positive/
+  negative extremes, alternating boundaries, per-block DC ramps and seeded
+  coefficients/errors. AC coefficients and unrelated score/neighbor state are
+  checked for preservation; coefficient additions retain signed narrowing.
+- 6,016 reconstructions: all quantizer indices, four I16/UV modes, ten I4
+  modes, four selected segment slots, all border/diffusion flags and varying
+  intra-macroblock indices. Constant, alternating, ramp, impulse, clipped-edge
+  and seeded inputs cover both zero and nonzero residuals. The 256 sequential
+  I4 traces use flat and seeded pixels through all sixteen reconstructed blocks.
+
+Independent portable checks use wider rational division instead of QUANTDIV,
+construct zigzag order from diagonal coordinates, and derive both WHT directions
+from explicit Hadamard matrix products. Single 4×4 transform/inverse leaves
+compose the candidates independently of the paired-block kernels and scan
+arrays. A spatial 2×2 diffusion grid verifies weights 7 and 8 with a three-bit
+floor shift, candidate error outputs and the later 3/4–1/4 error split.
+All 256 signed-byte values test conservation of that final split. Maximum-edge
+checks exhaust signed-i16 values at each selected DC coefficient and prove that
+other positions are ignored and stored maxima never decrease. Minimum strided
+source/I4 and destination buffers and untouched output padding are checked.
+
+Observed whole-candidate zero masks by kind I16/I4/UV/sequential-I4 are
+`474/234/521/128`; nonzero masks are `806/2966/759/128`. Reconstructed active
+pixels include 29,196 zeroes and 17,512 values clipped to 255. Every tested
+candidate's levels, pixels and mask agree with the independent composition;
+nonzero contexts, image metadata, source pixels and incoming diffusion storage
+remain unchanged until the explicit commit. Six portable and two native tests
+cover this batch.
+
+`fixtures/lossy_reconstruct.txt` contains 45 portable C fixtures. Pin, clean
+upstream checkout and toolchain were reviewed before generation: unchanged GCC
+15.2.0-16ubuntu1, CMake 4.2.3, Release `-O3 -DNDEBUG`, scalar/threading-off
+configuration and Rust 1.101.0-nightly (`7189d39d9`, 2026-10-22), x86_64 Linux.
+Earlier fixtures remain unchanged. Review the current provenance in
+`target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_reconstruct reconstruction_fixtures_match_pinned_reference
+```
+
+Milestone 5's candidate reconstruction and diffusion are complete. Default
+rate-distortion mode selection, scoring and winning-candidate context commits
+remain next; public lossy Rust APIs remain unimplemented.
+
+Validation passes: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all eight reconstruction tests
+in release with `native-oracle`, formatting, normal library-only build and
+`git diff --check`. Existing manual tests remain ignored; upstream is clean
+at the recorded pin.

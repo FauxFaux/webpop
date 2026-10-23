@@ -1,10 +1,10 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/quant_enc.c, quantizer setup and predictions.
+// Derived from upstream/src/enc/quant_enc.c, setup, predictions and reconstruction.
 // See COPYING and PATENTS.
 #![allow(non_upper_case_globals)]
 
 use super::vp8i_enc::*;
-use crate::dsp::enc::BPS;
+use crate::dsp::{dec::TransformWHT_C, enc::*};
 
 pub const VP8Scan: [usize; 16] = [
     0,
@@ -41,6 +41,186 @@ pub fn VP8MakeChroma8Preds(it: &mut VP8EncIterator, enc: &VP8Encoder) {
     let left = (it.x != 0).then_some(&it.uv_left[..]);
     let top = (it.y != 0).then(|| <[u8; 16]>::try_from(&it.uv_top(enc)[..16]).unwrap());
     crate::dsp::enc::IntraChromaPreds_C(&mut it.yuv_p, left, top.as_ref().map(|t| &t[..]));
+}
+
+pub fn MakeIntra4Preds(it: &mut VP8EncIterator) {
+    let top = *it.i4_window();
+    Intra4Preds_C(&mut it.yuv_p, &top);
+}
+
+/// Default scalar reconstruction without trellis. Candidate pixels and levels
+/// are returned separately from the persistent borders and coefficient context.
+pub fn ReconstructIntra16(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    rd: &mut VP8ModeScore,
+    yuv_out: &mut [u8],
+    mode: usize,
+) -> u32 {
+    assert!(!it.do_trellis);
+    let reference = &it.yuv_p[VP8I16ModeOffsets[mode]..];
+    let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
+    let mut tmp = [0i16; 256];
+    let mut dc = [0i16; 16];
+    for n in (0..16).step_by(2) {
+        FTransform2_C(
+            &it.yuv_in[VP8Scan[n]..],
+            &reference[VP8Scan[n]..],
+            (&mut tmp[16 * n..16 * n + 32]).try_into().unwrap(),
+        );
+    }
+    FTransformWHT_C(&tmp, &mut dc);
+    let mut nz = u32::from(QuantizeBlock_C(&mut dc, &mut rd.y_dc_levels, &dqm.y2)) << 24;
+    for n in (0..16).step_by(2) {
+        tmp[16 * n] = 0;
+        tmp[16 * (n + 1)] = 0;
+        nz |= Quantize2Blocks_C(
+            (&mut tmp[16 * n..16 * n + 32]).try_into().unwrap(),
+            (&mut rd.y_ac_levels.as_flattened_mut()[16 * n..16 * n + 32])
+                .try_into()
+                .unwrap(),
+            &dqm.y1,
+        ) << n;
+    }
+    TransformWHT_C(&dc, &mut tmp);
+    for n in (0..16).step_by(2) {
+        ITransform_C(
+            &reference[VP8Scan[n]..],
+            &tmp[16 * n..],
+            &mut yuv_out[VP8Scan[n]..],
+            true,
+        );
+    }
+    nz
+}
+
+pub fn ReconstructIntra4(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    levels: &mut [i16; 16],
+    src: &[u8],
+    yuv_out: &mut [u8],
+    mode: usize,
+) -> bool {
+    assert!(!it.do_trellis);
+    let reference = &it.yuv_p[VP8I4ModeOffsets[mode]..];
+    let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
+    let mut tmp = [0i16; 16];
+    FTransform_C(src, reference, &mut tmp);
+    let nz = QuantizeBlock_C(&mut tmp, levels, &dqm.y1);
+    ITransform_C(reference, &tmp, yuv_out, false);
+    nz
+}
+
+/// Scalar DC quantization and signed error divided by two. Unlike the block
+/// quantizer this helper neither sharpens nor caps the quantized level.
+pub fn QuantizeSingle(v: &mut i16, mtx: &VP8Matrix) -> i32 {
+    let value = i32::from(*v);
+    let magnitude = value.abs();
+    let quantized = if magnitude > mtx.zthresh[0] as i32 {
+        QUANTDIV(magnitude as u32, u32::from(mtx.iq[0]), mtx.bias[0]) * i32::from(mtx.q[0])
+    } else {
+        0
+    };
+    let signed = if value < 0 { -quantized } else { quantized };
+    *v = signed as i16;
+    (value - signed) >> 1
+}
+
+pub fn CorrectDCValues(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    mtx: &VP8Matrix,
+    tmp: &mut [[i16; 16]; 8],
+    rd: &mut VP8ModeScore,
+) {
+    let top = enc.top_derr.as_ref().expect("DC diffusion storage")[it.x];
+    for ch in 0..2 {
+        let c = &mut tmp[4 * ch..4 * ch + 4];
+        let mut errors = [0i32; 4];
+        for i in 0..4 {
+            let above = if i < 2 {
+                i32::from(top[ch][i])
+            } else {
+                errors[i - 2]
+            };
+            let left = if i % 2 == 0 {
+                i32::from(it.left_derr[ch][i / 2])
+            } else {
+                errors[i - 1]
+            };
+            c[i][0] = (i32::from(c[i][0]) + ((7 * above + 8 * left) >> 3)) as i16;
+            errors[i] = QuantizeSingle(&mut c[i][0], mtx);
+        }
+        for i in 0..3 {
+            assert!((-127..=127).contains(&errors[i + 1]));
+            rd.derr[ch][i] = errors[i + 1] as i8;
+        }
+    }
+}
+
+/// Commit only the selected candidate's diffusion errors. Reconstruction itself
+/// reads the incoming errors without changing neighboring macroblocks.
+pub fn StoreDiffusionErrors(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8ModeScore) {
+    let top = &mut enc.top_derr.as_mut().expect("DC diffusion storage")[it.x];
+    for ch in 0..2 {
+        let bottom_right = i32::from(rd.derr[ch][2]);
+        let down = (3 * bottom_right) >> 2;
+        it.left_derr[ch] = [rd.derr[ch][0], down as i8];
+        top[ch] = [rd.derr[ch][1], (bottom_right - down) as i8];
+    }
+}
+
+/// Destination starts at the U-plane base; U and V occupy an adjacent 16×8
+/// rectangle with BPS stride. The returned mask uses bits 16..23.
+pub fn ReconstructUV(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    rd: &mut VP8ModeScore,
+    yuv_out: &mut [u8],
+    mode: usize,
+) -> u32 {
+    let reference = &it.yuv_p[VP8UVModeOffsets[mode]..];
+    let src = &it.yuv_in[U_OFF_ENC..];
+    let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
+    let mut tmp = [[0i16; 16]; 8];
+    for n in (0..8).step_by(2) {
+        FTransform2_C(
+            &src[VP8ScanUV[n]..],
+            &reference[VP8ScanUV[n]..],
+            (&mut tmp.as_flattened_mut()[16 * n..16 * n + 32])
+                .try_into()
+                .unwrap(),
+        );
+    }
+    if enc.top_derr.is_some() {
+        CorrectDCValues(it, enc, &dqm.uv, &mut tmp, rd);
+    }
+    let mut nz = 0;
+    for n in (0..8).step_by(2) {
+        nz |= Quantize2Blocks_C(
+            (&mut tmp.as_flattened_mut()[16 * n..16 * n + 32])
+                .try_into()
+                .unwrap(),
+            (&mut rd.uv_levels.as_flattened_mut()[16 * n..16 * n + 32])
+                .try_into()
+                .unwrap(),
+            &dqm.uv,
+        ) << n;
+        ITransform_C(
+            &reference[VP8ScanUV[n]..],
+            &tmp.as_flattened()[16 * n..],
+            &mut yuv_out[VP8ScanUV[n]..],
+            true,
+        );
+    }
+    nz << 16
+}
+
+pub fn StoreMaxDelta(dqm: &mut VP8SegmentInfo, dc: &[i16; 16]) {
+    for i in [1, 2, 4] {
+        dqm.max_edge = dqm.max_edge.max(i32::from(dc[i]).abs());
+    }
 }
 
 pub const kDcTable: [u8; 128] = [

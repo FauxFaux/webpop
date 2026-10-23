@@ -20,6 +20,7 @@ pub mod vp8_dsp;
 pub mod vp8_iterator;
 pub mod vp8_predictions;
 pub mod vp8_quant;
+pub mod vp8_reconstruct;
 pub mod vp8_tokens;
 pub mod vp8_transforms;
 pub mod vp8_yuv;
@@ -47,6 +48,9 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8QuantizeSingle" | "VP8DCError" | "VP8Reconstruct" => {
+                vp8_reconstruct::evaluate(self)
+            }
             "VP8FilterStrengthFromDelta"
             | "VP8ExpandMatrix"
             | "VP8QuantSetup"

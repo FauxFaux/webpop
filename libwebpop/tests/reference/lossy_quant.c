@@ -104,3 +104,126 @@ unsigned WebpopQuantState(const VP8Encoder* enc, uint32_t* out) {
   }
   return n;
 }
+
+// Scalar reconstruction adapters: call original static helpers above.
+static void SeedScore(VP8ModeScore* rd) {
+  unsigned i, j;
+  memset(rd, 0, sizeof(*rd));
+  rd->D = -123; rd->SD = 456; rd->H = 789; rd->R = -987;
+  rd->score = ((int64_t)1 << 40) + 3; rd->nz = 0x13579bdf;
+  rd->mode_i16 = 3; rd->mode_uv = 2;
+  for (i = 0; i < 16; ++i) {
+    rd->y_dc_levels[i] = -1234; rd->modes_i4[i] = i % 10;
+    for (j = 0; j < 16; ++j) rd->y_ac_levels[i][j] = 234;
+  }
+  for (i = 0; i < 8; ++i) for (j = 0; j < 16; ++j) rd->uv_levels[i][j] = -345;
+  for (i = 0; i < 2; ++i) for (j = 0; j < 3; ++j) rd->derr[i][j] = -7 + 3*i+j;
+}
+unsigned WebpopModeScore(const VP8ModeScore* rd, uint32_t* out) {
+  unsigned i, j, n = 0;
+  const int64_t scores[] = {rd->D, rd->SD, rd->H, rd->R, rd->score};
+  for (i = 0; i < 5; ++i) {out[n++] = (uint32_t)scores[i]; out[n++] = (uint32_t)(scores[i] >> 32);}
+  for (i = 0; i < 16; ++i) out[n++] = (uint32_t)(int32_t)rd->y_dc_levels[i];
+  for (i = 0; i < 16; ++i) for (j = 0; j < 16; ++j) out[n++] = (uint32_t)(int32_t)rd->y_ac_levels[i][j];
+  for (i = 0; i < 8; ++i) for (j = 0; j < 16; ++j) out[n++] = (uint32_t)(int32_t)rd->uv_levels[i][j];
+  out[n++] = rd->mode_i16;
+  for (i = 0; i < 16; ++i) out[n++] = rd->modes_i4[i];
+  out[n++] = rd->mode_uv; out[n++] = rd->nz;
+  for (i = 0; i < 2; ++i) for (j = 0; j < 3; ++j) out[n++] = (uint32_t)(int32_t)rd->derr[i][j];
+  return n;
+}
+static unsigned Errors(const VP8EncIterator* it, const DError top[2], uint32_t* out) {
+  unsigned x, ch, k, n = 0;
+  for (x = 0; x < 2; ++x) for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) out[n++] = (uint32_t)(int32_t)top[x][ch][k];
+  for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) out[n++] = (uint32_t)(int32_t)it->left_derr[ch][k];
+  return n;
+}
+unsigned WebpopQuantizeSingle(const uint32_t* in, uint32_t* out) {
+  VP8Matrix m = {0}; int16_t v = (int16_t)in[1];
+  m.q[0] = in[0]; m.q[1] = 4; ExpandMatrix(&m, 2);
+  out[1] = (uint32_t)QuantizeSingle(&v, &m); out[0] = (uint32_t)(int32_t)v;
+  return 2;
+}
+unsigned WebpopDCError(const uint32_t* in, uint32_t* out) {
+  VP8EncIterator it = {0}; VP8ModeScore rd; VP8Matrix m = {0};
+  DError top[2] = {{{11,12},{13,14}},{{0}}}; int16_t tmp[8][16];
+  unsigned i, ch, k, at = 1, n = 0;
+  it.x = 1; it.top_derr = top;
+  for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) top[1][ch][k] = (int8_t)in[at++];
+  for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) it.left_derr[ch][k] = (int8_t)in[at++];
+  for (i = 0; i < 128; ++i) tmp[i/16][i%16] = (int16_t)in[at++];
+  m.q[0] = in[0]; m.q[1] = 4; ExpandMatrix(&m, 2); SeedScore(&rd);
+  CorrectDCValues(&it, &m, tmp, &rd);
+  for (i = 0; i < 128; ++i) out[n++] = (uint32_t)(int32_t)tmp[i/16][i%16];
+  n += WebpopModeScore(&rd, out+n);
+  n += Errors(&it, top, out+n);
+  StoreDiffusionErrors(&it, &rd);
+  return n + Errors(&it, top, out+n);
+}
+unsigned WebpopReconstruct(const uint32_t* in, uint32_t* out) {
+  VP8Encoder enc = {0}; WebPConfig config; VP8EncIterator it = {0}; VP8ModeScore rd;
+  VP8MBInfo mbs[4] = {{0}}; uint8_t preds[99] = {0}, tops[64], dst[YUV_SIZE_ENC];
+  uint32_t nz[3] = {0x123456,0xabcdef,0x765432}; DError top[2];
+  unsigned i, ch, k, at = 16, n = 0; int mask = 0;
+  if (!WebPConfigInit(&config)) abort();
+  enc.config = &config; enc.method = 4; enc.num_parts = 1;
+  enc.mb_w = enc.mb_h = 2; enc.preds_w = 9;
+  enc.mb_info = mbs; enc.preds = preds+10; enc.nz = nz+1;
+  enc.y_top = tops; enc.uv_top = tops+32;
+  enc.segment_hdr.num_segments = 4;
+  enc.dq_uv_dc = (int32_t)in[6]; enc.dq_uv_ac = (int32_t)in[7];
+  enc.top_derr = (in[3]&4) ? top : NULL;
+  VP8EncDspInit(); VP8IteratorInit(&enc, &it);
+  VP8IteratorSetRow(&it, (in[3]>>1)&1);
+  if (in[3]&1) VP8IteratorNext(&it);
+  for (i = 0; i < 4; ++i) {mbs[i].segment = in[2]; mbs[i].alpha = 199; enc.dqm[i].quant = (in[1]+17*i)%128;}
+  SetupMatrices(&enc);
+  for (i = 0; i < 4; ++i) enc.dqm[i].max_edge = 1+i;
+  for (i = 0; i < 17; ++i) it.y_left[(int)i-1] = in[at++];
+  for (i = 0; i < 25; ++i) it.u_left[(int)i-1] = in[at++];
+  for (i = 0; i < 64; ++i) tops[i] = in[at++];
+  for (i = 0; i < YUV_SIZE_ENC; ++i) it.yuv_in[i] = in[at++];
+  for (i = 0; i < 3; ++i) nz[i] = (uint32_t[]){0x123456,0xabcdef,0x765432}[i];
+  for (i = 0; i < 9; ++i) {it.top_nz[i] = 2+i; it.left_nz[i] = 3+i;}
+  for (i = 0; i < 2; ++i) for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) top[i][ch][k] = 11+4*i+2*ch+k;
+  for (ch = 0; ch < 2; ++ch) for (k = 0; k < 2; ++k) {
+    top[it.x][ch][k] = (int8_t)in[8+2*ch+k]; it.left_derr[ch][k] = (int8_t)in[12+2*ch+k];
+  }
+  memset(it.yuv_p, 0xa5, PRED_SIZE_ENC); memset(dst, 0xa5, sizeof(dst)); SeedScore(&rd);
+  if (in[0] == 0) {
+    VP8MakeLuma16Preds(&it); mask = ReconstructIntra16(&it, &rd, dst, in[4]);
+    StoreMaxDelta(enc.dqm+in[2], rd.y_dc_levels);
+  } else if (in[0] == 2) {
+    VP8MakeChroma8Preds(&it); mask = ReconstructUV(&it, &rd, dst+U_OFF_ENC, in[4]);
+  } else {
+    VP8IteratorStartI4(&it);
+    if (in[0] == 1) {
+      for (i = 0; i < in[5]; ++i) VP8IteratorRotateI4(&it, dst);
+      MakeIntra4Preds(&it);
+      mask = ReconstructIntra4(&it, rd.y_ac_levels[it.i4], it.yuv_in+VP8Scan[it.i4], dst+VP8Scan[it.i4], in[4]);
+    } else {
+      for (i = 0; i < 16; ++i) {
+        MakeIntra4Preds(&it);
+        mask |= ReconstructIntra4(&it, rd.y_ac_levels[i], it.yuv_in+VP8Scan[i], dst+VP8Scan[i], (in[4]+i)%10) << i;
+        VP8IteratorRotateI4(&it, dst);
+      }
+    }
+  }
+  out[n++] = mask; n += WebpopModeScore(&rd, out+n);
+  for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = dst[i];
+  for (i = 0; i < PRED_SIZE_ENC; ++i) out[n++] = it.yuv_p[i];
+  n += Errors(&it, top, out+n);
+  if (in[0] == 2 && (in[3]&4)) StoreDiffusionErrors(&it, &rd);
+  n += Errors(&it, top, out+n);
+  for (i = 0; i < 9; ++i) out[n++] = it.top_nz[i];
+  for (i = 0; i < 9; ++i) out[n++] = it.left_nz[i];
+  out[n++] = it.i4; out[n++] = it.i4_top ? (uint32_t)(it.i4_top-it.i4_boundary) : 0;
+  for (i = 0; i < 37; ++i) out[n++] = it.i4_boundary[i];
+  for (i = 0; i < 4; ++i) {
+    out[n++] = mbs[i].type; out[n++] = mbs[i].uv_mode; out[n++] = mbs[i].skip; out[n++] = mbs[i].segment; out[n++] = mbs[i].alpha;
+  }
+  for (i = 0; i < 81; ++i) out[n++] = preds[i];
+  for (i = 0; i < 3; ++i) out[n++] = nz[i];
+  for (i = 0; i < 4; ++i) out[n++] = enc.dqm[i].max_edge;
+  return n;
+}
