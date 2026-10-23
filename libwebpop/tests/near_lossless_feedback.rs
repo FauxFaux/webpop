@@ -88,10 +88,9 @@ fn quantized_residuals_reconstruct_with_bounded_error_and_bypass_exactly() {
 #[test]
 fn feedback_matches_pinned_reference() {
     let cases = feedback::cases();
-    let outputs = native::run("near-lossless-feedback", &cases);
-    for (case, expected) in cases.iter().zip(outputs) {
-        native::compare(case, &expected, &feedback::evaluate(case));
-    }
+    native::parallel_cases("near-lossless-feedback", &cases, |case, expected| {
+        native::compare(case, expected, &feedback::evaluate(case));
+    });
     eprintln!("{} exact near-lossless feedback comparisons", cases.len());
 }
 

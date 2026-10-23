@@ -163,3 +163,47 @@ pub fn compare(case: &Case, expected: &[u32], actual: &[u32]) {
         );
     }
 }
+
+// Bound nested parallelism: both large sweeps can run at the same time.
+// Results retain input order for checks between adjacent cases.
+// Striding distributes expensive image sizes and encoder settings across workers.
+pub fn parallel_cases<T: Send>(
+    label: &str,
+    cases: &[Case],
+    check: impl Fn(&Case, &[u32]) -> T + Sync,
+) -> Vec<T> {
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(8)
+        .min(cases.len().max(1));
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|worker| {
+                let check = &check;
+                scope.spawn(move || {
+                    let cases: Vec<_> = cases
+                        .iter()
+                        .skip(worker)
+                        .step_by(workers)
+                        .cloned()
+                        .collect();
+                    let outputs = run(&format!("{label}-{worker}"), &cases);
+                    cases
+                        .iter()
+                        .zip(outputs)
+                        .enumerate()
+                        .map(|(index, (case, expected))| {
+                            (worker + index * workers, check(case, &expected))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut results: Vec<_> = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect();
+        results.sort_unstable_by_key(|(index, _)| *index);
+        results.into_iter().map(|(_, result)| result).collect()
+    })
+}

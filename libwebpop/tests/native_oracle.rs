@@ -9,15 +9,15 @@ use support::references::{foundation_cases, foundation_fixture_cases};
 #[test]
 fn public_rgba_encoders_match_pinned_reference() {
     let cases = support::public_images::cases();
-    for (case, expected) in cases.iter().zip(native::run("public-rgba", &cases)) {
+    native::parallel_cases("public-rgba", &cases, |case, expected| {
         let encoded = support::public_images::encode(case);
         native::compare(
             case,
-            &expected,
+            expected,
             &encoded.iter().map(|&v| u32::from(v)).collect::<Vec<_>>(),
         );
         support::public_images::check_decoded(case, &encoded);
-    }
+    });
     eprintln!(
         "Compared and independently decoded {} public RGBA files",
         cases.len()
@@ -102,13 +102,15 @@ fn encoder_streams_match_pinned_reference() {
     let cases = support::streams::cases();
     let mut features = [false; 4];
     let mut cache = false;
-    for (case, expected) in cases.iter().zip(native::run("encoder-streams", &cases)) {
-        native::compare(case, &expected, &case.rust());
-        for (i, reached) in features.iter_mut().enumerate() {
-            *reached |= expected[0] & (1 << i) != 0;
-        }
-        cache |= expected[4] != 0;
+    for stats in native::parallel_cases("encoder-streams", &cases, |case, expected| {
+        native::compare(case, expected, &case.rust());
         assert_eq!(expected[6], expected[7] + expected[8]);
+        [expected[0], expected[4]]
+    }) {
+        for (i, reached) in features.iter_mut().enumerate() {
+            *reached |= stats[0] & (1 << i) != 0;
+        }
+        cache |= stats[1] != 0;
     }
     assert_eq!(features, [true; 4], "all four selected transforms");
     assert!(cache, "selected color caches");

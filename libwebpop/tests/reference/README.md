@@ -25,6 +25,13 @@ selection follows CMake (`CC` on the first configuration). To change compilers,
 use a fresh build directory. There is no Cargo build script or production FFI.
 Enabling the feature on a library build does not invoke the oracle.
 
+The large public RGBA, encoder-stream, near-lossless public corpus and feedback
+sweeps split their cases across up to eight workers each, bounded by available
+CPU parallelism. Each worker runs a separate scalar oracle process and checks
+its Rust results; no encoder-internal threading is enabled. Requests and
+responses retain worker suffixes (for example `public-rgba-0.requests.txt`) in
+`target/native-oracle/`. Case coverage and ordered cross-case checks are retained.
+
 The [near-lossless reference record](NEAR_LOSSLESS.md) describes standalone
 preprocessing, predictor quantization leaves, the copied custom public C
 wrapper, integrated feedback/search and per-candidate routing, their request

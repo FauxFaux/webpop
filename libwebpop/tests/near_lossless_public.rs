@@ -30,12 +30,13 @@ fn committed_near_lossless_reference_files_decode_and_100_matches_lossless() {
 #[test]
 fn near_lossless_public_reference_corpus() {
     let cases = public::cases();
-    let outputs = native::run("near-lossless-public", &cases);
+    let checked = native::parallel_cases("near-lossless-public", &cases, |case, output| {
+        (output.to_vec(), public::check_reference(case, output))
+    });
     let mut changes = (0, 0);
     // Inputs are consecutive strength runs for each image. Bucket equality is
     // a pinned mapping property, not a monotonicity assumption about file size.
-    for (index, (case, output)) in cases.iter().zip(&outputs).enumerate() {
-        let changed = public::check_reference(case, output);
+    for (index, (case, (output, changed))) in cases.iter().zip(&checked).enumerate() {
         changes.0 += changed.0;
         changes.1 += changed.1;
         if index > 0
@@ -43,7 +44,7 @@ fn near_lossless_public_reference_corpus() {
             && case.input[..3] == cases[index - 1].input[..3]
             && case.input[4..] == cases[index - 1].input[4..]
         {
-            native::compare(case, &outputs[index - 1], output);
+            native::compare(case, &checked[index - 1].0, output);
         }
     }
     assert!(
