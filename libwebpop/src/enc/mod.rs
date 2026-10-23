@@ -7,6 +7,7 @@ pub mod picture_csp_enc;
 pub(crate) mod picture_enc;
 pub(crate) mod picture_tools_enc;
 pub mod predictor_enc;
+pub mod quant_enc;
 pub mod vp8i_enc;
 pub mod vp8l_enc;
 pub(crate) mod webp_enc;

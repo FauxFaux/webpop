@@ -213,5 +213,88 @@ Validation passed: full workspace `cargo test --quiet` and
 `cargo test --features native-oracle --quiet`, all eight predictor tests in
 release with `native-oracle`, `cargo fmt --all -- --check`,
 `cargo build -p libwebpop --lib`, and `git diff --check`. The upstream checkout
-remains clean. Scans, coefficient quantization and remaining distortion/
-histogram DSP are still pending in milestone 1.
+remains clean. At this checkpoint, scans, coefficient quantization and remaining
+distortion/histogram DSP were still pending in milestone 1.
+
+## Milestone 1 complete: quantization, scans and remaining DSP
+
+`dsp/enc.rs` now ports `QuantizeBlock_C`, `Quantize2Blocks_C`, all four SSE
+shapes, both texture distortion shapes and their `TTransform`, `Mean16x4_C`,
+`VP8SetHistogramData`, `CollectHistogram_C`, block copies, `VP8DspScan` and
+`kZigzag`. The WHT dispatch uses `QuantizeBlock_C`, matching scalar C.
+`enc/vp8i_enc.rs` adds `VP8Matrix`, `MAX_LEVEL`, `QFIX`, `BIAS` and the inline
+`QUANTDIV`; `enc/quant_enc.rs` adds scan/prediction offset tables only. Segment
+parameters, quality mapping, matrix expansion and mode decisions remain later
+milestones. No production C dependency is added.
+
+`QUANTDIV` deliberately wraps its unsigned product and bias sum at 32 bits
+before shifting by 17. Coefficient absolute values widen before negation to
+handle i16 minimum safely. Quantization compares the sharpened magnitude
+strictly against `zthresh`, saturates levels at 2047, writes raster dequantized
+coefficients in place, and writes zigzag levels separately. The corpus keeps
+dequantization products within i16, avoiding implementation-defined C narrowing.
+
+New adapters in `lossy_dsp.c` call the original dispatch entries/exports. The
+word protocol adds:
+
+- `BIAS`: one u32 bias, returning the unsigned shifted result.
+- `QUANTDIV`: `(magnitude, reciprocal, bias)`, returning the level before the
+  2047 limit. Full-u32 inputs expose multiplication/addition wrapping.
+- `VP8DspTables`: no inputs. Returns 24 DSP scan offsets, 16 luma scan offsets,
+  four Intra16 offsets, four UV mode offsets, `QFIX`, then `MAX_LEVEL`.
+  Static zigzag/UV tables are also checked through quantizer/histogram results
+  and independent diagonal/tile reconstruction.
+- `VP8Quantize`: `kind` (0 single, 1 paired, 2 WHT), then sixteen words each
+  for `q`, `iq`, `bias`, `zthresh`, `sharpen`, followed by sixteen or thirty-two
+  signed input coefficients. Returns nonzero flag/paired mask, the complete
+  mutated coefficients, then zigzag levels. Signed values use sign-extended
+  i32 encoded as u32. Narrow matrix fields are checked against u16 limits.
+- `VP8Metric`: opcode, optional sixteen texture weights, packed source pixels,
+  and (for SSE/texture) packed reference pixels. Opcodes 0–3 are SSE 4×4,
+  8×8, 16×8, 16×16; 4–5 are texture distortion 4×4/16×16; 6 is mean16×4;
+  7–8 copy 4×4/16×8. Adapters expand planes to BPS=32 with differing padding.
+  Returns a scalar, four block sums, or all `height * BPS` destination bytes,
+  including sentinel padding for copies.
+- `VP8SetHistogramData`: 32 signed distribution counts; returns maximum
+  positive count and last positive bin, with the empty sentinel (0, 1).
+- `VP8CollectHistogram`: `(start_block, end_block)`, then two packed 16×16
+  planes. Returns the two histogram fields after the original forward
+  transform/bin collection. Empty and all valid half-open scan ranges are used.
+
+There are 6,189 additional exact native requests: 3,394 quantizer/table/helper
+cases (including 2,844 block operations), 648 metric/copy cases, and 2,147
+histogram cases. Matrices include threshold ties, sharpening, zero reciprocals,
+saturation, independently varied fields with wrapping biases, and 512 seeded
+blocks with consistent reciprocal/threshold matrices. All paired masks and
+both ordinary/WHT dispatches are exercised. Texture weights include zero,
+the original Y weights, full-u16 and asymmetric matrices. Histogram cases cover
+signed/empty distributions, all 325 scan ranges and every constant residual
+-255 through 255 over luma, chroma and empty ranges.
+
+Independent tests use wide fixed-point arithmetic modulo 2^32; hand-computed
+threshold/sharpening/saturation cases; direct squared pixel differences and
+block sums; explicit Hadamard matrix products with i64 energy accumulation;
+per-tile distortion truncation; alternating-diagonal zigzag construction;
+tile coverage; exact constant-residual histogram bins; and offset/minimum copy
+buffers. Full-u16 weights stay within C's signed arithmetic bounds. The native
+sweep uses the existing bounded parallel case helper, retaining worker traces.
+
+`fixtures/lossy_dsp.txt` contains 133 cases, taking every 47th request separately
+from the quantization, metric and histogram corpora. The pin/toolchain/build
+configuration and seed are unchanged. Review them and the added wrapper before
+regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_dsp vp8_dsp_fixtures_match_pinned_reference
+cargo test -p libwebpop --features native-oracle --test lossy_dsp -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test lossy_dsp
+```
+
+Validation passed: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all nine new DSP tests in release
+with `native-oracle`, `cargo fmt --all -- --check`,
+`cargo build -p libwebpop --lib`, and `git diff --check`. Existing manual
+timing/large-corpus tests remain ignored; the upstream checkout is clean.
+Milestone 1 is complete, with 34,554 exact native requests and 290 portable DSP
+fixtures across all batches. Public lossy integration remains later in the plan.

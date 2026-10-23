@@ -10,6 +10,7 @@
 
 #include "src/dsp/lossless.h"
 #include "src/dsp/lossless_common.h"
+#include "src/enc/vp8i_enc.h"
 #include "src/utils/color_cache_utils.h"
 #include "src/utils/bit_writer_utils.h"
 #include "src/utils/huffman_encode_utils.h"
@@ -59,6 +60,10 @@ unsigned WebpopLossyWHT(const uint32_t*, int, uint32_t*);
 unsigned WebpopLossyPredictions(const char*, const uint32_t*, uint32_t*);
 unsigned WebpopLossyEncode(const uint32_t*, unsigned, int, uint32_t*);
 unsigned WebpopAlphaWrapperErrors(uint32_t*);
+unsigned WebpopVP8DspTables(uint32_t*);
+unsigned WebpopVP8Quantize(const uint32_t*, uint32_t*);
+unsigned WebpopVP8Metric(const uint32_t*, uint32_t*);
+unsigned WebpopVP8Histogram(const uint32_t*, int, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -101,7 +106,40 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8EncPredLuma4) || IS(VP8EncPredLuma16) || IS(VP8EncPredChroma8)) {
+    if (IS(QUANTDIV)) {
+      REQUIRE(n == 3);
+      out[count++] = QUANTDIV(in[0], in[1], in[2]);
+    } else if (IS(BIAS)) {
+      REQUIRE(n == 1);
+      out[count++] = BIAS(in[0]);
+    } else if (IS(VP8DspTables)) {
+      REQUIRE(n == 0);
+      count = WebpopVP8DspTables(out);
+    } else if (IS(VP8Quantize)) {
+      REQUIRE(n >= 1 && in[0] <= 2 && n == (in[0] == 1 ? 113 : 97));
+      for (i = 1; i < 33; ++i) REQUIRE(in[i] <= UINT16_MAX);
+      for (i = 65; i < 81; ++i) REQUIRE(in[i] <= UINT16_MAX);
+      for (i = 81; i < n; ++i) REQUIRE((int32_t)in[i] >= INT16_MIN && (int32_t)in[i] <= INT16_MAX);
+      count = WebpopVP8Quantize(in, out);
+    } else if (IS(VP8Metric)) {
+      const unsigned widths[] = {4, 8, 16, 16, 4, 16, 16, 4, 16};
+      const unsigned heights[] = {4, 8, 8, 16, 4, 16, 4, 4, 8};
+      unsigned weights, pixels;
+      REQUIRE(n >= 1 && in[0] <= 8);
+      weights = in[0] == 4 || in[0] == 5 ? 16 : 0;
+      pixels = widths[in[0]] * heights[in[0]];
+      REQUIRE(n == 1 + weights + pixels * (in[0] <= 5 ? 2 : 1));
+      for (i = 1; i <= weights; ++i) REQUIRE(in[i] <= UINT16_MAX);
+      for (; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopVP8Metric(in, out);
+    } else if (IS(VP8CollectHistogram)) {
+      REQUIRE(n == 514 && in[0] <= in[1] && in[1] <= 24);
+      for (i = 2; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopVP8Histogram(in, 1, out);
+    } else if (IS(VP8SetHistogramData)) {
+      REQUIRE(n == 32);
+      count = WebpopVP8Histogram(in, 0, out);
+    } else if (IS(VP8EncPredLuma4) || IS(VP8EncPredLuma16) || IS(VP8EncPredChroma8)) {
       REQUIRE(n == (IS(VP8EncPredLuma4) ? 14 : IS(VP8EncPredChroma8) ? 43 : 35));
       if (!IS(VP8EncPredLuma4)) REQUIRE(in[0] <= 3);
       for (i = 0; i < n; ++i) REQUIRE(in[i] <= 255);

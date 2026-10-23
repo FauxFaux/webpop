@@ -1,11 +1,86 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
 // Derived from upstream/src/dsp/enc.c, functions of the same names.
 // See COPYING and PATENTS.
+#![allow(non_upper_case_globals)]
 
 use crate::enc::vp8i_enc::*;
 
 /// Byte stride of the encoder's source, prediction and reconstruction blocks.
 pub const BPS: usize = 32;
+
+pub const VP8DspScan: [usize; 24] = [
+    0,
+    4,
+    8,
+    12,
+    4 * BPS,
+    4 * BPS + 4,
+    4 * BPS + 8,
+    4 * BPS + 12,
+    8 * BPS,
+    8 * BPS + 4,
+    8 * BPS + 8,
+    8 * BPS + 12,
+    12 * BPS,
+    12 * BPS + 4,
+    12 * BPS + 8,
+    12 * BPS + 12,
+    0,
+    4,
+    4 * BPS,
+    4 * BPS + 4,
+    8,
+    12,
+    4 * BPS + 8,
+    4 * BPS + 12,
+];
+pub const MAX_COEFF_THRESH: usize = 31;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VP8Histogram {
+    pub max_value: i32,
+    pub last_non_zero: i32,
+}
+
+pub fn VP8SetHistogramData(distribution: &[i32; 32], histo: &mut VP8Histogram) {
+    let mut max_value = 0;
+    let mut last_non_zero = 1;
+    for (k, &value) in distribution.iter().enumerate() {
+        if value > 0 {
+            max_value = max_value.max(value);
+            last_non_zero = k as i32;
+        }
+    }
+    histo.max_value = max_value;
+    histo.last_non_zero = last_non_zero;
+}
+
+#[inline]
+fn clip_max(v: i32, max: i32) -> i32 {
+    v.min(max)
+}
+
+/// Collect susceptibility statistics from a half-open range of `VP8DspScan`
+/// block indices. Chroma scan offsets are relative to the caller's plane base.
+pub fn CollectHistogram_C(
+    reference: &[u8],
+    pred: &[u8],
+    start_block: usize,
+    end_block: usize,
+    histo: &mut VP8Histogram,
+) {
+    assert!(start_block <= end_block && end_block <= VP8DspScan.len());
+    let mut distribution = [0i32; 32];
+    for &offset in &VP8DspScan[start_block..end_block] {
+        let mut out = [0; 16];
+        FTransform_C(&reference[offset..], &pred[offset..], &mut out);
+        for coeff in out {
+            let v = i32::from(coeff).abs() >> 3;
+            distribution[clip_max(v, MAX_COEFF_THRESH as i32) as usize] += 1;
+        }
+    }
+    VP8SetHistogramData(&distribution, histo);
+}
 
 #[inline]
 fn clip_8b(v: i32) -> u8 {
@@ -391,4 +466,146 @@ pub fn Intra4Preds_C(dst: &mut [u8], top: &[u8; 13]) {
     VL4(&mut dst[I4VL4..], top);
     HD4(&mut dst[I4HD4..], top);
     HU4(&mut dst[I4HU4..], top);
+}
+
+#[inline]
+fn GetSSE(a: &[u8], b: &[u8], w: usize, h: usize) -> i32 {
+    assert!(a.len() >= (h - 1) * BPS + w && b.len() >= (h - 1) * BPS + w);
+    let mut count = 0;
+    for y in 0..h {
+        for x in 0..w {
+            let diff = i32::from(a[y * BPS + x]) - i32::from(b[y * BPS + x]);
+            count += diff * diff;
+        }
+    }
+    count
+}
+
+pub fn SSE16x16_C(a: &[u8], b: &[u8]) -> i32 {
+    GetSSE(a, b, 16, 16)
+}
+pub fn SSE16x8_C(a: &[u8], b: &[u8]) -> i32 {
+    GetSSE(a, b, 16, 8)
+}
+pub fn SSE8x8_C(a: &[u8], b: &[u8]) -> i32 {
+    GetSSE(a, b, 8, 8)
+}
+pub fn SSE4x4_C(a: &[u8], b: &[u8]) -> i32 {
+    GetSSE(a, b, 4, 4)
+}
+
+pub fn Mean16x4_C(reference: &[u8], dc: &mut [u32; 4]) {
+    assert!(reference.len() >= 3 * BPS + 16);
+    for (k, out) in dc.iter_mut().enumerate() {
+        *out = 0;
+        for y in 0..4 {
+            for x in 0..4 {
+                *out += u32::from(reference[y * BPS + 4 * k + x]);
+            }
+        }
+    }
+}
+
+fn TTransform(input: &[u8], w: &[u16; 16]) -> i32 {
+    // Byte inputs have Walsh coefficient L1 norm <= 16320, so even full u16
+    // weights keep the weighted energy (and its difference) within i32.
+    let mut tmp = [0i32; 16];
+    for i in 0..4 {
+        let p = &input[i * BPS..];
+        let a0 = i32::from(p[0]) + i32::from(p[2]);
+        let a1 = i32::from(p[1]) + i32::from(p[3]);
+        let a2 = i32::from(p[1]) - i32::from(p[3]);
+        let a3 = i32::from(p[0]) - i32::from(p[2]);
+        tmp[4 * i] = a0 + a1;
+        tmp[4 * i + 1] = a3 + a2;
+        tmp[4 * i + 2] = a3 - a2;
+        tmp[4 * i + 3] = a0 - a1;
+    }
+    let mut sum = 0;
+    for i in 0..4 {
+        let a0 = tmp[i] + tmp[8 + i];
+        let a1 = tmp[4 + i] + tmp[12 + i];
+        let a2 = tmp[4 + i] - tmp[12 + i];
+        let a3 = tmp[i] - tmp[8 + i];
+        sum += i32::from(w[i]) * (a0 + a1).abs();
+        sum += i32::from(w[4 + i]) * (a3 + a2).abs();
+        sum += i32::from(w[8 + i]) * (a3 - a2).abs();
+        sum += i32::from(w[12 + i]) * (a0 - a1).abs();
+    }
+    sum
+}
+
+pub fn Disto4x4_C(a: &[u8], b: &[u8], w: &[u16; 16]) -> i32 {
+    assert!(a.len() >= 3 * BPS + 4 && b.len() >= 3 * BPS + 4);
+    (TTransform(b, w) - TTransform(a, w)).abs() >> 5
+}
+
+pub fn Disto16x16_C(a: &[u8], b: &[u8], w: &[u16; 16]) -> i32 {
+    assert!(a.len() >= 15 * BPS + 16 && b.len() >= 15 * BPS + 16);
+    let mut distortion = 0;
+    for y in (0..16).step_by(4) {
+        for x in (0..16).step_by(4) {
+            let offset = y * BPS + x;
+            distortion += Disto4x4_C(&a[offset..], &b[offset..], w);
+        }
+    }
+    distortion
+}
+
+pub const kZigzag: [usize; 16] = [0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15];
+
+/// Quantize in raster order, writing zigzag-order signed levels to `out` and
+/// replacing `input` with raster-order dequantized coefficients. The scalar
+/// WHT dispatch uses this same kernel with its own matrix.
+pub fn QuantizeBlock_C(input: &mut [i16; 16], out: &mut [i16; 16], mtx: &VP8Matrix) -> bool {
+    let mut last = -1;
+    for (n, &j) in kZigzag.iter().enumerate() {
+        let sign = input[j] < 0;
+        let coeff = i32::from(input[j]).unsigned_abs() + u32::from(mtx.sharpen[j]);
+        if coeff > mtx.zthresh[j] {
+            let mut level = QUANTDIV(coeff, u32::from(mtx.iq[j]), mtx.bias[j]).min(MAX_LEVEL);
+            if sign {
+                level = -level;
+            }
+            input[j] = (level * i32::from(mtx.q[j])) as i16;
+            out[n] = level as i16;
+            if level != 0 {
+                last = n as i32;
+            }
+        } else {
+            out[n] = 0;
+            input[j] = 0;
+        }
+    }
+    last >= 0
+}
+
+pub fn Quantize2Blocks_C(input: &mut [i16; 32], out: &mut [i16; 32], mtx: &VP8Matrix) -> u32 {
+    let (left_in, right_in) = input.split_at_mut(16);
+    let (left_out, right_out) = out.split_at_mut(16);
+    let nz = u32::from(QuantizeBlock_C(
+        left_in.try_into().unwrap(),
+        left_out.try_into().unwrap(),
+        mtx,
+    ));
+    nz | (u32::from(QuantizeBlock_C(
+        right_in.try_into().unwrap(),
+        right_out.try_into().unwrap(),
+        mtx,
+    )) << 1)
+}
+
+#[inline]
+fn Copy(src: &[u8], dst: &mut [u8], w: usize, h: usize) {
+    assert!(src.len() >= (h - 1) * BPS + w && dst.len() >= (h - 1) * BPS + w);
+    for y in 0..h {
+        dst[y * BPS..y * BPS + w].copy_from_slice(&src[y * BPS..y * BPS + w]);
+    }
+}
+
+pub fn Copy4x4_C(src: &[u8], dst: &mut [u8]) {
+    Copy(src, dst, 4, 4);
+}
+pub fn Copy16x8_C(src: &[u8], dst: &mut [u8]) {
+    Copy(src, dst, 16, 8);
 }

@@ -13,6 +13,7 @@ pub mod public_images;
 pub mod references;
 pub mod streams;
 pub mod token_streams;
+pub mod vp8_dsp;
 pub mod vp8_predictions;
 pub mod vp8_transforms;
 
@@ -39,6 +40,13 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "BIAS"
+            | "QUANTDIV"
+            | "VP8DspTables"
+            | "VP8Quantize"
+            | "VP8Metric"
+            | "VP8SetHistogramData"
+            | "VP8CollectHistogram" => vp8_dsp::evaluate(self),
             "VP8EncPredLuma4" | "VP8EncPredLuma16" | "VP8EncPredChroma8" => {
                 vp8_predictions::evaluate(self)
             }
