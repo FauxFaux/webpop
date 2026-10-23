@@ -36,6 +36,59 @@ unsigned WebpopLossyTransform(const uint32_t* in, uint32_t* out) {
   return 16;
 }
 
+unsigned WebpopLossyTransform2(const uint32_t* in, uint32_t* out) {
+  uint8_t src[4 * BPS], ref[4 * BPS];
+  int16_t coeffs[32];
+  unsigned i;
+  memset(src, 0xa5, sizeof(src));
+  memset(ref, 0x5a, sizeof(ref));
+  for (i = 0; i < 32; ++i) {
+    src[(i / 8) * BPS + i % 8] = in[i];
+    ref[(i / 8) * BPS + i % 8] = in[32 + i];
+  }
+  VP8EncDspInit();
+  VP8FTransform2(src, ref, coeffs);
+  for (i = 0; i < 32; ++i) out[i] = (uint32_t)(int32_t)coeffs[i];
+  return 32;
+}
+
+unsigned WebpopLossyInverseTransform(const uint32_t* in, uint32_t* out) {
+  const unsigned width = in[0] ? 8 : 4;
+  const unsigned count = in[0] ? 32 : 16;
+  uint8_t ref[4 * BPS], dst[4 * BPS];
+  int16_t coeffs[32];
+  unsigned i;
+  memset(ref, 0x5a, sizeof(ref));
+  memset(dst, 0xa5, sizeof(dst));
+  for (i = 0; i < count; ++i) {
+    ref[(i / width) * BPS + i % width] = in[1 + i];
+    coeffs[i] = (int16_t)(int32_t)in[1 + count + i];
+  }
+  VP8EncDspInit();
+  VP8ITransform(ref, coeffs, dst, in[0]);
+  // Include row padding and storage after the last row to expose stray writes.
+  for (i = 0; i < sizeof(dst); ++i) out[i] = dst[i];
+  return sizeof(dst);
+}
+
+unsigned WebpopLossyWHT(const uint32_t* in, int inverse, uint32_t* out) {
+  int16_t input[256], output[256];
+  const unsigned input_size = inverse ? 16 : 256;
+  const unsigned output_size = inverse ? 256 : 16;
+  unsigned i;
+  for (i = 0; i < input_size; ++i) input[i] = (int16_t)(int32_t)in[i];
+  if (inverse) {
+    for (i = 0; i < 256; ++i) output[i] = (int16_t)(int32_t)in[16 + i];
+    VP8DspInit();
+    VP8TransformWHT(input, output);
+  } else {
+    VP8EncDspInit();
+    VP8FTransformWHT(input, output);
+  }
+  for (i = 0; i < output_size; ++i) out[i] = (uint32_t)(int32_t)output[i];
+  return output_size;
+}
+
 unsigned WebpopLossyEncode(const uint32_t* in, unsigned n, int custom,
                            uint32_t* out) {
   const unsigned offset = custom ? 5 : 4;

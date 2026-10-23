@@ -13,6 +13,7 @@ pub mod public_images;
 pub mod references;
 pub mod streams;
 pub mod token_streams;
+pub mod vp8_transforms;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
 use libwebpop::utils::{color_cache_utils::*, utils::*};
@@ -38,6 +39,9 @@ impl Case {
         let a = &self.input;
         match self.function.as_str() {
             "VP8FTransform" => lossy::transform(self),
+            "VP8FTransform2" | "VP8ITransform" | "VP8FTransformWHT" | "VP8TransformWHT" => {
+                vp8_transforms::evaluate(self)
+            }
             "WebPEncodeLosslessRGBA" | "WebPEncodeRGBAOptions" => public_images::evaluate(self),
             "VP8LEncodeStream" => streams::evaluate(self),
             "AnalysisSizing" | "AnalyzeEntropy" | "EncoderAnalyze" => analysis::evaluate(self),

@@ -53,6 +53,9 @@ int WebpopNearLossless(const char*, const uint32_t*, unsigned, uint32_t*, unsign
 int WebpopNearLosslessPredictor(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 size_t WebPEncodeRGBAWithNearLossless(const uint8_t*, int, int, int, int, uint8_t**);
 unsigned WebpopLossyTransform(const uint32_t*, uint32_t*);
+unsigned WebpopLossyTransform2(const uint32_t*, uint32_t*);
+unsigned WebpopLossyInverseTransform(const uint32_t*, uint32_t*);
+unsigned WebpopLossyWHT(const uint32_t*, int, uint32_t*);
 unsigned WebpopLossyEncode(const uint32_t*, unsigned, int, uint32_t*);
 unsigned WebpopAlphaWrapperErrors(uint32_t*);
 
@@ -101,6 +104,28 @@ int main(void) {
       REQUIRE(n == 32);
       for (i = 0; i < n; ++i) REQUIRE(in[i] <= 255);
       count = WebpopLossyTransform(in, out);
+    } else if (IS(VP8FTransform2)) {
+      REQUIRE(n == 64);
+      for (i = 0; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopLossyTransform2(in, out);
+    } else if (IS(VP8ITransform)) {
+      unsigned pixels;
+      REQUIRE(n > 0 && in[0] <= 1);
+      pixels = in[0] ? 32 : 16;
+      REQUIRE(n == 1 + 2 * pixels);
+      for (i = 1; i <= pixels; ++i) REQUIRE(in[i] <= 255);
+      for (; i < n; ++i) REQUIRE((int32_t)in[i] >= -4095 && (int32_t)in[i] <= 4095);
+      count = WebpopLossyInverseTransform(in, out);
+    } else if (IS(VP8FTransformWHT) || IS(VP8TransformWHT)) {
+      const int inverse = IS(VP8TransformWHT);
+      REQUIRE(n == (inverse ? 272 : 256));
+      for (i = 0; i < n; ++i) REQUIRE((int32_t)in[i] >= INT16_MIN && (int32_t)in[i] <= INT16_MAX);
+      if (inverse) {
+        for (i = 0; i < 16; ++i) REQUIRE((int32_t)in[i] >= -16384 && (int32_t)in[i] <= 16383);
+      } else {
+        for (i = 0; i < 256; i += 16) REQUIRE((int32_t)in[i] >= -2048 && (int32_t)in[i] <= 2047);
+      }
+      count = WebpopLossyWHT(in, inverse, out);
     } else if (IS(WebPEncodeRGBA) || IS(WebPEncodeRGBAWithAlphaQuality)) {
       const unsigned offset = IS(WebPEncodeRGBA) ? 4 : 5;
       REQUIRE(n >= offset && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);

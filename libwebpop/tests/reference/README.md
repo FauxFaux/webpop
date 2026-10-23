@@ -32,7 +32,7 @@ layouts and fixture regeneration commands. The Rust near-lossless public
 encoder matches pinned C. An independent older-full-Wasm regression is opt-in
 through `wasm-oracle`; see [artifact and host provenance](full-wasm/README.md).
 
-The [lossy reference record](LOSSY.md) describes the first VP8 transform port,
+The [lossy reference record](LOSSY.md) describes the VP8 transform ports,
 both lossy public C adapters, the copied alpha-quality wrapper, portable
 VP8/ALPH files and independent decoding. The public lossy Rust encoder remains
 unimplemented. This extends the same scalar backend and word protocol.

@@ -93,3 +93,63 @@ release with `native-oracle`, `cargo fmt --all -- --check`, and
 `cargo build -p libwebpop --lib`. Manual timing/large-corpus tests retain their
 existing ignored status. The copied wrapper was also compared directly with
 the recorded source revision, excluding only the added provenance header.
+
+## Milestone 1: remaining transforms
+
+`dsp/enc.rs` now also ports `FTransform2_C`, `ITransform_C` and its inline
+`ITransformOne`/clipping helpers, plus `FTransformWHT_C`. `dsp/dec.rs` contains
+only the encoder-required inverse `TransformWHT_C`. The AC3 multiplication
+helpers retain the pinned constants and signed-shift order, using i64 products
+to avoid overflow for larger i16 inputs. DSP dispatch calls in `lossy.c` still
+use the normally built scalar library; no upstream files are changed.
+
+Additional request layouts:
+
+- `VP8FTransform2`: 32 source bytes then 32 reference bytes, each image in 8×4
+  raster order. Returns the left block's sixteen signed coefficients followed
+  by the right block's sixteen. Adapters use `BPS=32` and differing row padding.
+- `VP8ITransform`: `(do_two)`, then 16 or 32 reference bytes in 4×4 or 8×4
+  raster order, then 16 or 32 signed coefficients in consecutive block order.
+  Returns all 128 destination bytes, including sentinel row/trailing padding.
+  The oracle limits coefficients to -4095 through 4095, where its signed C
+  products are safe. Rust uses exact-minimum reference and coefficient slices.
+- `VP8FTransformWHT`: all 256 signed coefficients of sixteen consecutive luma
+  blocks; only the sixteen DC slots (multiples of 16) contribute. Returns
+  sixteen signed WHT coefficients. Oracle DC inputs cover -2048 through 2047;
+  unrelated AC inputs span the full i16 range.
+- `VP8TransformWHT`: sixteen signed WHT coefficients followed by 256 initial
+  destination coefficients. Returns the complete mutated destination. Only DC
+  slots may change. Oracle transform inputs cover -16384 through 16383, keeping
+  results within i16; destination sentinels span the full i16 range.
+
+Signed values use two's-complement i32 encoded as u32. The new corpus has
+21,728 exact C comparisons: 1,024 paired forward blocks, 18,078 inverse block
+cases (both single/paired forms), 1,296 forward WHT and 1,330 inverse WHT cases.
+It covers every inverse DC value -4095 through 4095 in both forms, signed
+impulses in every coefficient, clipping/rounding thresholds, constant Walsh
+inputs, mixed coefficients, and seeded samples. `fixtures/lossy_transforms.txt`
+retains 90 representative cases separately from milestone 0's unchanged files.
+
+Independent portable tests multiply explicit Hadamard matrices to verify both
+WHTs, normalization, negative rounding and gather/scatter layout; check exact
+round trips for even DC inputs; vary unrelated AC inputs; verify paired forward
+transforms against separate blocks; and check inverse DC rounding/saturation
+and unchanged padding. Offset destination slices and exact-minimum buffers
+exercise boundaries, including WHT's last DC slot at index 240.
+
+The pin, compiler, CMake flags, Rust toolchain and seed are unchanged from
+milestone 0. Regenerate only after reviewing them and the added adapters:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_transforms vp8_transform_fixtures_match_pinned_reference
+cargo test -p libwebpop --features native-oracle --test lossy_transforms -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test lossy_transforms
+```
+
+Validation passed for this extension: the full workspace `cargo test --quiet`
+and `cargo test --features native-oracle --quiet`, all eight transform tests in
+release with `native-oracle`, `cargo fmt --all -- --check`,
+`cargo build -p libwebpop --lib`, and `git diff --check`. Existing manual
+timing/large-corpus tests remain ignored. Milestone 1's predictions, scans,
+quantization and remaining distortion/histogram DSP are still pending.
