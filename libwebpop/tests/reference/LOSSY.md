@@ -475,3 +475,113 @@ cost/probability tests and six boolean-writer tests in release with
 `native-oracle`; `cargo fmt --all -- --check`; normal library-only build; and
 `git diff --check`. Existing manual timing/large-corpus tests remain ignored.
 The source pin and previous fixtures are unchanged, and upstream remains clean.
+
+### Milestone 2 complete: paginated tokens and adaptive probability fitting
+
+Continued from `a0ca11e` with the same clean source pin and recorded compiler /
+scalar configuration (GCC 15.2.0-16ubuntu1, CMake 4.2.3, Release `-O3 -DNDEBUG`,
+SIMD/threading off, Rust 1.101.0-nightly `7189d39d9`). The test-only
+`lossy_tokens.c` and `lossy_frame.c` include original pinned source files to
+inspect private token pages and call static fitting/reset helpers. Their public
+symbols are renamed to avoid collisions with the normally built library. No
+recording, fitting or encoding algorithm is copied into these adapters.
+
+`enc/token_enc.rs` ports `VP8TBufferInit/Clear`, `TBufferNewPage`, inline
+`AddToken` / `AddConstantToken`, `VP8RecordCoeffTokens`, `VP8EmitTokens` and
+`VP8EstimateTokenSize`. Pages retain the requested minimum of 8,192 tokens and
+16-bit token packing: bit 15 is the observation, bit 14 selects fixed probability,
+and the low bits are either probability index or fixed byte. Rust stores each
+page in emission order instead of C's reverse-indexed slots. It resolves adaptive
+probabilities at emission/estimation time and leaves statistics untouched there.
+Trials retain all tokens; final emission releases pages. Rust also resets
+cursors after a successful final emission, allowing immediate safe reuse where
+C requires clear/reinitialization after its dangling cursors. Drop frees pages.
+Allocation failures propagate immediately through `Result<T, TryReserveError>`;
+callers must abandon a failed recording/emission. A capacity-overflow test checks
+that a failed first-page allocation leaves token and counter state untouched.
+
+`enc/frame_enc.rs` currently ports only probability foundations: category 3–6
+constants, `CalcTokenProba`, `BranchCost`, `FinalizeTokenProbas`, `ResetStats`
+and `ResetTokenStats`. Fitting compares each candidate against the default
+probability, including its update flag and eight-bit signaling costs, and uses a
+strict cheaper-than test. Dirty is relative to defaults, even when reverting a
+previous nondefault state. `ResetStats` refreshes dirty cost tables and clears
+only the skip count; `ResetTokenStats` clears only coefficient statistics. The
+full frame loop, refresh countdown and retry scheduling remain in milestone 7.
+
+The new logical protocol is:
+
+- `VP8TokenProba`: `(ones, total, probability)` with `ones <= total <= 65535`;
+  returns the fitted probability candidate and branch cost.
+- `VP8ProbaState`: `(action, initial_dirty)`, 1,056 current probabilities,
+  1,056 packed statistics. Actions: fit (0), fit/calculate level costs (1),
+  reset token stats (2), reset stats (3). Other state is initialized to known
+  sentinels. Returns signaling cost, dirty, skip count, skip probability,
+  use-skip, three segment probabilities, all coefficient probabilities, all
+  statistics, and a hash of the cost cache. No self-referential pointers cross
+  the protocol.
+- `VP8Tokens`: `(page_size, fit_period, fit_final, prefix_bits, block_count)`,
+  1,056 initial probabilities, 1,056 initial packed stats, followed by each
+  block's `(first, type, context, 16 signed coefficients)`. Page sizes are
+  0..32768, coefficient magnitudes <=2047; AC-only blocks have zero DC.
+  A nonzero period fits before each block whose nonzero index is divisible by
+  it, then refreshes level costs. Optional final fitting follows the last block.
+  This supplied schedule tests fitting/recording composition; it is not the
+  frame loop's macroblock countdown.
+
+Token responses contain block count and nonzero results; fit count and four-word
+fit traces `(blocks_recorded, signaling_cost, dirty, probability_hash)`; then a
+page snapshot `(page_size, page_count, free_slots_last_page, token_count)` and
+all tokens in emission order. All stats, final probabilities and dirty follow.
+Three stream records contain `(estimated_cost_low/high, bit_position_low/high,
+byte_count, terminated_bytes)`: a trial with initial probabilities, a trial
+with final probabilities, and a final emission with final probabilities.
+Prefixes use the low requested bits of `0x5ad`; every stream ends with an
+11-bit `0x5ad` sentinel before termination. The final response verifies empty
+pages/zero estimated cost, clears twice, records an empty block at type 3 /
+context 2, returns its page snapshot and all stats, then emits that reused buffer.
+Input validation bounds worst-case response sizes. C's dangling post-final
+cursor values are not observed.
+
+There are 5,095 exact native requests: 2,608 scalar probability/branch cases,
+1,591 fitting/reset states and 896 complete token workflows. Token cases cover
+all coefficient types, both starts, all initial contexts, every magnitude/sign,
+category boundaries, zero runs, saturated statistics, empty streams, fitting
+between recording batches, 8,192/8,193/16,384-token pages, partial/full/multiple
+pages and boundaries inside coefficient coding. Initial/final probabilities
+include default, 0/255 and asymmetric byte values. There are 59 compact portable
+C fixtures, including the exact fitting tie and adjacent decisions.
+
+Independent portable tree walks construct expected tokens directly from supplied
+coefficients, update packed counters with wide arithmetic, calculate candidate
+probabilities via rounded complement ratios, and independently sum signaling
+costs. They check 593,855 blocks / 7,515,965 token bits, with up to three pages.
+The interval decoder checks emitted tree events, prefix and suffix sentinels;
+788 trial streams change under later-fitted probabilities, and trial/final
+emissions with the same probabilities are identical. Estimates use actual
+emitted event costs: levels 9/10 differ from the pinned residual-search estimates
+by 211/312 respectively, as recorded in the preceding batch.
+
+The exact tie is flat probability slot 33 (type 0, band 1, context 0, node 0):
+default 253, update probability 176, zero one-bits. At 780 total observations the
+default wins; at 781 the costs tie and the default still wins; at 782 candidate
+255 wins. Tests start with nondefault current probabilities and also exercise
+reversion to defaults without manufacturing a dirty flag based on prior state.
+
+Review the pin and `target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_tokens token_fixtures_match_pinned_reference
+```
+
+Milestone 2 is complete: 17,738 native requests and 242 portable fixtures across
+boolean writer, cost/probability and token batches. Iterator-dependent
+`VP8GetCostLuma4/Luma16/UV` wrappers still await the iterator/mode-search work;
+they are not the residual cost leaves in this milestone. Public lossy encoding
+remains later in the plan.
+
+Validation passes: full workspace portable and native-oracle suites, all six
+new token/fitting tests and eight cost/probability tests in release with
+`native-oracle`, release library tests including allocation failure, formatting,
+normal library-only build and `git diff --check`. Earlier fixtures and the
+upstream pin remain unchanged; the upstream checkout is clean.

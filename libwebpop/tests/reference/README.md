@@ -40,7 +40,8 @@ encoder matches pinned C. An independent older-full-Wasm regression is opt-in
 through `wasm-oracle`; see [artifact and host provenance](full-wasm/README.md).
 
 The [lossy reference record](LOSSY.md) describes the complete scalar VP8 DSP,
-boolean-writer state traces, residual costs/statistics and probability headers,
+boolean-writer state traces, residual costs/statistics, probability headers,
+paginated tokens and adaptive fitting,
 both lossy public C adapters, the copied alpha-quality wrapper, portable
 VP8/ALPH files and independent decoding. The public lossy Rust encoder remains
 unimplemented. This extends the same scalar backend and word protocol.

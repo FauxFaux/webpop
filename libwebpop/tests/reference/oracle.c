@@ -71,6 +71,9 @@ unsigned WebpopVP8LevelCosts(const uint32_t*, uint32_t*);
 unsigned WebpopVP8Residual(const uint32_t*, uint32_t*);
 unsigned WebpopVP8WriteProbas(const uint32_t*, uint32_t*);
 unsigned WebpopVP8DefaultProbas(uint32_t*);
+unsigned WebpopTokens(const uint32_t*, uint32_t*);
+unsigned WebpopTokenProba(const uint32_t*, uint32_t*);
+unsigned WebpopProbaState(const uint32_t*, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -113,7 +116,34 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8CostTables) || IS(VP8DefaultProbas)) {
+    if (IS(VP8TokenProba)) {
+      REQUIRE(n == 3 && in[0] <= in[1] && in[1] <= 65535 && in[2] <= 255);
+      count = WebpopTokenProba(in, out);
+    } else if (IS(VP8ProbaState)) {
+      REQUIRE(n == 2114 && in[0] <= 3 && in[1] <= 1);
+      for (i = 2; i < 1058; ++i) REQUIRE(in[i] <= 255);
+      for (; i < n; ++i) REQUIRE((in[i] & 65535) <= (in[i] >> 16));
+      count = WebpopProbaState(in, out);
+    } else if (IS(VP8Tokens)) {
+      uint64_t budget = 0;
+      REQUIRE(n >= 2117 && in[0] <= 32768 && in[1] <= 32768 && in[2] <= 1 && in[3] <= 31);
+      REQUIRE(in[4] <= 32769 && n == 2117 + 19 * in[4]);
+      for (i = 5; i < 1061; ++i) REQUIRE(in[i] <= 255);
+      for (; i < 2117; ++i) REQUIRE((in[i] & 65535) <= (in[i] >> 16));
+      for (; i < n; i += 19) {
+        unsigned j;
+        int nonzero = 0;
+        REQUIRE(in[i] <= 1 && in[i + 1] < 4 && in[i + 2] < 3);
+        for (j = 0; j < 16; ++j) {
+          REQUIRE((int32_t)in[i + 3 + j] >= -2047 && (int32_t)in[i + 3 + j] <= 2047);
+          nonzero |= in[i + 3 + j] != 0;
+        }
+        if (in[i]) REQUIRE(in[i + 3] == 0);
+        budget += nonzero ? 400 : 1;
+      }
+      REQUIRE(budget <= 150000);
+      count = WebpopTokens(in, out);
+    } else if (IS(VP8CostTables) || IS(VP8DefaultProbas)) {
       REQUIRE(n == 0);
       count = IS(VP8CostTables) ? WebpopVP8CostTables(out) : WebpopVP8DefaultProbas(out);
     } else if (IS(VP8BitCost)) {

@@ -2,6 +2,7 @@
 // Derived from upstream/src/enc/vp8i_enc.h, encoder foundations.
 // See COPYING and PATENTS.
 
+pub use super::token_enc::VP8TBuffer;
 use crate::dsp::enc::BPS;
 
 pub const MAX_LEVEL: i32 = 2047;

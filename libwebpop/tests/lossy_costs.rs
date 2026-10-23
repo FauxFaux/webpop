@@ -9,7 +9,10 @@ use libwebpop::{
     dsp::cost::*,
     enc::{cost_enc::*, tree_enc::*, vp8i_enc::*},
 };
-use support::{vp8_boolean::Decoder, vp8_cost as cost};
+use support::{
+    vp8_boolean::Decoder,
+    vp8_cost::{self as cost, bit_cost, level_events},
+};
 
 #[test]
 fn committed_cost_and_probability_fixtures() {
@@ -21,59 +24,6 @@ fn committed_cost_and_probability_fixtures() {
         assert_eq!(case.input, generated.input);
         assert_eq!(case.rust(), *expected);
     }
-}
-
-// Independent, explicit syntax-tree walk. Adaptive events identify a probability
-// node; fixed events carry their probability directly. No VP8LevelCodes lookup.
-fn level_events(v: usize) -> Vec<(usize, bool, Option<u8>)> {
-    let mut events = Vec::new();
-    events.push((2, v > 1, None));
-    if v > 1 {
-        events.push((3, v > 4, None));
-        if v <= 4 {
-            events.push((4, v != 2, None));
-            if v != 2 {
-                events.push((5, v == 4, None));
-            }
-        } else {
-            events.push((6, v > 10, None));
-            if v <= 10 {
-                events.push((7, v > 6, None));
-                if v <= 6 {
-                    events.push((0, v == 6, Some(159)));
-                } else {
-                    events.push((0, v >= 9, Some(165)));
-                    events.push((0, v % 2 == 0, Some(145)));
-                }
-            } else {
-                let (base, probabilities): (usize, &[u8]) = if v <= 18 {
-                    events.extend([(8, false, None), (9, false, None)]);
-                    (11, &[173, 148, 140])
-                } else if v <= 34 {
-                    events.extend([(8, false, None), (9, true, None)]);
-                    (19, &[176, 155, 140, 135])
-                } else if v <= 66 {
-                    events.extend([(8, true, None), (10, false, None)]);
-                    (35, &[180, 157, 141, 134, 130])
-                } else {
-                    events.extend([(8, true, None), (10, true, None)]);
-                    (67, &[254, 254, 243, 230, 196, 177, 153, 140, 133, 130, 129])
-                };
-                for (index, &p) in probabilities.iter().enumerate() {
-                    events.push((
-                        0,
-                        (v - base) & (1 << (probabilities.len() - 1 - index)) != 0,
-                        Some(p),
-                    ));
-                }
-            }
-        }
-    }
-    events.push((0, false, Some(128))); // sign cost is independent of sign
-    events
-}
-fn bit_cost(bit: bool, probability: u8) -> u32 {
-    u32::from(VP8EntropyCost[if bit { 255 - probability } else { probability } as usize])
 }
 
 #[test]

@@ -17,6 +17,7 @@ pub mod vp8_boolean;
 pub mod vp8_cost;
 pub mod vp8_dsp;
 pub mod vp8_predictions;
+pub mod vp8_tokens;
 pub mod vp8_transforms;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
@@ -42,6 +43,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8TokenProba" | "VP8ProbaState" | "VP8Tokens" => vp8_tokens::evaluate(self),
             "VP8CostTables" | "VP8DefaultProbas" | "VP8BitCost" | "VP8RecordStats"
             | "VP8LevelCosts" | "VP8Residual" | "VP8WriteProbas" => vp8_cost::evaluate(self),
             "VP8BitWriter" => vp8_boolean::evaluate(self),
