@@ -29,10 +29,12 @@ options, including crop/resize, presets, metadata and near-lossless values
 below 100, fail before opening input or output. Invalid input or encoding
 failure leaves the output untouched.
 
-The library currently uses a fixed palette/predictor/cross-color policy.
-Automatic upstream entropy analysis and configuration trials are still being
-ported, so output is valid lossless WebP but compressed bytes and sizes need
-not match libwebp's simple API.
+The library uses upstream entropy analysis and configuration trials, including
+palette ordering, transform, LZ77 and cache selection. Default output matches
+the pinned scalar libwebp `WebPEncodeLosslessRGBA` implementation in the
+regression corpus. Quality, method and exact settings are also compared with
+the corresponding upstream configuration. The CLI's default bytes match the
+library simple API.
 
 This uses clap conventions: upstream's multi-letter `-lossless`, `-alpha_q`, etc.
 are spelled `--lossless`, `--alpha_q`, etc. Single-letter encoding options retain

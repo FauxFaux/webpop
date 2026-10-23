@@ -578,6 +578,35 @@ pub fn VP8LEncodeStream(
     EncodeStreamHook(&mut enc, bw)
 }
 
+/// Encode the owned ARGB picture as a complete still-image RIFF/WebP file.
+/// Owned output replaces the upstream memory-writer callback.
+pub(crate) fn VP8LEncodeImage(
+    config: &super::config_enc::LosslessOptions,
+    picture: &super::picture_enc::WebPPicture,
+) -> Result<Vec<u8>, crate::webp::encode::LosslessEncodeError> {
+    use super::picture_csp_enc::{RgbaInputError, WebPPictureHasTransparency};
+    use crate::utils::bit_writer_utils::VP8LBitWriterInit;
+    let initial_size = picture
+        .argb
+        .len()
+        .checked_mul(2)
+        .ok_or(RgbaInputError::SizeOverflow)?;
+    let mut bw = VP8LBitWriterInit(initial_size)?;
+    WriteImageSize(&mut bw, picture.width, picture.height)?;
+    WriteRealAlphaAndVersion(&mut bw, WebPPictureHasTransparency(picture))?;
+    VP8LEncodeStream(
+        &mut bw,
+        &picture.argb,
+        picture.width as usize,
+        picture.height as usize,
+        picture.width as usize,
+        config.method,
+        config.quality,
+        config.exact,
+    )?;
+    Ok(WriteImage(&mut bw)?)
+}
+
 /// Clamp a histogram/transform sampling size, respecting the auxiliary-image
 /// size limit and choosing the smallest tile size when only one tile remains.
 pub fn ClampBits(

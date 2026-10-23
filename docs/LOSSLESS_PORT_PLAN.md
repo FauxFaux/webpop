@@ -12,7 +12,7 @@ Reference revision: `1844042d1ca751e62e61df7617dba19c98588339`, obtained from
 The older revision mentioned in `AGENTS.md` and `ALGORITHM.md` is not the current
 checkout. Keep the upstream submodule pinned throughout the initial port.
 
-Suggested Rust API, retaining the upstream entry-point name:
+Public Rust API, retaining the upstream entry-point name:
 
 ```rust
 pub fn WebPEncodeLosslessRGBA(
@@ -57,7 +57,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
 
 ## Current repository
 
-- Milestones 1–8 are complete: `libwebpop` has endian/bit helpers, checked
+- Milestones 1–9 are complete: `libwebpop` has endian/bit helpers, checked
   positive-stride RGBA geometry, pixel lane arithmetic, prefix coding,
   hash/color-cache primitives, all 14 scalar predictors and residual kernels,
   subtract-green/cross-color kernels and histogram collectors, palette index
@@ -67,8 +67,8 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   cost estimation. Milestone 4 adds packed hash chains, RLE/standard/box LZ77,
   cache selection and rewriting, fixed-point traceback with bounded interval
   maintenance, and full reference trial selection. The checked
-  `encode_lossless_rgba` entry point now produces complete images using a fixed
-  transform policy; integration with the upstream trial loop remains ahead.
+  `encode_lossless_rgba` entry point produces complete images using the
+  upstream analysis and configuration trial loop.
   Milestone 5 auxiliary-image integration, reusable RIFF/image header helpers,
   and direct multi-group/cache token-writer comparisons are complete.
   Milestone 6 adds histogram clustering/remap, sampling optimization, and
@@ -78,17 +78,14 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   and lossless residual conversion are implemented, including the predictor
   transform writer. Cross-color multiplier search and all four transform
   writers are complete. Milestone 8 adds encoder analysis/state and the
-  synchronous configuration trial loop. The upstream-compatible simple API
-  and integration with the checked RGBA entry point remain in milestone 9.
-- `encode_lossless_rgba` imports checked positive-stride RGBA without changing
-  the source, optionally preserves hidden RGB, uses default-sorted palettes
-  when eligible, otherwise subtract-green, then prediction and non-palette
-  cross-color at nonzero methods. It writes main-image data and the RIFF
-  container with reusable hash/reference scratch and propagated allocation
-  errors. `LosslessOptions` exposes quality, method and exact handling. This
-  is an early usable API, not completion of milestone 9: it does not run
-  upstream's entropy/configuration trials and makes no compressed-byte parity
-  promise. There are 350 deterministic independent RGBA round trips spanning
+  synchronous configuration trial loop. Milestone 9 integrates it with the
+  checked RGBA entry point and public `WebPEncodeLosslessRGBA` simple API.
+- `WebPEncodeLosslessRGBA` imports checked positive-stride RGBA without changing
+  the source, applies upstream transparent-pixel cleanup, analyzes and tries
+  configurations, and returns an owned RIFF/WebP file. `encode_lossless_rgba`
+  retains configurable quality/method/exact handling through `LosslessOptions`;
+  defaults match the simple API. Allocation failures propagate through `Result`.
+  There are 350 deterministic independent RGBA round trips spanning
   palettes, non-palette images, transparent pixels, padded strides and effort
   settings, plus checked invalid-input/option errors. `cwebpop` decodes input
   bytes with `image`, calls this entry point and writes a complete WebP to a
@@ -96,10 +93,9 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   exact RGB, alpha removal, content/extension detection, and failures before
   output is opened. Unsupported CLI options are rejected explicitly; validation
   iterates argument definitions so clap's generated `Args` group is excluded.
-  The complete workspace suite, all 30 native-oracle tests, release CLI/RGBA
-  tests and formatting pass. A release smoke run encodes the checked-in
-  128×128 PPM as a 15,246-byte WebP, which decodes and re-encodes identically
-  with exact handling.
+  The complete workspace suite, all 36 native-oracle tests, release CLI/RGBA
+  tests and formatting pass. The committed 128×128 libwebp sample encodes to
+  14,954 bytes, identical to the pinned scalar C simple API.
 - The remaining milestone-1 DSP passed 317,625 exact native C comparisons with
   seed `6d2b79f5`, including all log lookup/integer-approximation inputs,
   floating-point fallbacks, exhaustive byte-pair averaging/half predictors,
@@ -184,7 +180,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   and tie order. Allocation failures propagate through `Result`. No numerical
   divergence was observed. The full portable and native-oracle suites, release
   clustering/main-image/Wasm tests, formatting and the production library build
-  pass. Public default-API integration remains in milestone 9.
+  pass. Milestone 9 completes public default-API integration.
 - Milestone 7 (complete) adds `GetColorPalette`, `SearchColorNoIdx`,
   `PrepareMapToPalette`, and the default and greedy delta branches of
   `PaletteSort` in `utils/palette.rs`. These pass 552 exact scalar C comparisons
@@ -314,10 +310,29 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   (including different equal-size streams and later winners). All 1,296
   complete-file decode cases preserve dimensions, alpha and visible RGB,
   including hidden RGB in exact mode; prepared source pixels remain unchanged.
-  Allocation failures propagate through `Result`; the public RGBA encoder
-  retains its earlier fixed policy until milestone 9 integrates this stream.
+  Allocation failures propagate through `Result`; milestone 9 now integrates
+  this stream with the public RGBA encoder.
   The full workspace suite with all 34 native-oracle tests, release library/
   analysis/stream tests, formatting and the production library build pass.
+- Milestone 9 (complete) adds the lossless configuration defaults/validation,
+  owned `WebPPicture`, `WebPPictureImportRGBA`, transparency detection and
+  replacement, `WebPEncode`, `VP8LEncodeImage` and public
+  `WebPEncodeLosslessRGBA`. Picture/config/import helpers retain upstream
+  module names; owned vectors replace allocation/free and writer callbacks.
+  Both public entry points validate before allocation, accept positive byte
+  strides with optional final-row padding, and leave source bytes unchanged.
+  All 2,584 complete public files match pinned scalar C and independently
+  decode, including 128 seeded image geometries/strides with random effort
+  settings, every palette threshold, mixed/hidden alpha, unaligned input,
+  exact settings, 16,383-pixel skinny images, and the committed 128×128 sample
+  copied from pinned `upstream/examples/test_ref.ppm`. Forty-three new text
+  fixtures and the sample's binary C output preserve public byte comparisons
+  without native tooling. Existing public leaf fixtures now also compare
+  Rust bytes. Invalid dimensions, strides, short input, arithmetic overflow and
+  invalid effort settings return errors in debug and release. The default CLI
+  output is checked against the library simple API. No numerical divergence
+  was observed on the recorded scalar toolchain. Release timing/size baselines
+  are recorded below; performance parity remains a separate target.
 - [The native oracle guide](../libwebpop/tests/reference/README.md) describes
   the selected scalar C backend, pinned build, committed fixtures, seeded
   comparisons, provenance, and mismatch replay. It is opt-in via
@@ -621,8 +636,7 @@ Compare in layers:
 2. **Subgraphs:** exact token sequences, cache choices, histograms, predictor
    maps, palette orderings, transformed pixels, and complete auxiliary streams.
 3. **Public API:** full encoded bytes against the pinned oracle, plus independent
-   decoding with the existing Rust decoder. The older Wasm build can check
-   semantic compatibility without requiring identical compressed bytes.
+   decoding with the existing Rust decoder.
 
 For `exact=0`, compare alpha everywhere and RGB where alpha is nonzero. Do not
 assert zero RGB at every transparent decoded pixel: `WebPEncode` initially
@@ -647,7 +661,7 @@ milestone implements just one part of a file.
 | 6 (complete) | Histogram clustering/remap `[E remainder]`; `VP8LOptimizeSampling`; `EncodeImageInternal` `[K]` | 5 | 4,388 exact staged clustering/sampling comparisons and 1,068 main streams match C; 31 portable fixtures and 168 exact RGBA decodes cover caches, multi-group images, sampling and trial resets |
 | 7 (complete) | Palette sorting/mapping `[G]`; predictor search/residuals `[I]`; cross-color search `[J]`; transform writers | 5, 6's sampling helper | Palette orders/packed indices, predictor and cross-color maps, transformed pixels and complete auxiliary streams match pinned C; portable fixtures, independent replay and complete-file decoding cover all four transforms |
 | 8 (complete) | `AnalyzeEntropy`, sizing heuristics, `EncoderAnalyze` `[H]`; encoder storage and `EncodeStreamHook`; `VP8LEncodeStream` | 6, 7 | 13,534 entropy/analysis/sizing comparisons and 4,341 selected streams/statistics match C; 85 portable fixtures, independent first-minimum trial checks and 1,296 RGBA decodes pass; full palette trial selection included |
-| 9 | Picture/config/import/writer glue; `WebPEncode`, `VP8LEncodeImage`, and public `WebPEncodeLosslessRGBA` | 8, header helpers | All public corpus cases match the pinned reference and independently decode; invalid inputs fail without panic |
+| 9 (complete) | Picture/config/import/writer glue; `WebPEncode`, `VP8LEncodeImage`, and public `WebPEncodeLosslessRGBA` | 8, header helpers | 2,584 complete public files match pinned C and independently decode; 43 text fixtures plus the sample's binary C output; invalid inputs and public/CLI behavior pass in debug and release |
 
 Milestone 5 is an internal integration checkpoint, not a temporary implementation
 of the public default API. It provides early valid images while the remaining
@@ -710,8 +724,36 @@ library build proving there is no production C/Wasm dependency. Record encoded
 sizes and basic encode-time measurements for representative inputs so future
 optimization has a baseline; performance parity is a subsequent target.
 
+## Initial release baseline
+
+Recorded 2026-10-23 on x86_64 Linux, Intel Core i9-13900KF,
+`rustc 1.100.0-nightly (923c95cdf 2026-09-16)`, Cargo release defaults.
+Each row uses `WebPEncodeLosslessRGBA` (quality 70, method 4, exact false),
+one warm-up and the median of five measured encodes. RGBA generation is outside
+the timed region; import, analysis, trials and RIFF allocation are included.
+These measurements were taken on a shared development machine and are a rough
+optimization baseline, not performance assertions or a C speed comparison.
+
+| Input | Dimensions | Encoded bytes | Median milliseconds |
+| --- | --- | --- | --- |
+| Solid ARGB `ff123456` | 128×128 | 44 | 0.829 |
+| Seeded random RGBA | 128×128 | 65,532 | 12.777 |
+| 16-color opaque palette | 128×128 | 82 | 5.811 |
+| Correlated channel ramp | 129×33 | 50 | 20.422 |
+| Pinned `test_ref.ppm` sample | 128×128 | 14,954 | 17.393 |
+
+Reproduce with:
+
+```sh
+cargo test -p libwebpop --release --test encode public_encode_baseline -- --ignored --nocapture
+```
+
+Synthetic inputs are `support::public_images::image` patterns 0/2/24/5 in table
+order, with seed `6d2b79f5`. The sample and binary C encoding live in
+`libwebpop/tests/fixtures/corpus/` with provenance documented there.
+
 Deferred: lossy VP8, YUV/SharpYUV, separate lossy `ALPH` encoding, near-lossless
-quantization, other qualities/methods/presets, worker threads, SIMD, public
+quantization, other presets, worker threads, SIMD, public
 advanced configuration/callback APIs, decoding, animation, metadata muxing,
 image file loaders, and C ABI compatibility. Shared scalar helpers from files
 named for decoding remain in scope where the encoder uses them.

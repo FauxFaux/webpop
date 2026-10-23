@@ -1,5 +1,72 @@
+use libwebpop::WebPEncodeLosslessRGBA;
 use libwebpop::enc::picture_csp_enc::RgbaInputError;
 use libwebpop::{LosslessEncodeError, LosslessOptions, encode_lossless_rgba};
+
+mod support;
+
+#[test]
+fn public_rgba_fixtures_match_scalar_c() {
+    let cases = support::public_images::fixture_cases();
+    let lines: Vec<_> = include_str!("fixtures/public_rgba.txt")
+        .lines()
+        .filter(|s| !s.starts_with('#'))
+        .collect();
+    assert_eq!(lines.len(), cases.len());
+    for (line, case) in lines.into_iter().zip(cases) {
+        let (request, response) = line.split_once(" | ").unwrap();
+        let mut words = request.split_whitespace();
+        assert_eq!(words.next().unwrap(), case.function);
+        let count: usize = words.next().unwrap().parse().unwrap();
+        let input: Vec<u32> = words.map(|w| u32::from_str_radix(w, 16).unwrap()).collect();
+        assert_eq!(count, input.len());
+        assert_eq!(input, case.input);
+        let mut words = response.split_whitespace();
+        let count: usize = words.next().unwrap().parse().unwrap();
+        let expected: Vec<u8> = words.map(|w| u8::from_str_radix(w, 16).unwrap()).collect();
+        assert_eq!(count, expected.len());
+        assert_eq!(support::public_images::encode(&case), expected);
+        support::public_images::check_decoded(&case, &expected);
+    }
+    let image = support::public_images::real_image();
+    let encoded =
+        WebPEncodeLosslessRGBA(&image.rgba, image.width, image.height, image.stride).unwrap();
+    assert_eq!(encoded, include_bytes!("fixtures/corpus/test_ref.webp"));
+    support::public_images::check_decoded(&image.request(), &encoded);
+}
+
+#[test]
+fn public_default_api_is_layout_independent() {
+    for pattern in [0, 2, 6, 12, 20, 30, 35] {
+        let image = support::public_images::image(19, 17, pattern);
+        let mut packed = Vec::new();
+        for y in 0..image.height as usize {
+            packed.extend_from_slice(
+                &image.rgba[y * image.stride..y * image.stride + image.width as usize * 4],
+            );
+        }
+        let mut unaligned = vec![0xa5];
+        unaligned.extend_from_slice(&image.rgba);
+        let a = WebPEncodeLosslessRGBA(&unaligned[1..], image.width, image.height, image.stride)
+            .unwrap();
+        let b = encode_lossless_rgba(
+            &packed,
+            image.width,
+            image.height,
+            image.width as usize * 4,
+            &LosslessOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(a, b);
+        // Surplus bytes and stride beyond the last row are never consumed.
+        packed.extend([0x5a; 7]);
+        assert_eq!(
+            a,
+            WebPEncodeLosslessRGBA(&packed, image.width, image.height, image.width as usize * 4)
+                .unwrap()
+        );
+    }
+    assert!(WebPEncodeLosslessRGBA(&[1, 2, 3, 255], 1, 1, usize::MAX).is_ok());
+}
 
 #[test]
 fn rgba_entry_point_round_trips_palettes_photos_and_transparency() {
@@ -85,14 +152,27 @@ fn invalid_input_and_options_return_errors() {
         (&[][..], 0, 1, 0, RgbaInputError::InvalidDimensions),
         (&[][..], 1, 0, 4, RgbaInputError::InvalidDimensions),
         (&[][..], 16384, 1, 65536, RgbaInputError::InvalidDimensions),
+        (&[][..], 1, 16384, 4, RgbaInputError::InvalidDimensions),
+        (
+            &[][..],
+            u32::MAX,
+            1,
+            usize::MAX,
+            RgbaInputError::InvalidDimensions,
+        ),
+        (&[][..], 1, u32::MAX, 4, RgbaInputError::InvalidDimensions),
+        (&[][..], 16383, 16383, 65532, RgbaInputError::InputTooShort),
         (&[0; 4][..], 1, 1, 3, RgbaInputError::InvalidStride),
         (&[0; 3][..], 1, 1, 4, RgbaInputError::InputTooShort),
         (&[][..], 1, 2, usize::MAX, RgbaInputError::SizeOverflow),
+        (&[][..], 1, 3, usize::MAX / 2, RgbaInputError::SizeOverflow),
     ] {
         assert!(
             matches!(encode_lossless_rgba(rgba, w, h, stride, &defaults),
             Err(LosslessEncodeError::Input(actual)) if actual == expected)
         );
+        assert!(matches!(WebPEncodeLosslessRGBA(rgba, w, h, stride),
+            Err(LosslessEncodeError::Input(actual)) if actual == expected));
     }
     for options in [
         LosslessOptions {
@@ -104,6 +184,52 @@ fn invalid_input_and_options_return_errors() {
             ..defaults
         },
     ] {
-        assert!(encode_lossless_rgba(&[0; 4], 1, 1, 4, &options).is_err());
+        let result = encode_lossless_rgba(&[0; 4], 1, 1, 4, &options);
+        if options.quality > 100 {
+            assert!(matches!(result, Err(LosslessEncodeError::InvalidQuality)));
+        } else {
+            assert!(matches!(result, Err(LosslessEncodeError::InvalidMethod)));
+        }
+    }
+}
+
+#[test]
+#[ignore = "manual release timing baseline; timings are not assertions"]
+fn public_encode_baseline() {
+    use std::{hint::black_box, time::Instant};
+    for image in [
+        support::public_images::image(128, 128, 0),
+        support::public_images::image(128, 128, 2),
+        support::public_images::image(128, 128, 24),
+        support::public_images::image(129, 33, 5),
+        support::public_images::real_image(),
+    ] {
+        let mut timings = Vec::new();
+        let mut size = 0;
+        // Warm up once, then record the median of five measured encodes.
+        for iteration in 0..6 {
+            let start = Instant::now();
+            let encoded = WebPEncodeLosslessRGBA(
+                black_box(&image.rgba),
+                image.width,
+                image.height,
+                image.stride,
+            )
+            .unwrap();
+            let elapsed = start.elapsed();
+            size = black_box(encoded).len();
+            if iteration > 0 {
+                timings.push(elapsed);
+            }
+        }
+        timings.sort();
+        eprintln!(
+            "{} {}x{}: {} bytes, median {:.3} ms",
+            image.name,
+            image.width,
+            image.height,
+            size,
+            timings[2].as_secs_f64() * 1000.0
+        );
     }
 }

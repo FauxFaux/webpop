@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This Cargo workspace contains `libwebpop`, a Rust 2024 port of pinned libwebp code. Work currently focuses on lossless encoder internals; the public Rust image encoder is not implemented yet.
+This Cargo workspace contains `libwebpop`, a Rust 2024 port of pinned libwebp code, and the `cwebpop` CLI. The public lossless RGBA encoder is implemented; near-lossless and lossy work have separate port plans.
 
 - `libwebpop/src/`: `dsp/` contains pixel operations, `enc/` encoder algorithms, `utils/` shared helpers, and `webp/` format constants.
 - `libwebpop/tests/`: portable regression tests, shared evaluators in `support/`, committed fixtures in `fixtures/`, native C wrappers in `reference/`.

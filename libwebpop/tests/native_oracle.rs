@@ -7,6 +7,97 @@ use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases
 use support::references::{foundation_cases, foundation_fixture_cases};
 
 #[test]
+fn public_rgba_encoders_match_pinned_reference() {
+    let cases = support::public_images::cases();
+    for (case, expected) in cases.iter().zip(native::run("public-rgba", &cases)) {
+        let encoded = support::public_images::encode(case);
+        native::compare(
+            case,
+            &expected,
+            &encoded.iter().map(|&v| u32::from(v)).collect::<Vec<_>>(),
+        );
+        support::public_images::check_decoded(case, &encoded);
+    }
+    eprintln!(
+        "Compared and independently decoded {} public RGBA files",
+        cases.len()
+    );
+}
+
+#[test]
+fn public_rgba_fixtures_match_pinned_reference() {
+    let mut cases = support::public_images::fixture_cases();
+    cases.push(support::public_images::real_image().request());
+    let outputs = native::run("public-rgba-fixtures", &cases);
+    for (case, expected) in cases.iter().zip(&outputs) {
+        native::compare(case, expected, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C complete public RGBA encoding fixtures.\n# upstream={} seed={:08x}\n# See ../reference/README.md for provenance and regeneration.\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, expected) in cases[..cases.len() - 1].iter().zip(&outputs) {
+            text.push_str(native::request_text(case).trim_end());
+            write!(text, " | {}", expected.len()).unwrap();
+            for value in expected {
+                write!(text, " {value:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/public_rgba.txt"
+            ),
+            text,
+        )
+        .unwrap();
+        let encoded: Vec<_> = outputs
+            .last()
+            .unwrap()
+            .iter()
+            .map(|&v| u8::try_from(v).unwrap())
+            .collect();
+        std::fs::write(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/corpus/test_ref.webp"
+            ),
+            encoded,
+        )
+        .unwrap();
+    } else {
+        assert_eq!(
+            include_str!("fixtures/public_rgba.txt")
+                .lines()
+                .filter(|s| !s.starts_with('#'))
+                .count(),
+            cases.len() - 1
+        );
+        for (line, expected) in include_str!("fixtures/public_rgba.txt")
+            .lines()
+            .filter(|s| !s.starts_with('#'))
+            .zip(&outputs)
+        {
+            let (_, response) = line.split_once(" | ").unwrap();
+            let stored: Vec<_> = response
+                .split_whitespace()
+                .skip(1)
+                .map(|s| u32::from_str_radix(s, 16).unwrap())
+                .collect();
+            assert_eq!(&stored, expected);
+        }
+        let stored: Vec<_> = include_bytes!("fixtures/corpus/test_ref.webp")
+            .iter()
+            .map(|&v| u32::from(v))
+            .collect();
+        assert_eq!(&stored, outputs.last().unwrap());
+    }
+}
+
+#[test]
 fn encoder_streams_match_pinned_reference() {
     let cases = support::streams::cases();
     let mut features = [false; 4];
@@ -407,6 +498,7 @@ fn committed_fixtures_match_reference() {
     }
     for (case, output) in cases.iter().zip(outputs) {
         if case.function == "WebPEncodeLosslessRGBA" {
+            native::compare(case, &output, &case.rust());
             let image = support::ImageCase {
                 name: "public encoding fixture",
                 width: case.input[0],
@@ -431,6 +523,7 @@ fn pinned_public_encoder_round_trips() {
     let images = support::image_cases();
     let cases: Vec<_> = images.iter().map(|image| image.request()).collect();
     for (image, output) in images.iter().zip(native::run("public", &cases)) {
+        native::compare(&image.request(), &output, &image.request().rust());
         let bytes: Vec<_> = output
             .into_iter()
             .map(|v| u8::try_from(v).unwrap())

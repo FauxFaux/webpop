@@ -477,19 +477,35 @@ int main(void) {
         VP8LCollectColorRedTransforms_C(in + 261, (int)in[0], (int)in[1], (int)in[2], (int)in[3], out);
       else VP8LCollectColorBlueTransforms_C(in + 261, (int)in[0], (int)in[1], (int)in[2], (int)in[3], (int)in[4], out);
       count = 256;
-    } else if (IS(WebPEncodeLosslessRGBA)) {
+    } else if (IS(WebPEncodeLosslessRGBA) || IS(WebPEncodeRGBAOptions)) {
       uint8_t *allocation, *rgba, *encoded = NULL;
       size_t size;
       uint64_t required;
+      const unsigned offset = IS(WebPEncodeLosslessRGBA) ? 3 : 6;
       REQUIRE(n >= 3 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
       REQUIRE(in[2] >= in[0] * 4 && in[2] <= INT32_MAX);
       required = (uint64_t)(in[1] - 1) * in[2] + in[0] * 4;
-      REQUIRE(required == n - 3);
-      allocation = (uint8_t*)malloc(n - 3 + 1);
+      REQUIRE(n >= offset && required == n - offset);
+      allocation = (uint8_t*)malloc(n - offset + 1);
       REQUIRE(allocation != NULL);
       rgba = allocation + 1;  // Exercise the importer's unaligned input path.
-      for (i = 3; i < n; ++i) { REQUIRE(in[i] <= 255); rgba[i - 3] = (uint8_t)in[i]; }
-      size = WebPEncodeLosslessRGBA(rgba, (int)in[0], (int)in[1], (int)in[2], &encoded);
+      for (i = offset; i < n; ++i) { REQUIRE(in[i] <= 255); rgba[i - offset] = (uint8_t)in[i]; }
+      if (IS(WebPEncodeLosslessRGBA)) {
+        size = WebPEncodeLosslessRGBA(rgba, (int)in[0], (int)in[1], (int)in[2], &encoded);
+      } else {
+        WebPConfig config;
+        WebPPicture pic;
+        WebPMemoryWriter writer;
+        REQUIRE(in[3] <= 100 && in[4] <= 6 && in[5] <= 1);
+        REQUIRE(WebPConfigInit(&config) && WebPPictureInit(&pic));
+        config.lossless = 1; config.quality = in[3]; config.method = in[4]; config.exact = in[5];
+        pic.use_argb = 1; pic.width = in[0]; pic.height = in[1];
+        WebPMemoryWriterInit(&writer);
+        pic.writer = WebPMemoryWrite; pic.custom_ptr = &writer;
+        REQUIRE(WebPPictureImportRGBA(&pic, rgba, in[2]) && WebPEncode(&config, &pic));
+        WebPPictureFree(&pic);
+        size = writer.size; encoded = writer.mem;
+      }
       REQUIRE(size > 0 && size <= LIMIT && encoded != NULL);
       for (i = 0; i < size; ++i) out[count++] = encoded[i];
       WebPFree(encoded);

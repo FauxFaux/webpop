@@ -6,7 +6,7 @@ They are test-only and live outside the submodule.
 Run from the repository root:
 
 ```sh
-# Portable fixtures, exhaustive arithmetic checks, and the existing Wasm test:
+# Portable fixtures, exhaustive arithmetic checks, and independent decodes:
 cargo test -p libwebpop
 
 # Also configure/build the pinned native oracle and run live comparisons:
@@ -26,11 +26,9 @@ use a fresh build directory. There is no Cargo build script or production FFI.
 Enabling the feature on a library build does not invoke the oracle.
 
 This native backend was selected because it can expose internal/header leaves
-directly from the pinned checkout. The bundled Wasm binary exports the public
-encoder but no leaf wrappers, predates the pin, and cannot establish exact
-intermediate parity. Emscripten is not installed in the initial environment.
-The same seven image inputs run through both backends and an independent Rust
-decoder; the old Wasm compressed bytes are not required to match the pin.
+directly from the pinned checkout. The older bundled Wasm regression has been
+removed; its seven synthetic image cases now compare full public Rust output
+with pinned C and independently decode. Normal tests use committed C fixtures.
 
 `tests/support/mod.rs` defines logical requests and the Rust evaluator separately
 from `tests/support/native.rs`, which handles builds and transport. Add a
@@ -548,3 +546,44 @@ compared to every individually encoded trial to check rounded byte selection,
 different streams tied for size and later winning configurations. Another
 1,296 complete-file decodes check dimensions, alpha, visible RGB and all RGB
 in exact mode, and verify that prepared source pixels remain unchanged.
+
+### Milestone 9 public RGBA encoding
+
+`WebPEncodeLosslessRGBA` retains its original request layout `(width, height,
+byte_stride)`, followed by one u32 word per RGBA byte, including row padding.
+It now compares the Rust simple API with the original C simple API.
+`WebPEncodeRGBAOptions` takes `(width, height, byte_stride, quality, method,
+exact)`, followed by RGBA bytes, and returns complete RIFF/WebP bytes. The C
+adapter initializes the normal lossless config, imports RGBA, calls the original
+`WebPEncode` and collects its memory writer output. Near-lossless strength is
+100, the image hint is default and threading is off. Both adapters deliberately
+start input at an unaligned byte offset.
+
+`public_rgba_encoders_match_pinned_reference` compares and independently decodes
+2,584 full files, spanning all palette thresholds, methods 0–6, quality/cache
+boundaries, exact/transparent cleanup, padded rows without final-row padding,
+unaligned source slices, both 16,383-pixel skinny geometries, and 128 additional
+seeded geometries/strides with random effort settings. The same cases run in
+debug and release. There is no compressed-byte divergence on the recorded
+scalar toolchain. The production library remains independent of C.
+
+The real-image sample is copied verbatim from the pinned
+`upstream/examples/test_ref.ppm` into `fixtures/corpus/test_ref.ppm` so normal
+tests do not depend on the submodule. Its C-encoded `test_ref.webp` is 14,954
+bytes and is compared directly in portable tests. The corpus README records
+source provenance and checksum. `fixtures/public_rgba.txt` contains 43 compact
+public requests/responses from `support::public_images::fixture_cases`.
+Source pin, compiler and build options are unchanged from milestone 8.
+Review the pin and `target/native-oracle/provenance.txt` before regenerating
+the text fixtures and sample binary together:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test native_oracle public_rgba_fixtures_match_pinned_reference
+```
+
+Portable tests also cover invalid geometry/effort errors, byte-count overflow,
+input immutability, layout-independent default output and the equivalence of
+simple/default-configured APIs. The CLI's default output is byte-compared with
+the library API. `public_encode_baseline` is an explicitly ignored timing test;
+its release invocation and first size/time measurements are recorded in the
+lossless port plan. Timings do not affect test success.

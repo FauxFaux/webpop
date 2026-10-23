@@ -8,6 +8,7 @@ pub mod main_images;
 pub mod matches;
 pub mod palette;
 pub mod predictors;
+pub mod public_images;
 pub mod references;
 pub mod streams;
 pub mod token_streams;
@@ -35,6 +36,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "WebPEncodeLosslessRGBA" | "WebPEncodeRGBAOptions" => public_images::evaluate(self),
             "VP8LEncodeStream" => streams::evaluate(self),
             "AnalysisSizing" | "AnalyzeEntropy" | "EncoderAnalyze" => analysis::evaluate(self),
             "CrossColor" => cross_color::evaluate(self),

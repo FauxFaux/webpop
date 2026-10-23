@@ -53,6 +53,34 @@ fn decode(bytes: &[u8]) -> image::RgbaImage {
 }
 
 #[test]
+fn default_cli_matches_the_simple_library_api() {
+    let temp = Scratch::new();
+    let input = temp.file("input.png");
+    let output = temp.file("output.webp");
+    let image = source();
+    image.save(&input).unwrap();
+    let result = command()
+        .arg(&input)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let expected = libwebpop::WebPEncodeLosslessRGBA(
+        image.as_raw(),
+        image.width(),
+        image.height(),
+        image.width() as usize * 4,
+    )
+    .unwrap();
+    assert_eq!(fs::read(output).unwrap(), expected);
+}
+
+#[test]
 fn files_and_streams_round_trip_rgba() {
     let temp = Scratch::new();
     let input = temp.file("input.png");

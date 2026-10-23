@@ -10,6 +10,7 @@ fn committed_scalar_fixtures() {
     assert!(fixtures.len() >= 40);
     for (case, expected) in fixtures {
         if case.function == "WebPEncodeLosslessRGBA" {
+            assert_eq!(case.rust(), expected, "public encoding fixture");
             let image = support::ImageCase {
                 name: "public encoding fixture",
                 width: case.input[0],

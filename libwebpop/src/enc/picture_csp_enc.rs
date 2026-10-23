@@ -1,5 +1,11 @@
-//! Checked positive-stride geometry for RGBA import.
-//! Corresponds to upstream's Import / CheckStride / WebPValidatePicture checks.
+// Copyright 2011 Google Inc. All Rights Reserved.
+// Derived from upstream/src/enc/picture_csp_enc.c (ARGB import/transparency).
+// See COPYING and PATENTS.
+
+//! Checked positive-stride RGBA import and transparency detection.
+
+use super::picture_enc::WebPPicture;
+use crate::webp::encode::LosslessEncodeError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RgbaInputError {
@@ -38,4 +44,32 @@ pub fn checked_rgba_geometry(
         return Err(RgbaInputError::InputTooShort);
     }
     Ok(required)
+}
+
+pub(crate) fn WebPPictureImportRGBA(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+) -> Result<WebPPicture, LosslessEncodeError> {
+    checked_rgba_geometry(rgba.len(), width, height, stride)?;
+    let size = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or(RgbaInputError::SizeOverflow)?;
+    let mut argb = Vec::new();
+    argb.try_reserve_exact(size)?;
+    for y in 0..height as usize {
+        for pixel in rgba[y * stride..y * stride + width as usize * 4].chunks_exact(4) {
+            argb.push(u32::from_be_bytes([pixel[3], pixel[0], pixel[1], pixel[2]]));
+        }
+    }
+    Ok(WebPPicture {
+        width,
+        height,
+        argb,
+    })
+}
+
+pub(crate) fn WebPPictureHasTransparency(picture: &WebPPicture) -> bool {
+    picture.argb.iter().any(|pixel| pixel >> 24 != 255)
 }

@@ -1,8 +1,8 @@
 //! Bottom-up port of the pinned libwebp lossless encoder.
 //!
-//! [`encode_lossless_rgba`] produces complete WebP images using the ported
-//! lossless pipeline. Automatic upstream configuration selection is still
-//! being ported, so compressed bytes need not match libwebp's simple API.
+//! [`WebPEncodeLosslessRGBA`] produces complete WebP images using libwebp's
+//! simple API defaults. [`encode_lossless_rgba`] also exposes effort and exact
+//! transparent-RGB handling. Both use the pinned encoder's configuration trials.
 #![forbid(unsafe_code)]
 #![allow(non_snake_case)]
 
@@ -12,4 +12,9 @@ pub mod utils;
 pub mod webp;
 
 mod encode;
-pub use encode::{LosslessEncodeError, LosslessOptions, encode_lossless_rgba};
+pub use encode::{
+    LosslessEncodeError, LosslessOptions, WebPEncodeLosslessRGBA, encode_lossless_rgba,
+};
+
+/// Error type returned by the upstream-named simple encoding API.
+pub type WebPEncodingError = LosslessEncodeError;
