@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod clustering;
 pub mod cross_color;
 pub mod entropy_coding;
+pub mod lossy;
 pub mod main_images;
 pub mod matches;
 pub mod palette;
@@ -36,6 +37,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8FTransform" => lossy::transform(self),
             "WebPEncodeLosslessRGBA" | "WebPEncodeRGBAOptions" => public_images::evaluate(self),
             "VP8LEncodeStream" => streams::evaluate(self),
             "AnalysisSizing" | "AnalyzeEntropy" | "EncoderAnalyze" => analysis::evaluate(self),

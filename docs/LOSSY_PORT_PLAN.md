@@ -6,10 +6,9 @@ The implementation order is [lossless](LOSSLESS_PORT_PLAN.md), then
 [near-lossless VP8L](NEAR_LOSSLESS_PORT_PLAN.md), then the lossy RGBA entry
 points covered here, exposed by quad-image's full WebP Wasm encoder. The
 near-lossless extension reuses VP8L and needs none of this plan's VP8/YUV/ALPH
-milestones. The lossless prerequisite is now satisfied. Near-lossless has ported
-preprocessing and predictor quantization leaves; its stream/public integration
-remains. Completing that extension first remains the project order, but is not
-an algorithmic prerequisite for VP8 or ALPH. Preserve
+milestones. Both lossless and near-lossless are complete for the initial
+scalar scope, including their public APIs and pinned-reference validation.
+Lossy milestone 0 is complete; the VP8/YUVA/ALPH encoder remains to port. Preserve
 upstream function names and source layout where practical. The result is a
 pure Rust library accepting prepared RGBA pixels and returning a complete
 still-image WebP file containing VP8, with a separate alpha stream when needed.
@@ -59,9 +58,10 @@ Color quality 100 still uses YUV420 and quantization; it is not lossless RGB.
 
 ## Current repository (revalidated 2026-10-23)
 
-Rechecked the Rust implementation, tests and native wrappers at `e74adaa`
-against the unchanged, clean upstream pin. The VP8/YUVA/ALPH dependency graph
-below still applies; no lossy milestone is complete yet.
+Continued from `e46d70d` against the unchanged, clean upstream pin.
+**Milestone 0 is complete**, and milestone 1 has its first forward-transform
+leaf. The VP8/YUVA/ALPH dependency graph below still applies; the public lossy
+Rust APIs remain unimplemented.
 
 - **Lossless milestones 1–9 are complete.** The public simple API and
   configurable `encode_lossless_rgba` use the full synchronous analysis/trial
@@ -77,30 +77,40 @@ below still applies; no lossy milestone is complete yet.
   targeted alpha-stream comparisons, not a new configurable encoder. The
   [current stream corpus](../libwebpop/tests/support/streams.rs) does not yet
   explicitly cover that combination or alpha-to-green inputs.
-- **Near-lossless milestones 1 and 2 are complete; 0 is partial.**
-  [`near_lossless_enc.rs`](../libwebpop/src/enc/near_lossless_enc.rs) implements
-  standalone preprocessing; [`predictor_enc.rs`](../libwebpop/src/enc/predictor_enc.rs)
-  adds neighborhood differences, component/pixel quantization and subtract-green
-  compensation. The [reference record](../libwebpop/tests/reference/NEAR_LOSSLESS.md)
-  documents portable fixtures, native comparisons and the copied custom C
-  near-lossless wrapper. Reconstruction feedback, candidate routing and the
-  public Rust near-lossless API remain. These leaves are VP8L work: ALPH still
-  needs its separate centroid `QuantizeLevels`, filters and alpha-plane DSP;
-  VP8 still needs its own predictors, transforms and coefficient quantizer.
+- **Near-lossless milestones 0–5 are complete.** Standalone preprocessing,
+  reconstructed predictor feedback, candidate routing, configurable/public
+  APIs and CLI integration match the pin. The
+  [near-lossless plan](NEAR_LOSSLESS_PORT_PLAN.md) and
+  [reference record](../libwebpop/tests/reference/NEAR_LOSSLESS.md) retain the
+  acceptance evidence. These are VP8L algorithms; ALPH still needs its separate
+  centroid `QuantizeLevels`, filters and alpha-plane DSP, and VP8 needs its own
+  predictions, transforms and coefficient quantizer.
+- **Lossy oracle milestone 0 is complete.**
+  [`dsp/enc.rs`](../libwebpop/src/dsp/enc.rs) ports `FTransform_C`, with 1,727
+  exact native comparisons and an independent exhaustive constant-byte-pair
+  check. Both public lossy C entry points use the normally built pinned
+  library; the custom alpha-quality wrapper is copied with provenance.
+  There are 48 portable fixtures (16 leaves, 32 complete reference files), and
+  3,566 independently decoded C files cover fractional color quality, alpha
+  quantization, both raw/compressed ALPH paths, default/custom-100 identity and
+  opaque invariance. Invalid float and signed alpha qualities are rejected.
+  The [lossy reference record](../libwebpop/tests/reference/LOSSY.md) documents
+  protocols, wrapper provenance, measured paths and fixture regeneration.
 - **Shared input/output glue remains ARGB/VP8L-only.** Checked geometry,
   owned pixels/output and error propagation exist. `WebPPicture` has only
   width, height and packed ARGB; import, transparency detection and cleanup
   operate on that representation. YUVA storage/import/cleanup, `VP8BitWriter`,
   VP8 syntax and `VP8X`/`ALPH` assembly have not been ported.
 - **Reuse the native oracle and committed corpus.** The
-  [CMake harness](../libwebpop/tests/reference/CMakeLists.txt) already links
-  the full pinned encoder with near-lossless on, SIMD off and threading off.
-  Logical requests, fixtures, seeded cases, `image` WebP decoding and the
-  [real-image sample](../libwebpop/tests/fixtures/corpus/README.md) exist.
-  Lossy adapters and the custom alpha-quality C wrapper remain to add.
-  The bundled lossless-only Wasm regression was removed; no Wasm artifact or
-  runtime is currently part of the harness. The inspection below is historical,
-  and restoring a full-Wasm regression is optional, outside the acceptance gates.
+  [CMake harness](../libwebpop/tests/reference/CMakeLists.txt) links the full
+  pinned encoder with near-lossless on, SIMD off and threading off. Lossy
+  adapters now extend the existing logical protocol. The independent `image`
+  decoder exercises VP8/ALPH as well as VP8L; the existing
+  [real-image sample](../libwebpop/tests/fixtures/corpus/README.md) participates.
+  The retained older full Wasm has opt-in near-lossless wrapper regression;
+  [artifact/host provenance](../libwebpop/tests/reference/full-wasm/README.md)
+  records its setup. Extending that backend to lossy remains optional, outside
+  the acceptance gates.
 
 ## Inspected Wasm build and feature boundary
 
@@ -116,9 +126,9 @@ build directory or full Wasm artifact:
 - [`web/assets/webp-encode.wasm`](../../quad-image/web/assets/webp-encode.wasm)
   and the [browser host](../../quad-image/web/locket/webp-wasm.ts).
 
-These links require the sibling checkout. Record or copy reviewed wrapper
-sources and provenance into this repository's test support when implementing
-the oracle extension, so tests do not depend on that checkout being present.
+These historical links require the sibling checkout. The reviewed custom
+wrappers are now copied into this repository's test support with provenance;
+tests do not depend on that checkout being present.
 
 The actual full artifact is **440,786 bytes**, SHA-256
 `f6317d0cce217547b165a768f82647c2e923c489b5ab75b8dd0310722cffa477`.
@@ -507,22 +517,22 @@ backend and logical fixture protocol. Add same-translation-unit wrappers for
 static helpers outside `upstream/`, one source file at a time, with no duplicate
 definitions when linking. Preserve the inherited lossless corpus and fixtures.
 
-Add the reviewed custom alpha-quality wrapper as test-only C and call it against
-the pin; it is not present in upstream. Follow the existing
-[`near_lossless_wrapper.c`](../libwebpop/tests/reference/near_lossless_wrapper.c)
-integration pattern and commit the alpha wrapper's provenance and applicable
-notices. The public reference must call the normally built library, while
-included/renamed translation units expose static leaves. Preserve fractional
-color quality in the u32-word protocol using its f32 bit pattern; an integer
-quality field would miss required behavior and NaN/infinity validation.
+Milestone 0 adds the reviewed custom
+[`alpha_quality_wrapper.c`](../libwebpop/tests/reference/alpha_quality_wrapper.c)
+as test-only C, following the existing near-lossless integration pattern and
+retaining provenance/notices. Both public references call the normally built
+library. The first VP8 leaf uses its scalar DSP dispatch entry; future static
+leaves use included/renamed translation units. Fractional color quality travels
+in the u32-word protocol using its f32 bit pattern, preserving NaN/infinity
+validation. See the [lossy reference record](../libwebpop/tests/reference/LOSSY.md).
 
-Full-Wasm export/ABI and semantic regression is optional. If restored, copy the
-historically inspected full artifact into test support, record its hash and
-provenance, enable Wasm SIMD and follow the recorded initialization sequence.
-The old lossless-only artifact is no longer bundled. Do not require a sibling
-checkout at test time or identical bytes across the old SIMD build and the
-newer scalar pin. The native oracle and portable C fixtures remain sufficient
-for required regression coverage.
+Full-Wasm export/ABI and semantic regression for lossy remains optional. The
+historically inspected full artifact is retained for near-lossless regression,
+with its hash, provenance, SIMD host and initialization sequence recorded in
+test support. The old lossless-only artifact is no longer bundled. Do not
+require a sibling checkout at test time or identical bytes across the old SIMD
+build and the newer scalar pin. The native oracle and portable C fixtures
+remain sufficient for required lossy regression coverage.
 
 Compare logical outputs in layers:
 
@@ -537,8 +547,8 @@ Compare logical outputs in layers:
    independent decoding with the existing Rust decoder, and semantic checks
    against decoded C output; optional wrapper regressions through the older
    full Wasm backend. A decoder accepting the output alone does not establish
-   encoder parity. Reuse the existing decoder entry point, but add VP8/ALPH
-   cases: current independent Rust round trips exercise VP8L.
+   encoder parity. Milestone 0 adds independently decoded C VP8/ALPH files;
+   extend these to Rust lossy output as the public encoder becomes available.
 
 At alpha quality 100, alpha must equal the original plane everywhere, including
 fully transparent pixels. Below 100, compare the quantized plane and emitted
@@ -556,16 +566,15 @@ names do not prove that Intra4, diffusion, raw fallback, or frame retries ran.
 
 ## Implementation order and acceptance gates
 
-The completed lossless port satisfies the shared prerequisite. None of the
-lossy milestones below is complete; milestone 0 extends the existing oracle,
-and milestone 8 reuses the implemented configurable VP8L stream. Near-lossless
-integration remains earlier in project order, without adding a dependency to
-this graph. Split large files into leaf/subgraph work; integrate parents only
-after their dependencies match the oracle.
+The completed lossless and near-lossless ports satisfy the project order.
+**Lossy milestone 0 is complete**; milestone 1 has `FTransform_C`, with the
+remaining DSP leaves still to port. Milestone 8 reuses the implemented
+configurable VP8L stream. Split large files into leaf/subgraph work; integrate
+parents only after their dependencies match the oracle.
 
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
-| 0 | Extend existing oracle/fixtures with a VP8 leaf, both lossy public C wrappers and their provenance | Completed lossless (satisfied) | One leaf and both public C entry points exercised; independent VP8/ALPH decode; all lossless and existing near-lossless tests remain green |
+| 0 (complete) | Extend existing oracle/fixtures with a VP8 leaf, both lossy public C wrappers and their provenance | Completed lossless (satisfied) | `FTransform_C`, both public C entry points, 48 portable fixtures and 3,566 independent VP8/ALPH decodes; lossless and near-lossless regressions pass |
 | 1 | VP8 tables/scans, clipping, predictions, transforms/inverse WHT, scalar quantization, SSE/texture/histogram DSP `[B]` | 0 | Exact leaf outputs on edge values and seeded blocks; predictor borders and signed rounding covered |
 | 2 | Boolean bit writer, cost/probability tables, residual cost leaves, buffered token recording/emission `[C]` | 0 | Exact bits/bytes and state across carry/0xff runs, probabilities 0/255, finish boundaries, coefficient categories and token storage boundaries |
 | 3 | YUVA picture storage, default RGBA import and cleanup `[A]`; iterator/block geometry/borders/contexts `[D]` | 0 | Exact YUVA planes, gamma/alpha-weighting results, padded blocks, row transitions and Intra4 rotations |
@@ -584,14 +593,16 @@ path and alpha feature range are covered.
 
 ### First implementation batch
 
-After milestone 0 adds lossy oracle adapters, useful small units are:
+Milestone 0 has added the lossy adapters and forward 4×4 transform. Next small
+units (milestones 1–3, and independent alpha leaves) are:
 
 1. VP8 scan/zigzag and probability/cost tables, signed clipping/shift helpers.
 2. Boolean writer traces with carry propagation, deferred 0xff runs and finish.
 3. Intra16/UV prediction for all border-presence combinations, then ten Intra4
    modes with top-right extension and exact boundary layout.
-4. Forward/inverse 4×4 transforms and forward/inverse WHT; quantization with
-   explicit synthetic matrices, threshold ties, sharpening and saturation.
+4. Inverse 4×4 transform and forward/inverse WHT (`FTransform_C` is complete);
+   quantization with explicit synthetic matrices, threshold ties, sharpening
+   and saturation.
 5. SSE/texture/histogram leaves, residual last-nonzero detection and token costs.
 6. Default RGB→Y and UV accumulation/conversion, gamma/interpolation and
    alpha-weighted cases; import last-row/odd-column handling before whole images.
@@ -658,13 +669,11 @@ and deterministic filter-strength adjustment remain required.
 
 ### Earlier extension: near-lossless VP8L
 
-Implement `WebPEncodeRGBAWithNearLossless` before these lossy entry points,
-following the dedicated [near-lossless plan](NEAR_LOSSLESS_PORT_PLAN.md). It
-extends the completed VP8L pipeline with standalone preprocessing and predictor
-quantization, selected per transform candidate. Both sets of leaves and the
-custom C reference wrapper are implemented; residual reconstruction feedback,
-candidate routing and the public Rust wrapper remain. It does not depend on
-this plan's separate ALPH stream, nor does it supply ALPH's centroid quantizer.
-Near-lossless 100 must equal the simple lossless API; lower settings must match
-the pin and can change intermediate alpha values, while preserving alpha 0
-and 255.
+`WebPEncodeRGBAWithNearLossless` and configurable `encode_near_lossless_rgba`
+are complete, following the dedicated
+[near-lossless plan](NEAR_LOSSLESS_PORT_PLAN.md). They extend the completed VP8L
+pipeline with standalone preprocessing and reconstructed predictor quantization,
+selected per transform candidate. Public output matches the pin, strength 100
+matches the simple lossless API, and lower strengths preserve alpha endpoints.
+This does not depend on the separate ALPH stream or supply ALPH's centroid
+quantizer. Preserve this behavior while adding VP8 and ALPH.

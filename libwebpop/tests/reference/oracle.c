@@ -52,6 +52,9 @@ extern int VP8LDistanceToPlaneCode(int, int);
 int WebpopNearLossless(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 int WebpopNearLosslessPredictor(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 size_t WebPEncodeRGBAWithNearLossless(const uint8_t*, int, int, int, int, uint8_t**);
+unsigned WebpopLossyTransform(const uint32_t*, uint32_t*);
+unsigned WebpopLossyEncode(const uint32_t*, unsigned, int, uint32_t*);
+unsigned WebpopAlphaWrapperErrors(uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -94,7 +97,21 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8LEncodeStream)) {
+    if (IS(VP8FTransform)) {
+      REQUIRE(n == 32);
+      for (i = 0; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopLossyTransform(in, out);
+    } else if (IS(WebPEncodeRGBA) || IS(WebPEncodeRGBAWithAlphaQuality)) {
+      const unsigned offset = IS(WebPEncodeRGBA) ? 4 : 5;
+      REQUIRE(n >= offset && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
+      REQUIRE(in[2] >= in[0] * 4 && in[2] <= INT32_MAX);
+      REQUIRE((uint64_t)(in[1] - 1) * in[2] + in[0] * 4 == n - offset);
+      for (i = offset; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopLossyEncode(in, n, IS(WebPEncodeRGBAWithAlphaQuality), out);
+    } else if (IS(AlphaQualityWrapperErrors)) {
+      REQUIRE(n == 0);
+      count = WebpopAlphaWrapperErrors(out);
+    } else if (IS(VP8LEncodeStream)) {
       REQUIRE(n >= 8 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] >= in[0]);
       REQUIRE(in[3] <= 6 && in[4] <= 100 && in[5] <= 1 && in[6] <= 97);
       REQUIRE(n == 7 + (uint64_t)(in[1] - 1) * in[2] + in[0] && n < 20000);
