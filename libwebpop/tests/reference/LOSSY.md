@@ -585,3 +585,92 @@ new token/fitting tests and eight cost/probability tests in release with
 `native-oracle`, release library tests including allocation failure, formatting,
 normal library-only build and `git diff --check`. Earlier fixtures and the
 upstream pin remain unchanged; the upstream checkout is clean.
+
+### Milestone 3 input: default YUVA import and transparent cleanup
+
+Continued from `2237561` against the unchanged, clean pin and the same scalar
+GCC 15.2.0-16ubuntu1 / CMake 4.2.3 / Release `-O3 -DNDEBUG` configuration,
+SIMD/threading off, Rust 1.101.0-nightly `7189d39d9`. `lossy_yuv.c` includes
+original `dsp/yuv.c` with renamed exports to inspect its private gamma helpers
+and tables. Whole-image comparisons call the normally linked
+`WebPPictureImportRGBA`, `WebPPictureHasTransparency` and
+`WebPCleanupTransparentArea`. No conversion/cleanup formulas are copied into
+the C adapter; the upstream checkout is unmodified.
+
+`dsp/yuv.rs` ports `VP8ClipUV`, `VP8RGBToY/U/V`, `ConvertRGBToY_C`,
+`WebPConvertRGBA32ToUV_C`, gamma table construction/interpolation and
+`WebPAccumulateRGB/RGBA`. Gamma initialization uses a shared immutable
+`OnceLock`, retaining C's double-precision evaluation order. Integer constant
+evaluation generates the reciprocal-alpha table, with every entry compared to
+C. Upstream inline helpers retain plain `#[inline]`.
+
+`import_rgba_to_yuva` provides checked positive-stride import into
+owned `WebPYUVAPicture` planes, distinct from the inherited ARGB picture.
+It combines the paired-row and last-row DSP importer loops, replicating the
+last row with zero source stride, while retaining per-pair opaque detection.
+Luma ignores alpha; chroma uses gamma-compensated averaging and partial-alpha
+weighting, with the original unweighted fallback for zero-alpha cells. Alpha
+is optional for opaque input and otherwise copied exactly. Allocations return
+errors through the existing `Result` contract. Shared public config/picture
+routing remains milestone 9; no public lossy encoder is added here.
+
+The YUVA branch of `WebPCleanupTransparentArea` smooths zero-alpha luma with
+the floor mean of all nonzero-alpha luma in each 8×8 block. Fully transparent
+complete blocks flatten Y/U/V to the first block's top-left values across each
+horizontal transparent run. Visible blocks and row transitions reset the run.
+Right/bottom partial blocks only smooth luma, and alpha is never changed.
+
+The logical requests are:
+
+- `YuvTables`: no input; 256 gamma-to-linear values, 33 linear-to-gamma values,
+  then all 1,021 inverse-alpha entries.
+- `YuvGamma`: `(base_value, shift)` pairs, shift `0..=2` and uplifted value
+  at most 16,380; returns interpolation and gamma conversion for every pair.
+- `YuvLuma`: `(r, g, b, rounding)`, byte RGB and rounding `0..=131072`;
+  returns luma. `YuvUV` uses accumulated components `0..=1020` and returns U/V.
+- `YuvAccumulate`: `(width, source_row_stride, weighted)`, then minimum-length
+  RGBA byte words for two rows (stride zero repeats one row). Returns all four
+  accumulator lanes, followed by U/V planes. Scratch starts at `0xa55a`; RGB
+  accumulation must preserve its fourth lane.
+- `YuvaImport`: `(width, height, byte_stride, cleanup)`, then minimum-length
+  RGBA byte words. Returns transparency and alpha-plane-presence flags, tightly
+  packed Y/U/V and optional alpha. C and Rust use unaligned source starts;
+  source padding contains unrelated bytes and is excluded after the final row.
+
+There are 6,574 exact native requests: 3,521 scalar/table/gamma requests,
+2,619 accumulation requests and 434 whole imports (with/without cleanup).
+Gamma inputs exhaust the full interpolation domain at each supported shift;
+alpha inputs cover every sum `0..=1020`, both weighted color orders, zero and
+opaque fallbacks, row/column replication and 1/254 alpha. Image cases include
+boundaries around 8/16/32, transparent runs interrupted by visible blocks,
+partial right/bottom blocks, locally opaque row pairs within transparent images,
+both 16,383-pixel skinny geometries and the committed real-image sample.
+All gamma table and plane comparisons are exact on the recorded toolchain.
+
+An explicit reciprocal boundary has all RGB components equal to 5 and alpha
+sum 3: the truncated reciprocal uplifts linear value 703 rather than exact
+quotient 704. Gamma interpolation returns accumulator 19 rather than 20.
+This preserves the pin's approximation instead of substituting division.
+Independent portable checks cover monotonicity/endpoints, piecewise rational
+interpolation, reciprocal inequalities, primary colors/clipping, destination
+padding, equivalence to explicitly replicated even geometry, hidden-color
+weighting, cleanup means/run resets/partial edges, alpha and visible-luma
+preservation, input immutability and invalid/overflow geometry.
+
+`fixtures/lossy_yuv.txt` contains 87 portable C fixtures. Earlier fixtures and
+the source pin are unchanged. Review the pin, wrapper and recorded toolchain
+in `target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_yuv yuv_fixtures_match_pinned_reference
+```
+
+Milestone 3's input/cleanup portion is complete. Iterator geometry, reconstructed
+borders, contexts and Intra4 rotations remain next, followed by iterator-based
+macroblock cost wrappers.
+
+Validation passes: full workspace `cargo test --quiet` and
+`cargo test --features native-oracle --quiet`, all nine YUV tests in debug and
+release with `native-oracle`, `cargo fmt --all -- --check`, normal library-only
+build and `git diff --check`. Existing manual tests remain ignored. The upstream
+checkout is clean at the recorded pin.

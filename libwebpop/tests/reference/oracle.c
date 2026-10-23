@@ -74,6 +74,11 @@ unsigned WebpopVP8DefaultProbas(uint32_t*);
 unsigned WebpopTokens(const uint32_t*, uint32_t*);
 unsigned WebpopTokenProba(const uint32_t*, uint32_t*);
 unsigned WebpopProbaState(const uint32_t*, uint32_t*);
+unsigned WebpopYuvTables(uint32_t*);
+unsigned WebpopYuvGamma(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopYuvMatrix(const uint32_t*, int, uint32_t*);
+unsigned WebpopYuvAccumulate(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopYuvaImport(const uint32_t*, unsigned, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -116,7 +121,33 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8TokenProba)) {
+    if (IS(YuvTables)) {
+      REQUIRE(n == 0);
+      count = WebpopYuvTables(out);
+    } else if (IS(YuvGamma)) {
+      REQUIRE(n % 2 == 0);
+      for (i = 0; i < n; i += 2) REQUIRE(in[i + 1] <= 2 && in[i] <= (16380u >> in[i + 1]));
+      count = WebpopYuvGamma(in, n, out);
+    } else if (IS(YuvLuma) || IS(YuvUV)) {
+      unsigned max = IS(YuvLuma) ? 255 : 1020;
+      REQUIRE(n == 4 && in[0] <= max && in[1] <= max && in[2] <= max && in[3] <= 131072);
+      count = WebpopYuvMatrix(in, IS(YuvUV), out);
+    } else if (IS(YuvAccumulate)) {
+      REQUIRE(n >= 3 && in[0] >= 1 && in[0] <= 16383 && in[2] <= 1);
+      REQUIRE(in[1] == 0 || (in[1] >= 4 * in[0] && in[1] <= 131072));
+      REQUIRE(n == 3 + in[1] + 4 * in[0]);
+      for (i = 3; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopYuvAccumulate(in, n, out);
+    } else if (IS(YuvaImport)) {
+      uint64_t size, output_size;
+      REQUIRE(n >= 4 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383 && in[3] <= 1);
+      REQUIRE(in[2] >= 4 * in[0] && in[2] <= 131072);
+      size = (uint64_t)(in[1] - 1) * in[2] + 4 * in[0];
+      output_size = 2 + 2 * (uint64_t)in[0] * in[1] + 2 * (uint64_t)((in[0] + 1) / 2) * ((in[1] + 1) / 2);
+      REQUIRE(n == 4 + size && output_size <= LIMIT);
+      for (i = 4; i < n; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopYuvaImport(in, n, out);
+    } else if (IS(VP8TokenProba)) {
       REQUIRE(n == 3 && in[0] <= in[1] && in[1] <= 65535 && in[2] <= 255);
       count = WebpopTokenProba(in, out);
     } else if (IS(VP8ProbaState)) {

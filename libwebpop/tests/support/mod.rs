@@ -19,6 +19,7 @@ pub mod vp8_dsp;
 pub mod vp8_predictions;
 pub mod vp8_tokens;
 pub mod vp8_transforms;
+pub mod vp8_yuv;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
 use libwebpop::utils::{color_cache_utils::*, utils::*};
@@ -43,6 +44,9 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "YuvTables" | "YuvGamma" | "YuvLuma" | "YuvUV" | "YuvAccumulate" | "YuvaImport" => {
+                vp8_yuv::evaluate(self)
+            }
             "VP8TokenProba" | "VP8ProbaState" | "VP8Tokens" => vp8_tokens::evaluate(self),
             "VP8CostTables" | "VP8DefaultProbas" | "VP8BitCost" | "VP8RecordStats"
             | "VP8LevelCosts" | "VP8Residual" | "VP8WriteProbas" => vp8_cost::evaluate(self),

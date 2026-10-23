@@ -1,5 +1,5 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/picture_csp_enc.c (ARGB import/transparency).
+// Derived from upstream/src/enc/picture_csp_enc.c (RGBA import/transparency).
 // See COPYING and PATENTS.
 
 //! Checked positive-stride RGBA import and transparency detection.
@@ -72,4 +72,97 @@ pub(crate) fn WebPPictureImportRGBA(
 
 pub(crate) fn WebPPictureHasTransparency(picture: &WebPPicture) -> bool {
     picture.argb.iter().any(|pixel| pixel >> 24 != 255)
+}
+
+/// Import the default lossy RGBA path (no dithering or SharpYUV), retaining
+/// hidden RGB and alpha exactly until transparent-area cleanup is requested.
+pub fn import_rgba_to_yuva(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+) -> Result<super::picture_enc::WebPYUVAPicture, LosslessEncodeError> {
+    use crate::dsp::yuv::{
+        ConvertRGBToY_C, WebPAccumulateRGB, WebPAccumulateRGBA, WebPConvertRGBA32ToUV_C,
+    };
+
+    checked_rgba_geometry(rgba.len(), width, height, stride)?;
+    let (w, h) = (width as usize, height as usize);
+    let (uw, uh) = (w.div_ceil(2), h.div_ceil(2));
+    let size = w.checked_mul(h).ok_or(RgbaInputError::SizeOverflow)?;
+    let uv_size = uw.checked_mul(uh).ok_or(RgbaInputError::SizeOverflow)?;
+    let has_alpha = (0..h).any(|row| {
+        rgba[row * stride..row * stride + 4 * w]
+            .chunks_exact(4)
+            .any(|p| p[3] != 255)
+    });
+    let allocate = |len| -> Result<Vec<u8>, std::collections::TryReserveError> {
+        let mut v = Vec::new();
+        v.try_reserve_exact(len)?;
+        v.resize(len, 0);
+        Ok(v)
+    };
+    let mut pic = super::picture_enc::WebPYUVAPicture {
+        width,
+        height,
+        y: allocate(size)?,
+        u: allocate(uv_size)?,
+        v: allocate(uv_size)?,
+        a: if has_alpha {
+            Some(allocate(size)?)
+        } else {
+            None
+        },
+    };
+    let tmp_size = uw.checked_mul(4).ok_or(RgbaInputError::SizeOverflow)?;
+    let mut tmp_rgb = Vec::new();
+    tmp_rgb.try_reserve_exact(tmp_size)?;
+    tmp_rgb.resize(tmp_size, 0u16);
+    // ImportYUVAFromRGBA_C processes pairs; ImportYUVAFromRGBALastLine_C
+    // repeats the final row by using a zero source stride. This loop shares
+    // those operations while retaining the per-pair opaque fast path.
+    for row in (0..h).step_by(2) {
+        let rows = (h - row).min(2);
+        let src = &rgba[row * stride..];
+        let rgb_stride = if rows == 2 { stride } else { 0 };
+        let mut rows_have_alpha = false;
+        for dy in 0..rows {
+            ConvertRGBToY_C(&src[dy * stride..], &mut pic.y[(row + dy) * w..], w, 4);
+            if let Some(alpha) = &mut pic.a {
+                for x in 0..w {
+                    let a = src[dy * stride + 4 * x + 3];
+                    alpha[(row + dy) * w + x] = a;
+                    rows_have_alpha |= a != 255;
+                }
+            }
+        }
+        if rows_have_alpha {
+            WebPAccumulateRGBA(
+                src,
+                &src[1..],
+                &src[2..],
+                &src[3..],
+                rgb_stride,
+                &mut tmp_rgb,
+                w,
+            );
+        } else {
+            WebPAccumulateRGB(src, &src[1..], &src[2..], 4, rgb_stride, &mut tmp_rgb, w);
+        }
+        let uv_offset = (row / 2) * uw;
+        WebPConvertRGBA32ToUV_C(
+            &tmp_rgb,
+            &mut pic.u[uv_offset..],
+            &mut pic.v[uv_offset..],
+            uw,
+        );
+    }
+    Ok(pic)
+}
+
+pub fn has_yuva_transparency(picture: &super::picture_enc::WebPYUVAPicture) -> bool {
+    picture
+        .a
+        .as_ref()
+        .is_some_and(|a| a.iter().any(|&v| v != 255))
 }
