@@ -1,12 +1,12 @@
 //! Checked public RGBA entry points for the VP8 and VP8L encoders.
 
-pub use crate::enc::config_enc::LosslessOptions;
+pub use crate::enc::config_enc::{LosslessOptions, LossyOptions};
 pub use crate::webp::encode::LosslessEncodeError;
 
 use crate::WebPEncodingError;
 use crate::enc::config_enc::{EncoderConfig, LossyConfig, WebPValidateConfig};
 use crate::enc::picture_csp_enc::{
-    WebPPictureImportRGBA, checked_rgba_geometry, import_rgba_to_yuva,
+    WebPPictureImportRGBA, checked_rgba_geometry, import_rgba_to_yuva, import_rgba_to_yuva_sharp,
 };
 use crate::enc::webp_enc::{WebPEncode, WebPEncodeLossy};
 
@@ -63,8 +63,52 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
     alpha_quality: i32,
     output: &mut Vec<u8>,
 ) -> Result<(), WebPEncodingError> {
-    let config = LossyConfig::new(quality, alpha_quality)?;
-    let mut picture = import_rgba_to_yuva(rgba, width, height, stride)?;
+    encode_lossy_rgba(
+        rgba,
+        width,
+        height,
+        stride,
+        &LossyOptions {
+            quality,
+            alpha_quality,
+            use_sharp_yuv: false,
+        },
+        output,
+    )
+}
+
+/// Encode RGBA as method-4 VP8 with independent color/alpha quality and an
+/// optional SharpYUV importer. Default options match [`WebPEncodeRGBA`] at 75.
+/// Geometry, input immutability and output replacement/error guarantees follow
+/// [`WebPEncodeRGBA`]. Other advanced VP8 configuration remains deferred.
+///
+/// SharpYUV uses the pinned sRGB/WebP matrix conversion and falls back to the
+/// ordinary alpha-aware importer when width or height is below 4. Larger
+/// images convert RGB without alpha weighting, then copy alpha exactly before
+/// the encoder's usual transparent-area cleanup and alpha compression.
+///
+/// ```
+/// use libwebpop::{LossyOptions, encode_lossy_rgba};
+/// let rgba = [255u8; 4 * 4 * 4];
+/// let mut output = Vec::new();
+/// encode_lossy_rgba(&rgba, 4, 4, 16,
+///     &LossyOptions { use_sharp_yuv: true, ..Default::default() }, &mut output)?;
+/// # Ok::<(), libwebpop::WebPEncodingError>(())
+/// ```
+pub fn encode_lossy_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    options: &LossyOptions,
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError> {
+    let config = LossyConfig::new(options.quality, options.alpha_quality)?;
+    let mut picture = if options.use_sharp_yuv {
+        import_rgba_to_yuva_sharp(rgba, width, height, stride)?
+    } else {
+        import_rgba_to_yuva(rgba, width, height, stride)?
+    };
     WebPEncodeLossy(&config, &mut picture, output)
 }
 

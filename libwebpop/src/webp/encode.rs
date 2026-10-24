@@ -27,4 +27,6 @@ pub enum LosslessEncodeError {
     Alpha(#[from] AlphaEncodeError),
     #[error(transparent)]
     VP8Container(#[from] VP8WriteError),
+    #[error(transparent)]
+    SharpYuv(#[from] crate::sharpyuv::SharpYuvError),
 }

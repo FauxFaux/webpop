@@ -25,18 +25,18 @@ autovectorization is compatible with this scope. Use the pinned scalar C build
 as the exact sample oracle under a recorded toolchain; do not substitute the
 existing ordinary WebP RGB-to-YUV converter or a generic color library.
 
-Adding `libwebpop`'s `use_sharp_yuv`/preprocessing routing and a CLI selector is
-a subsequent [encoder completion](ENCODER_COMPLETION_PLAN.md) task. This plan
-finishes the independently usable conversion module first, without changing
-current WebP defaults.
+The conversion module was completed before encoder integration. The
+`use_sharp_yuv` adapter and CLI selector are now implemented as described
+below; existing WebP defaults remain unchanged. Other preprocessing and SIMD
+remain [encoder completion](ENCODER_COMPLETION_PLAN.md) work.
 
 ## Current repository and Rust boundary
 
 **Milestones 0–4 are complete (2026-10-24).**
 [`libwebpop::sharpyuv`](../libwebpop/src/sharpyuv/mod.rs) implements all scalar
 conversion functions below, with its own types/errors and no encoder
-dependencies. The existing lossy encoder retains its ordinary YUVA importer;
-SharpYUV selection is subsequent integration work. The
+dependencies. The lossy encoder retains its ordinary YUVA importer by default
+and can select SharpYUV through `LossyOptions::use_sharp_yuv`. The
 [reference record](../libwebpop/tests/reference/SHARPYUV.md) documents 153
 portable C fixtures, exact debug/release comparisons and the first scalar
 timing/buffer baseline.
@@ -306,5 +306,31 @@ Rust ownership/initialization replacement, portable fixtures and independent
 checks pass without upstream tooling, the live scalar corpus matches exactly,
 and the workspace regressions pass. Review the module's dependency boundary
 to ensure it remains independent of encoder internals. Update this plan with
-implementation and reference evidence as each milestone completes. SIMD and
-WebP integration can then follow as separate changes.
+implementation and reference evidence as each milestone completes. SIMD
+remains separate work.
+
+## Completed encoder integration
+
+`encode_lossy_rgba` exposes `LossyOptions { quality, alpha_quality,
+use_sharp_yuv }` while retaining method 4, default preprocessing/cleanup and
+the existing output-buffer guarantees. The simple lossy entry points select
+ordinary conversion. The CLI accepts `--lossy --sharp_yuv` and equivalent
+`--lossy --pre 4`; `--pre 0` selects ordinary conversion unless the explicit
+sharp flag is also set. Other preprocessing values remain unsupported.
+
+The encoder-side `import_rgba_to_yuva_sharp` adapts RGBA directly to the
+standalone module's typed views and transfers its owned Y/U/V planes into
+the encoder picture. It copies nonopaque alpha independently. If either
+dimension is below upstream's `kMinDimensionIterativeConversion` (4), it
+uses the existing ordinary alpha-aware importer. Transparent-area cleanup
+and alpha compression run afterward, retaining upstream order.
+
+There are 432 exact pinned-C YUVA import comparisons and 2,318 complete-file
+comparisons with independent decoding, plus 60 portable C fixtures. They
+cover both sides of the dimension threshold, odd boundaries, alpha policies,
+cleanup, default/sharp/preprocessing routes, quality and alpha quality,
+unaligned/padded/minimum inputs, skinny limits and real images. CLI tests
+cover files, streams, `--noalpha`, route aliases and rejection before input
+access. SharpYUV production code still depends only on its own modules and
+the standard library. See the
+[reference record](../libwebpop/tests/reference/SHARPYUV.md#encoder-integration).

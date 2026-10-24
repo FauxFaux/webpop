@@ -9,6 +9,7 @@ cargo run -p cwebpop -- --lossless -q 80 input.png -o output.webp
 cargo run --release -p cwebpop -- --exact input.png -o output.webp
 cargo run --release -p cwebpop -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp
 cargo run --release -p cwebpop -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp
+cargo run --release -p cwebpop -- --lossy --sharp_yuv input.png -o output.webp
 cat input.png | target/release/cwebpop --quiet - -o - > output.webp
 ```
 
@@ -31,7 +32,7 @@ still change pixels, including alpha. `--noasm` is accepted; the implementation
 is portable Rust. See [quality, effort and levels](../docs/LEVELS.md).
 
 `--lossy` selects the default-preset VP8 encoder through
-`WebPEncodeRGBAWithAlphaQuality`. Here `-q` controls color fidelity, accepts
+`encode_lossy_rgba`. Here `-q` controls color fidelity, accepts
 finite values from 0–100 and preserves fractional values; the default is 75.
 Quality 100 still uses YUV420 and quantization, so RGB can change.
 `--alpha_q N` accepts integer alpha quality 0–100 (default 100, exact alpha).
@@ -40,6 +41,14 @@ The lossy path currently supports method 4 only, including explicit `-m 4`.
 `--lossy` conflicts with `--lossless`, `--near_lossless` and `--exact`;
 `--alpha_q` requires `--lossy`. `--noalpha`, streams and reporting options work
 in either mode. Invalid or unsupported settings fail before reading input.
+
+`--lossy --sharp_yuv` enables the scalar SharpYUV RGB-to-YUV conversion;
+`--lossy --pre 4` is equivalent. Images with width or height below 4 retain
+ordinary conversion, matching upstream. Alpha is preserved by conversion and
+then encoded according to `--alpha_q`. `--pre 0` selects ordinary conversion
+unless `--sharp_yuv` is also set. Other preprocessing values remain
+unsupported; both options require `--lossy`. The library exposes this choice
+as `LossyOptions::use_sharp_yuv`; existing simple APIs keep ordinary conversion.
 
 The existing upstream-style option inventory is retained, but unsupported
 options, including crop/resize, presets and metadata, fail before opening input

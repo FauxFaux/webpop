@@ -2,6 +2,7 @@
 //!
 //! [`WebPEncodeRGBA`] encodes lossy VP8 with exact alpha;
 //! [`WebPEncodeRGBAWithAlphaQuality`] also permits alpha quantization.
+//! [`encode_lossy_rgba`] adds configurable SharpYUV conversion.
 //!
 //! [`WebPEncodeLosslessRGBA`] produces complete WebP images using libwebp's
 //! simple API defaults. [`encode_lossless_rgba`] also exposes effort and exact
@@ -32,9 +33,9 @@ pub mod webp;
 
 mod encode;
 pub use encode::{
-    LosslessEncodeError, LosslessOptions, WebPEncodeLosslessRGBA, WebPEncodeRGBA,
+    LosslessEncodeError, LosslessOptions, LossyOptions, WebPEncodeLosslessRGBA, WebPEncodeRGBA,
     WebPEncodeRGBAWithAlphaQuality, WebPEncodeRGBAWithNearLossless, encode_lossless_rgba,
-    encode_near_lossless_rgba,
+    encode_lossy_rgba, encode_near_lossless_rgba,
 };
 
 /// Error type returned by the upstream-named simple encoding API.

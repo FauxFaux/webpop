@@ -63,6 +63,7 @@ libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
  * [Original lossless encoder porting plan](docs/LOSSLESS_PORT_PLAN.md)
  * [Lossy encoder porting plan](docs/LOSSY_PORT_PLAN.md)
  * [SharpYUV module porting plan](docs/SHARPYUV_PORT_PLAN.md)
+ * [Animation and multi-frame encoding plan](docs/ANIMATION_PORT_PLAN.md)
  * [Remaining encoder features and performance work](docs/ENCODER_COMPLETION_PLAN.md)
  * [CLI documentation](cwebpop/README.md)
  * [reference Docker build](reference-cwebp/README.md)

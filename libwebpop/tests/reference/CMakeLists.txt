@@ -44,6 +44,7 @@ target_sources(webpop_oracle PRIVATE lossy_alpha.c)
 
 target_sources(webpop_oracle PRIVATE predictor.c)
 target_sources(webpop_oracle PRIVATE sharpyuv.c sharpyuv_gamma.c sharpyuv_dsp.c sharpyuv_trace.c)
+target_sources(webpop_oracle PRIVATE sharpyuv_enc.c)
 
 # Explicit manual corpus target; normal logical-oracle tests do not build it.
 add_executable(webpop_near_lossless_file near_lossless_file.c near_lossless_wrapper.c)

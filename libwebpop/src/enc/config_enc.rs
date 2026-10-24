@@ -72,6 +72,29 @@ pub(crate) struct EncoderConfig {
     pub near_lossless: u32,
 }
 
+/// Supported lossy settings, using the default method-4 VP8 preset.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LossyOptions {
+    /// Color fidelity, finite and in 0..=100; fractional values are retained.
+    pub quality: f32,
+    /// Alpha fidelity, 0..=100. At 100 alpha is preserved exactly.
+    pub alpha_quality: i32,
+    /// Use SharpYUV conversion. As upstream does, fall back to ordinary
+    /// conversion when either dimension is below 4. Conversion ignores alpha
+    /// on the sharp path; transparent-area cleanup still follows conversion.
+    pub use_sharp_yuv: bool,
+}
+
+impl Default for LossyOptions {
+    fn default() -> Self {
+        Self {
+            quality: 75.0,
+            alpha_quality: 100,
+            use_sharp_yuv: false,
+        }
+    }
+}
+
 /// Checked simple lossy configuration. Color quality stays floating point and
 /// is independent of VP8L's integer compression-effort setting.
 pub(crate) struct LossyConfig {

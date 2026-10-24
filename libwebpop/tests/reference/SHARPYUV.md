@@ -3,8 +3,9 @@
 Source: `upstream/sharpyuv/` at
 `1844042d1ca751e62e61df7617dba19c98588339`, SharpYUV API version 0.4.2.
 The Rust implementation is isolated in `libwebpop/src/sharpyuv/` and uses
-only its own modules and the standard library. Encoder selection and SIMD
-remain separate work; see the [port plan](../../../docs/SHARPYUV_PORT_PLAN.md).
+only its own modules and the standard library. Encoder selection is implemented
+at the caller; SIMD remains separate work. See the
+[port plan](../../../docs/SHARPYUV_PORT_PLAN.md).
 
 ## Backend and provenance
 
@@ -144,3 +145,47 @@ storage. Rust's final row conversion uses logical u16 output planes, then
 packs 8-bit output after releasing the iterative scratch. Consequently its
 8-bit peak includes the temporary u16 planes. Timing is one small baseline,
 not a general performance claim.
+
+## Encoder integration
+
+`sharpyuv_enc.c` adds two requests to the same scalar executable. Both call
+the normally linked libwebp public API, with `picture.use_argb=1` before
+`WebPPictureImportRGBA` so conversion happens through the encoder's ARGB
+route. No conversion, cleanup or encoding formulas are copied into the adapter.
+
+- `YuvaSharpImport`: `(width, height, byte_stride, cleanup)`, then RGBA bytes.
+  Calls `WebPPictureSharpARGBToYUVA`, optionally cleans transparent areas and
+  returns transparency/alpha-plane flags followed by packed Y/U/V/A samples.
+- `WebPEncodeLossyOptions`: `(width, height, byte_stride, quality bits,
+  alpha_quality, use_sharp_yuv, preprocessing)`, then RGBA bytes. Initializes
+  the default preset, sets the three explicit settings and calls `WebPEncode`
+  with a memory writer. Returns complete bytes. Preprocessing is 0 or 4;
+  either the sharp flag or bit 4 selects upstream's sharp route. Inputs start
+  at an unaligned byte offset, require no final-row padding, and are checked
+  unchanged afterward.
+
+`tests/sharpyuv_encoder.rs` compares 432 YUVA imports before/after cleanup
+and 2,318 complete files, including independent decode/alpha/container checks.
+The corpus covers geometry below/at/above 4, odd edges, alpha zero/endpoints/
+intermediate values, fractional quality, independent alpha quality, the two
+sharp selectors and their combination, real images and both 16,383-pixel
+skinny limits. Sixty portable C fixtures live in
+`fixtures/sharpyuv_encoder.txt`. Independent checks establish that small
+images retain the ordinary importer, larger-image RGB conversion ignores
+alpha, alpha is copied exactly, defaults match the existing convenience API,
+and output capacity/content guarantees hold for both conversion choices.
+
+The public Rust surface adds `LossyOptions` and `encode_lossy_rgba`; it keeps
+the two existing simple lossy functions on ordinary conversion. The CLI
+requires `--lossy` for `--sharp_yuv` and `--pre`, accepts preprocessing 0/4
+only, and rejects other values before reading input or touching output.
+
+Regenerate only after reviewing the pin and recorded provenance:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test sharpyuv_encoder sharp_yuv_encoder_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test sharpyuv_encoder
+cargo test -p libwebpop --features native-oracle --test sharpyuv_encoder -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test sharpyuv_encoder -- --nocapture
+cargo test -p cwebpop
+```

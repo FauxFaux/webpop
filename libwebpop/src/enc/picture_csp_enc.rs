@@ -166,3 +166,71 @@ pub fn has_yuva_transparency(picture: &super::picture_enc::WebPYUVAPicture) -> b
         .as_ref()
         .is_some_and(|a| a.iter().any(|&v| v != 255))
 }
+
+/// Import RGBA through upstream's iterative conversion route
+/// (`PreprocessARGB` / `WebPPictureSharpARGBToYUVA`). The encoder owns this
+/// adaptation; the standalone SharpYUV module has no picture/encoder dependency.
+pub fn import_rgba_to_yuva_sharp(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+) -> Result<super::picture_enc::WebPYUVAPicture, LosslessEncodeError> {
+    use crate::sharpyuv::{
+        SharpYuvConvert, SharpYuvGetConversionMatrix, SharpYuvMatrixType, SharpYuvOutput,
+        SharpYuvRgb, SharpYuvRgbView,
+    };
+
+    checked_rgba_geometry(rgba.len(), width, height, stride)?;
+    // kMinDimensionIterativeConversion in picture_csp_enc.c. This fallback
+    // includes the ordinary importer's per-row-pair alpha weighting.
+    if width < 4 || height < 4 {
+        return import_rgba_to_yuva(rgba, width, height, stride);
+    }
+    let input = SharpYuvRgb::U8(SharpYuvRgbView {
+        r: rgba,
+        g: &rgba[1..],
+        b: &rgba[2..],
+        width,
+        height,
+        step: 4,
+        stride,
+    });
+    let SharpYuvOutput::U8(planes) = SharpYuvConvert(
+        input,
+        8,
+        8,
+        SharpYuvGetConversionMatrix(SharpYuvMatrixType::kSharpYuvMatrixWebp),
+    )?
+    else {
+        unreachable!("8-bit SharpYUV output uses u8 planes");
+    };
+    let (w, h) = (width as usize, height as usize);
+    let has_alpha = (0..h).any(|y| {
+        rgba[y * stride..y * stride + 4 * w]
+            .chunks_exact(4)
+            .any(|p| p[3] != 255)
+    });
+    let a = if has_alpha {
+        let mut alpha = Vec::new();
+        alpha.try_reserve_exact(w * h)?;
+        for y in 0..h {
+            alpha.extend(
+                rgba[y * stride..y * stride + 4 * w]
+                    .chunks_exact(4)
+                    .map(|p| p[3]),
+            );
+        }
+        Some(alpha)
+    } else {
+        None
+    };
+    Ok(super::picture_enc::WebPYUVAPicture {
+        width,
+        height,
+        y: planes.y,
+        u: planes.u,
+        v: planes.v,
+        a,
+    })
+}

@@ -112,6 +112,7 @@ unsigned WebpopAnalysisFrame(const uint32_t*, uint32_t*);
 int WebpopSharpYuvLeaves(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 int WebpopSharpYuvDsp(const uint32_t*, unsigned, uint32_t*, unsigned*);
 int WebpopSharpYuvPublic(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
+unsigned WebpopSharpYuvEncoder(const uint32_t*, unsigned, int, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -162,6 +163,21 @@ int main(void) {
       } else {
         REQUIRE(WebpopSharpYuvLeaves(name, in, n, out, &count));
       }
+    } else if (IS(WebPEncodeLossyOptions) || IS(YuvaSharpImport)) {
+      const unsigned offset=IS(YuvaSharpImport)?4:7;
+      uint64_t input_size,output_size;
+      REQUIRE(n>=offset && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383);
+      REQUIRE(in[2]>=4*in[0] && in[2]<=4*in[0]+64);
+      input_size=(uint64_t)(in[1]-1)*in[2]+4*in[0];
+      output_size=2+2*(uint64_t)in[0]*in[1]+2*(uint64_t)((in[0]+1)/2)*((in[1]+1)/2);
+      REQUIRE(n==offset+input_size && output_size<=LIMIT);
+      for(i=offset;i<n;++i) REQUIRE(in[i]<=255);
+      if(IS(YuvaSharpImport)) REQUIRE(in[3]<=1);
+      else {
+        float quality;memcpy(&quality,in+3,sizeof(quality));
+        REQUIRE(quality>=0.f && quality<=100.f && in[4]<=100 && in[5]<=1 && (in[6]==0 || in[6]==4));
+      }
+      count=WebpopSharpYuvEncoder(in,n,IS(YuvaSharpImport),out);
     } else if (IS(VP8SearchFrame)) {
       uint64_t pixels, mbw, mbh, output_size; float quality;
       REQUIRE(n >= 5 && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383 && in[2]>=1 && in[2]<=4 && in[4]<=65536);

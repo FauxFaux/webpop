@@ -1,0 +1,352 @@
+# Animation and multi-frame encoding plan
+
+Planned 2026-10-24 against pinned libwebp
+`1844042d1ca751e62e61df7617dba19c98588339`. Implementation has not started.
+This expands the container/animation work in the
+[encoder completion plan](ENCODER_COMPLETION_PLAN.md), building on the completed
+[lossless](LOSSLESS_PORT_PLAN.md), [near-lossless](NEAR_LOSSLESS_PORT_PLAN.md)
+and [lossy](LOSSY_PORT_PLAN.md) ports.
+
+## Scope and delivery order
+
+Deliver useful multi-frame encoding before completing the animation optimizer:
+
+1. A checked output container layer for internally encoded frame payloads,
+   frame rectangles, timing, loop/background settings and supplied metadata.
+2. A raw RGBA sequence encoder that writes full-canvas replacement frames using
+   the existing still encoders. This is the first usable animation release.
+3. A direct scalar port of `WebPAnimEncoder` selection and caching, starting
+   with lossless, then lossy/mixed candidates and keyframe controls.
+4. A CLI frontend for an ordered sequence of image files with explicit timing.
+
+The first release needs no new pixel codec, general advanced still-image API,
+SIMD or worker implementation. Optimized lossy candidates do need an additional
+filter-control integration described below. Keep the existing still APIs and
+their defaults unchanged. A WebP animation contains independently coded VP8 or
+VP8L rectangles; there is no VP8 inter-frame video coding to port.
+
+The [remaining lossy methods plan](LOSSY_METHODS_PLAN.md) owns methods 0–6,
+direct/token loop selection, trellis, method-dependent alpha effort and the
+shared `LossyOptions`/`encode_lossy_rgba` API. Animation consumes those codec
+routes; it does not duplicate their algorithms or create another lossy options
+type. Basic animation can ship with method 4 while that plan proceeds. Enable
+additional lossy animation methods only after their opaque and transparent
+still-file acceptance gates pass. Mixed mode requires the selected method and
+settings to be supported by every candidate codec, even when a heuristic might
+ultimately choose only one; reject unsupported combinations before encoding.
+
+That plan deliberately fixes the default filter settings. Animation's blended
+lossy filter override is a separate internal integration, preserving those
+still-image defaults and their fixtures. Likewise, adapt its shared
+single-partition result at the encoded-frame payload boundary below; animation
+does not select the direct/token loop or change coefficient-partition policy.
+
+Production remains safe Rust, without C/Wasm dependencies. Input to the library
+is prepared pixels, not GIF/APNG/video or another WebP container. General
+demuxing, editing existing files, image decoding and metadata extraction remain
+outside this plan. The CLI can reuse its existing still-image loaders. Animated
+input import, video timestamps and audio are separate frontend projects.
+
+## Reference and compatibility boundaries
+
+Use the pin as the algorithm and byte oracle. References:
+
+- [`mux.h`](../upstream/src/webp/mux.h) and
+  [`mux_types.h`](../upstream/src/webp/mux_types.h): animation options and enums.
+- [`anim_encode.c`](../upstream/src/mux/anim_encode.c) and
+  [`animi.h`](../upstream/src/mux/animi.h): rectangles, candidates, carryover,
+  keyframes, caching, timestamps and finalization.
+- [`muxedit.c`](../upstream/src/mux/muxedit.c),
+  [`muxinternal.c`](../upstream/src/mux/muxinternal.c) and
+  [`muxi.h`](../upstream/src/mux/muxi.h): output validation and chunk assembly.
+- The pinned [container specification](../upstream/doc/webp-container-spec.txt)
+  and [published specification](https://developers.google.com/speed/webp/docs/riff_container).
+
+There are two distinct byte comparisons. Full-frame sequence output must match
+pinned `WebPMux` given identical encoded payloads and frame controls. The
+optimized encoder must match pinned `WebPAnimEncoder` for supported settings,
+including selected rectangles, frame merging and candidate ties. Full-frame
+assembly alone does not establish `WebPAnimEncoder` parity. Keep the two test
+families and API policies explicit; do not silently change full-frame output
+when the optimizer lands.
+
+Two upstream behaviors need special treatment:
+
+- **Single-frame optimization depends on decoding.** Mux cleanup can unwrap a
+  lone full-canvas frame without decoding; implement that directly. Separately,
+  `OptimizeSingleFrame` calls `FrameToFullCanvas`/`DecodeFrameOntoCanvas`,
+  decodes a remaining subrectangle, re-encodes the full canvas, and selects it
+  if smaller. One input frame, or many merged identical frames, can reach this
+  branch. Re-encoding original input is not generally equivalent, especially
+  for lossy/near-lossless. Keep this optimizer milestone open until exact
+  reconstruction is available or a separate decoder scope decision is made.
+  Earlier releases may retain the valid single-ANMF representation, but must
+  document this unsupported parity branch and must not claim complete pinned
+  animation parity. Test its existence from the first oracle milestone.
+- **Lossy blended candidates disable filtering.** `EncodeCandidate` sets
+  `autofilter=0` and `filter_strength=0` for blended lossy frames. The public
+  still route's fixed default filter cannot supply this behavior. Add and test
+  the minimal internal config-bearing route before enabling those candidates;
+  no requirement to finish every advanced still option first.
+
+## Rust API and ownership
+
+Proposed names below describe the boundary; finalize signatures in milestone 0.
+
+| Surface | Contract |
+| --- | --- |
+| `AnimationOptions` | Canvas dimensions, loop count, explicit background color, encoding policy and optional supplied ICC/EXIF/XMP |
+| `AnimationFrameOptions` | Per-frame codec/fidelity/effort settings limited to implemented still routes |
+| `AnimationEncoder::add_rgba` | Immutable full-canvas RGBA view, positive byte stride, start timestamp in integer milliseconds, frame options |
+| `AnimationEncoder::finish` | Explicit end timestamp and final `&mut Vec<u8>`; determines the last duration and assembles one file |
+| `AnimationError` | Geometry, layout, options, timing, state, size/allocation and wrapped still-encoder errors, with frame context |
+
+Start with full-canvas straight-alpha RGBA input. Borrow input only during
+`add_rgba`; own every canvas, mask and encoded candidate needed afterward. Use
+the existing checked strided importer, including optional final-row padding and
+unchanged-input guarantees. Do not accept caller subrectangles as if they were
+complete display frames. A separate container builder can take explicit encoded
+rectangles and blend/dispose controls; the optimizer chooses those controls
+from complete display frames.
+
+Use integer timestamps with a wide cumulative range (proposed `u64`) and checked
+differences. Accept non-decreasing timestamps, including zero durations; never
+invent a minimum browser delay or convert through floating point. Require each
+supplied interval to fit `0..=0x00ff_ffff` milliseconds. A duration convenience
+adapter may accumulate timestamps with checked arithmetic. Support an arbitrary
+first timestamp: it establishes the origin, not a delay before the first frame.
+The Rust API need not emulate signed C timestamp wraparound; oracle adapters
+must preserve equivalent intervals when exercising the pin's wrapping arithmetic.
+
+Require explicit final timing in the Rust API instead of upstream's optional
+average-duration estimate. Document this API difference and supply the final
+NULL-frame timestamp in C comparisons. Empty input is an error. After successful
+finish, adding or finishing again is a state error. Validate an add before
+mutation; validation failures leave the encoder usable. If an allocation or
+encoding failure occurs after state changes, mark it failed and reject further
+operations. This avoids promising costly rollback of all candidate buffers.
+Finish errors leave the caller's output unchanged, following current APIs.
+
+Expose a typed full-frame versus optimized policy. Start full-frame only and
+reject unavailable policies. For optimized options, preserve upstream defaults:
+white background (`0xffffffff`), infinite loop (`0`), keyframe insertion disabled,
+`minimize_size=false`, `allow_mixed=false`. Define background channels explicitly
+and serialize BGRA; do not confuse this with the public RGBA input layout.
+Represent all-keyframes, disabled keyframes and bounded intervals distinctly.
+Port `SanitizeEncoderOptions` normalization (including its 30-frame window cap)
+into the mapping from upstream-style interval controls and test the effective
+values. Avoid printing upstream `verbose` messages from the library.
+
+Use existing still configuration types where possible. Lossless effort quality
+and lossy fidelity quality have different meanings; mixed mode must follow the
+pin's config reversal and candidate overrides, not interpret them as a common
+visual quality scale. Near-lossless uses the completed VP8L route and retains
+its intermediate-alpha caveat. `exact` must not promise preservation of invisible
+canvas RGB after animation blending or carryover optimization; specify and test
+its narrower codec-level meaning before exposing it on optimized input.
+
+## Output layer and validation
+
+Add `src/mux/` with `muxinternal.rs`, `muxedit.rs` and `anim_encode.rs`, preserving
+upstream function names for ported algorithms. Put safe API types/exports in
+`mux/mod.rs` and re-export the intended animation API from the crate root.
+Use Rust vectors/enums rather than C linked lists and copy/free switches.
+Keep codec logic in `enc/`; carry upstream `WEBP_INLINE` as plain `#[inline]`.
+
+Introduce an internal typed encoded-frame payload: VP8L, or VP8 with optional
+ALPH, dimensions and alpha information. Factor it from the existing VP8L
+`WriteImage` and VP8 `AssembleWebP` boundaries without changing still output.
+Do not nest complete RIFF files inside ANMF or remove a fixed number of header
+bytes: lossy-alpha stills already contain VP8X/ALPH. If a public prepared-frame
+route is exposed, produce its opaque payload through checked encoding methods;
+arbitrary caller-supplied WebP parsing remains excluded.
+
+Implement and test these output rules against the pinned sources:
+
+- Write RIFF/WEBP, VP8X, optional ICCP, ANIM, ordered ANMF frames, then EXIF and
+  XMP. Set feature flags from the actual output, including alpha in any frame.
+  Metadata is supplied bytes, with no profile conversion or extraction.
+- ANMF contains its 16-byte header and either VP8L, or optional ALPH followed by
+  VP8. Chunk lengths exclude padding; every odd payload gets a zero pad byte.
+  Zero reserved fields and encode blend/dispose bits with upstream polarity.
+- Frame origins are even and serialized divided by two; width/height are
+  serialized minus one. The checked rectangle builder rejects odd origins.
+  Upstream `WebPMuxPushFrame` rounds them down; make this Rust API difference
+  explicit. The optimizer instead expands/refines bounds before even snapping
+  so changed pixels cannot be lost. Validate origin plus extent inside canvas.
+- Durations are 24 bits; loop count is 16 bits, with zero meaning infinite.
+  Apply disposal to the previous frame's rectangle before rendering the next.
+  Keep format background metadata distinct from the pin's transparent internal
+  canvas clearing; viewers can treat the background color as a hint.
+- Keep container and codec limits separate. VP8X allows axes through `2^24`
+  and area at most `2^32-1`; the pinned mux further limits frame offsets to
+  less than `2^24` pixels. Existing codecs accept frame axes only through
+  16383. Initially restrict raw full-canvas input to the existing codec limits;
+  a prepared-rectangle builder may use larger valid canvases without allocating
+  a full pixel canvas. Do not promise oversized raw-canvas tiling.
+- Check payload, nested chunk, padded size and total RIFF arithmetic before
+  allocation/narrowing, including 32-bit hosts. Enforce the WebP file limit of
+  `2^32-2` bytes and existing fallible allocation conventions. Test synthetic
+  boundary sizes without allocating multi-gigabyte buffers.
+- Preserve pinned mux cleanup for a lone full-canvas frame, including removing
+  animation chunks/flags while retaining supplied metadata. Document that a
+  sequence may become a still image and then has no playback duration/loop.
+
+## Milestones and acceptance
+
+### 0. Contract and native oracle
+
+- [ ] Finalize the types, timing/state rules and supported codec matrix above.
+- [ ] Extend the existing `native-oracle` CMake build: it currently disables
+  `WEBP_BUILD_LIBWEBPMUX`; enable/link `webpmux` for animation wrappers. Link
+  `webpdemux` only if needed for test inspection/decoding. Preserve scalar,
+  synchronous configuration and the unmodified upstream checkout.
+- [ ] Add `tests/reference/animation*.c`, logical requests in the existing
+  dispatcher/evaluator, and `tests/reference/ANIMATION.md` with pin, toolchain,
+  protocol and fixture provenance. Wrap public mux/animation APIs and selected
+  static helpers outside the submodule, following the existing include-source
+  wrapper convention without duplicate linked definitions.
+- [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
+  default and explicit keyframe options, duration merging/splitting and both
+  single-frame cleanup paths. Capture the decode-dependent case as an open
+  completion requirement, not an ignored mismatch in a passing parity corpus.
+
+### 1. Container assembly and metadata
+
+- [ ] Factor typed codec payload output and port output-only mux assembly.
+- [ ] Add checked canvas/frame controls, global animation settings and metadata.
+- [ ] Compare complete bytes to `WebPMux` for identical prepared payloads;
+  independently inspect every field, padding byte and calculated size.
+- [ ] Re-run still-image parity after factoring writers. This milestone also
+  supplies the completion plan's still-image metadata output foundation.
+
+### 2. Usable raw-frame encoding
+
+- [ ] Implement the stateful RGBA API and explicit final timestamp, initially
+  encoding every submitted canvas at (0,0), no blend, no disposal. Use current
+  lossless, near-lossless and method-4 lossy codecs, including alpha quality.
+- [ ] Preserve submitted timing, including repeated images and zero durations.
+  Full-frame mode does not merge repeats; optimized mode will.
+- [ ] Decode all output frames with an independent animation decoder, checking
+  sequence, canvas and cumulative timing. Compare lossless visible pixels and
+  alpha to input; compare lossy/near-lossless to the corresponding reference
+  codec decode. Byte comparison uses the matching C mux assembly route.
+- [ ] Add a public usage example and document supported settings, memory and
+  the distinction from optimized `WebPAnimEncoder` output.
+
+This is the minimum useful release. A sequence iterator can feed it without
+retaining every raw input image. Encoded frames remain buffered until assembly;
+neither this API nor cache flushing promises constant-memory output streaming.
+
+### 3. Lossless animation optimizer
+
+- [ ] Port pixel comparison, change-rectangle minimization/refinement, empty
+  rectangle handling, even-offset expansion, and subframe views first.
+- [ ] Port blend eligibility, `IncreaseTransparency`, disposal alternatives,
+  candidate encoding and strict size/tie selection in upstream evaluation order.
+- [ ] Port the pin's `prev_canvas`, `canvas_carryover`, candidate/best carryover
+  masks, `CopyIdenticalPixels` and `CopyMaskedPixels` updates. Comparing only
+  adjacent original inputs is insufficient after earlier pixels are carried.
+- [ ] Port `SetFrame`, `CacheFrame`, `FlushFrames` and duration accumulation.
+  Merge unchanged frames without changing total duration. Port
+  `IncreasePreviousDuration`'s transparent 1x1 hold frame when a merged duration
+  would reach `2^24`, including cache-capacity and keyframe-state updates.
+- [ ] Compare intermediates and full files with pinned lossless animation.
+  Add near-lossless only with its actual routing and decoded-pixel evidence;
+  do not apply an independent lossless pixel guarantee below strength 100.
+
+### 4. Lossy, mixed mode and keyframes
+
+- [ ] Add the internal lossy filter override and compare it independently to C,
+  preserving the methods plan's default-filter fixtures. Reuse its validated
+  method propagation and method-dependent alpha job for every enabled method.
+- [ ] Port `QualityToMaxDiff`, alpha-weighted similarity, lossy rectangle/blend
+  checks, `FlattenSimilarBlocks` and lossy carryover updates. Preserve floating
+  evaluation and integer truncation at heuristic thresholds.
+- [ ] Port mixed candidate eligibility (palette thresholds, both codecs in
+  minimize-size mode), config reversal and winner selection. Ordinary mixed
+  mode does not unconditionally try both codecs on every frame.
+- [ ] Port `KeyFramePenalty`, candidate caching, deferred keyframe selection,
+  `kmin`/`kmax`, all-keyframes mode and minimize-size disabling of insertion.
+  A VP8 intra frame in a cropped/blended ANMF is not automatically a full-canvas
+  animation keyframe.
+- [ ] Verify output bytes, candidate order, selected disposal on the preceding
+  frame, masks and cache transitions for supported settings. Resolve the
+  decode-dependent single-frame optimization before declaring this a complete
+  `WebPAnimEncoder` port; retain its explicit completion gate otherwise.
+
+### 5. CLI and resource baseline
+
+The sequence CLI can ship immediately after milestone 2. Add optimizer switches
+and comparative measurements as milestones 3–4 become available.
+
+- [ ] Add a separate `cwebpop` animation subcommand/binary, keeping current
+  single-image invocations compatible. Proposed interface: `cwebpop animate
+  --frame 100 first.png --frame 40 second.png --loop 0 -o out.webp`, where each
+  frame argument is a duration in milliseconds followed by its image path.
+  Document a concrete equivalent if parser constraints require another spelling.
+- [ ] Require equal canvas dimensions and explicit durations; use ordered
+  arguments rather than filesystem/glob ordering or an invented frame rate.
+  Load one image at a time with existing loaders. Reject animated input in this
+  sequence frontend until a deliberate multi-frame loader is implemented.
+- [ ] Expose supported codec settings and optimizer controls as they land;
+  reject unsupported combinations before opening input/output. Support stdout
+  with diagnostics on stderr, and avoid replacing an output file on failure.
+- [ ] Add CLI sequence/timing/error tests and update `cwebpop/README.md` and
+  library examples. GIF/APNG import, frame extraction and input metadata copying
+  are not prerequisites.
+- [ ] Record release timing, encoded size, peak working memory and total
+  buffered output versus pinned scalar C on moving sprites, transparent fades,
+  screenshots, near-static sequences and photographic frames. Include long
+  repeated-frame sequences. Separate full-frame and optimized measurements;
+  correctness is mandatory, performance measurements are initially informational.
+
+## Validation matrix and completion gates
+
+Use portable committed C fixtures, independent structural/compositing checks,
+and live pinned comparisons. Extend the current harness rather than introducing
+a second oracle stack. An independent animation decoder must return every
+composited canvas and timing, not only the first image; verify that capability
+before choosing the existing `image` test dependency or extending dev tooling.
+Also compare Rust and reference output through the same decoder. Account for
+decoder background conventions and zero-delay normalization separately from
+stored ANMF durations. These are test dependencies, not production decoding.
+
+Cover at least:
+
+- 1x1, odd/skinny/padded inputs, one/two/many frames, empty input and inconsistent
+  dimensions; unchanged source and unchanged output on failure.
+- Identical frames, all-transparent sequences, hidden RGB changes, changes on
+  odd origins, last-row/column and opposite-corner changes, sprites leaving old
+  areas, alpha 0/1/254/255, fades and semitransparent overlaps.
+- Both blend modes and both disposal modes, clear/reset across loops, lossy ALPH
+  and VP8L transparency, mixed codec winners, palette heuristic boundaries,
+  equal-size ties, and single-frame collapse with/without metadata.
+- Zero duration, nonzero first timestamp, final duration, descending timestamps,
+  `2^24-1` accepted intervals, `2^24` rejected intervals, merged-duration overflow,
+  wide cumulative timelines and arithmetic overflow. Test split insertion at
+  cache boundaries and after a keyframe candidate has been selected.
+- Keyframe disabled/all/bounded policies, interval normalization and cache cap,
+  minimize-size, per-frame config changes, every advertised codec setting,
+  malformed geometry/options, size bounds and invalid state transitions.
+
+Run focused tests with `animation` in their names as each milestone lands:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop animation
+cargo test -p libwebpop --features native-oracle animation -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test -p cwebpop
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+Basic multi-frame support is complete at milestones 0–2, with CLI delivery in
+milestone 5. Optimized support additionally requires milestones 3–4 and measured
+coverage of their branch matrix. Full pinned animation completion additionally
+requires resolving the single-frame decode dependency and any still settings
+not yet advertised. Update this plan and the parent completion checklist with
+implementation, fixture and benchmark evidence; do not mark omitted branches
+complete on the strength of valid playback alone.

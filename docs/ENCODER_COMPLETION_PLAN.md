@@ -25,6 +25,7 @@ and [lossy](LOSSY_PORT_PLAN.md) plans:
 | `WebPEncodeLosslessRGBA`, `encode_lossless_rgba` | Checked positive-stride RGBA; complete VP8L files; quality 0–100, methods 0–6, exact transparent RGB option |
 | `WebPEncodeRGBAWithNearLossless`, `encode_near_lossless_rgba` | Strength 0–100 with standalone preprocessing and predictor quantization; configurable effort and exact handling |
 | `WebPEncodeRGBA`, `WebPEncodeRGBAWithAlphaQuality` | Default-preset lossy VP8, method 4, fractional color quality 0–100; YUV420(A) import; exact or independently quantized alpha; complete still-image files |
+| `encode_lossy_rgba` | Method-4 lossy encoding with `LossyOptions` selecting color/alpha quality and ordinary or scalar SharpYUV conversion; existing defaults and output-buffer guarantees retained |
 
 Palette ordering, all lossless transforms, reference/cache trials, default
 lossy segmentation/SNS, Intra4 search, token probability refresh, chroma error
@@ -42,8 +43,9 @@ correctness defect was established by this source/documentation audit.
 The API/configuration reference is
 [`encode.h`](../upstream/src/webp/encode.h), with defaults and validation in
 [`config_enc.c`](../upstream/src/enc/config_enc.c). Rust currently exposes
-`LosslessOptions { quality, method, exact }` and a private lossy configuration
-containing only color and alpha quality. Some public low-level modules expose
+`LosslessOptions { quality, method, exact }` and
+`LossyOptions { quality, alpha_quality, use_sharp_yuv }` for method-4 encoding.
+Some public low-level modules expose
 more knobs, but they do not provide a checked, integrated advanced encoder.
 
 | Gap | Current implementation and remaining work | Main sources |
@@ -55,7 +57,7 @@ more knobs, but they do not provide a checked, integrated advanced encoder.
 | Rate control and repeated passes | Add `target_size`, `target_PSNR`, user-selected `pass` 1–10, and `qmin`/`qmax`; port quality search, convergence and state resets. Default header-budget retries already work and do not implement these features. Match the pin's target precedence and approximate-target behavior. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c) |
 | Segmentation, SNS and header-budget controls | Expose and validate `segments`, `sns_strength`, and `partition_limit`; generalize the analysis/setup paths currently used with default settings. Some quantizer/SNS helpers already accept parameters. | Rust [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs), [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) |
 | Filter controls and automatic filter search | Integrate `filter_strength`, `filter_sharpness`, simple/strong `filter_type`, and `autofilter`. Deterministic adjustment exists; SSIM statistics, filter trials and automatic selection do not. | Rust [`filter_enc.rs`](../libwebpop/src/enc/filter_enc.rs), upstream [`filter_enc.c`](../upstream/src/enc/filter_enc.c) |
-| Preprocessing and SharpYUV | Add segment smoothing, pseudo-random conversion dithering and sharp RGB-to-YUV conversion routing, including preprocessing bit 4's sharp-conversion route. Ordinary alpha-aware RGBA-to-YUV420 conversion already exists. The independent scalar `libwebpop::sharpyuv` module is complete with pinned C parity; integrate it at the caller while preserving its separation from encoder internals. See the [SharpYUV plan](SHARPYUV_PORT_PLAN.md). | Rust [`sharpyuv/`](../libwebpop/src/sharpyuv/), upstream [`picture_csp_enc.c`](../upstream/src/enc/picture_csp_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) |
+| Preprocessing and SharpYUV | Add segment smoothing and pseudo-random conversion dithering. Scalar SharpYUV and its encoder/CLI routing are complete, including `--pre 4` and upstream's small-image fallback. The caller adapts the independent module without adding encoder dependencies to it. See the [SharpYUV plan](SHARPYUV_PORT_PLAN.md). | Rust [`sharpyuv/`](../libwebpop/src/sharpyuv/), [`picture_csp_enc.rs`](../libwebpop/src/enc/picture_csp_enc.rs), upstream [`picture_csp_enc.c`](../upstream/src/enc/picture_csp_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) |
 | Presets and JPEG-size emulation | Add picture/photo/drawing/icon/text presets, full default-preset initialization, and `emulate_jpeg_size`. Several presets depend on the missing preprocessing or configurable segmentation/filter behavior. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c), [`quant_enc.c`](../upstream/src/enc/quant_enc.c) |
 | Lossless preset levels and image hints | `-z` levels 0–9 need the upstream method/quality mapping and option ordering; the underlying methods already exist. Add `image_hint`. At this pin, `WEBP_HINT_GRAPH` changes initial VP8L writer allocation; the other hint values do not imply additional missing compression algorithms. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c), [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c) |
 | Configurable alpha method/filter | Integrate `alpha_compression` 0/1 and filtering none/fast/best. Low-level Rust `EncodeAlpha` already accepts these and tries the filters; public lossy encoding fixes compression=1/filter=fast. Alpha effort and fast-filter decisions are hardcoded for method 4 and need generalizing with other methods. | Rust [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) |
@@ -107,6 +109,11 @@ References: upstream [`encode.h`](../upstream/src/webp/encode.h),
 
 ## Container and animation output
 
+The [animation and multi-frame plan](ANIMATION_PORT_PLAN.md) expands this work
+into output-layer, raw-frame, optimizer and CLI milestones. Basic full-frame
+animation can ship using the current codecs before the advanced still-image
+work is complete; optimized lossy blending needs a filter-control integration.
+
 - [ ] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. Current still-image VP8/VP8L and lossy
   alpha containers are implemented; general metadata muxing is absent.
@@ -126,6 +133,12 @@ The reference implementation is in [`mux.h`](../upstream/src/webp/mux.h),
 `muxinternal.c`. Only their output/encoding responsibilities are included;
 container reading, extraction and editing existing files are excluded.
 
+Full `WebPAnimEncoder` parity has an additional dependency: its single-frame
+subrectangle optimization decodes and re-encodes a candidate. The animation
+plan keeps this branch as an explicit completion gate against the production
+decoding exclusion above. Ordinary mux cleanup of a full-canvas single frame
+does not need decoding.
+
 ## CLI completion
 
 [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) declares many upstream-style
@@ -136,7 +149,7 @@ Complete the underlying features above, then wire and test these options:
 | --- | --- |
 | Presets and hints | `-z`, `--preset`, `--hint` |
 | Lossy analysis and filtering | `--segments`, `--sns`, `-f`, `--sharpness`, `--strong`, `--nostrong`, `--af`, `--partition_limit` |
-| Search and preprocessing | `--size`, `--psnr`, `--pass`, `--qrange`, `--pre`, `--sharp_yuv`, `--jpeg_like` |
+| Search and preprocessing | `--size`, `--psnr`, `--pass`, `--qrange`, `--pre` values other than 0/4, `--jpeg_like` |
 | Alpha controls | `--alpha_method`, `--alpha_filter`, `--blend_alpha`, legacy `--alpha_cleanup` |
 | Input pixel operations | Raw YUV `-s`, `--crop`, `--resize`, `--resize_mode` |
 | Resource policy | `--mt`, `--low_memory` |
@@ -144,7 +157,8 @@ Complete the underlying features above, then wire and test these options:
 | Metadata output | `--metadata` currently has no implementation; writing supplied metadata is in scope, input-file extraction/copying is excluded |
 
 Also extend `--lossy -m` beyond 4 and permit lossy `--exact` when implemented.
-`--alpha_q` already works for lossy encoding. `--noasm` is accepted and is
+`--alpha_q`, `--sharp_yuv` and `--pre 0/4` already work for lossy encoding.
+`--noasm` is accepted and is
 currently a no-op because there is no explicit accelerated backend. `--short`
 currently prints the byte count; upstream's richer statistics depend on the
 reporting work above. Animation requires a new raw-frame API/frontend; it is
@@ -200,6 +214,10 @@ Performance work remaining:
 
 ## Suggested implementation order and completion checks
 
+The [remaining lossy methods plan](LOSSY_METHODS_PLAN.md) details methods
+0–3 and 5–6, their direct-loop/trellis/alpha dependencies, and checked API/CLI
+integration. It keeps other advanced encoder options as separate work.
+
 1. **Configuration foundation and small integrations:** define the checked
    advanced Rust API; wire existing alpha controls, configurable scalar knobs,
    lossless level mapping and hints. Add raw layout adapters without changing
@@ -213,6 +231,8 @@ Performance work remaining:
 4. **Integration and tools:** add writers, progress/cancellation, statistics,
    reconstruction, metrics, picture operations and CLI support. Metadata output
    can proceed independently; build animation on the output container layer.
+   Follow the [animation plan](ANIMATION_PORT_PLAN.md) for an earlier usable
+   raw-frame release, then lossless/lossy/mixed optimization and a sequence CLI.
 5. **Performance:** establish missing comparison baselines early; carry scalar
    predictor improvements, SIMD, workers and memory work alongside the relevant
    algorithm milestones. Rebenchmark the final supported configurations.

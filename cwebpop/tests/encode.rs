@@ -602,6 +602,12 @@ fn invalid_lossy_settings_fail_before_input_and_preserve_output() {
         vec!["--lossy", "--alpha_filter", "best"],
         vec!["--lossy", "--alpha_method", "0"],
         vec!["--alpha_q", "100"],
+        vec!["--sharp_yuv"],
+        vec!["--pre", "4"],
+        vec!["--lossy", "--pre", "1"],
+        vec!["--lossy", "--pre", "2"],
+        vec!["--lossy", "--pre", "6"],
+        vec!["--lossy", "--pre", "8"],
     ] {
         let result = command()
             .arg(temp.file("absent.png"))
@@ -617,4 +623,105 @@ fn invalid_lossy_settings_fail_before_input_and_preserve_output() {
         assert!(!stderr.contains("cannot read"), "{flags:?}: {stderr}");
         assert_eq!(fs::read(&output).unwrap(), b"keep this");
     }
+}
+
+#[test]
+fn sharp_yuv_files_and_streams_match_library_and_preprocessing_alias() {
+    let temp = Scratch::new();
+    let input = temp.file("sharp.png");
+    let output = temp.file("sharp.webp");
+    let source = source();
+    source.save(&input).unwrap();
+    let mut ordinary = Vec::new();
+    libwebpop::WebPEncodeRGBAWithAlphaQuality(
+        source.as_raw(),
+        17,
+        19,
+        17 * 4,
+        98.5,
+        30,
+        &mut ordinary,
+    )
+    .unwrap();
+    for (flags, sharp, noalpha) in [
+        (vec!["--sharp_yuv"], true, false),
+        (vec!["--pre", "4"], true, false),
+        (vec!["--sharp_yuv", "--pre", "0"], true, false),
+        (vec!["--sharp_yuv", "--pre", "4", "--noalpha"], true, true),
+        (vec!["--pre", "0"], false, false),
+    ] {
+        let result = command()
+            .arg(&input)
+            .arg("-o")
+            .arg(&output)
+            .args(["--lossy", "-q", "98.5", "--alpha_q", "30"])
+            .args(&flags)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let mut pixels = source.clone();
+        if noalpha {
+            for p in pixels.pixels_mut() {
+                p[3] = 255;
+            }
+        }
+        let mut expected = Vec::new();
+        libwebpop::encode_lossy_rgba(
+            pixels.as_raw(),
+            17,
+            19,
+            17 * 4,
+            &libwebpop::LossyOptions {
+                quality: 98.5,
+                alpha_quality: 30,
+                use_sharp_yuv: sharp,
+            },
+            &mut expected,
+        )
+        .unwrap();
+        let actual = fs::read(&output).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(decode(&actual).dimensions(), (17, 19));
+        if sharp && !noalpha {
+            assert_ne!(actual, ordinary);
+        }
+    }
+    let mut child = command()
+        .args(["--lossy", "--sharp_yuv", "--quiet", "-", "-o", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&fs::read(&input).unwrap())
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(result.stderr.is_empty());
+    let mut expected = Vec::new();
+    libwebpop::encode_lossy_rgba(
+        source.as_raw(),
+        17,
+        19,
+        17 * 4,
+        &libwebpop::LossyOptions {
+            use_sharp_yuv: true,
+            ..Default::default()
+        },
+        &mut expected,
+    )
+    .unwrap();
+    assert_eq!(result.stdout, expected);
 }

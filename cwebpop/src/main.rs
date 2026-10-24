@@ -9,7 +9,7 @@ use std::{
 };
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
-use libwebpop::{LosslessOptions, WebPEncodeRGBAWithAlphaQuality, encode_near_lossless_rgba};
+use libwebpop::{LosslessOptions, LossyOptions, encode_lossy_rgba, encode_near_lossless_rgba};
 
 /// WebP encoder, based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]
@@ -95,7 +95,7 @@ struct Args {
     #[arg(long = "map")]
     map: Option<u8>,
 
-    /// Experimental preprocessing filter.
+    /// Lossy preprocessing: 0 for ordinary conversion, 4 for SharpYUV.
     #[arg(long = "pre")]
     pre: Option<u32>,
 
@@ -143,7 +143,7 @@ struct Args {
     #[arg(long = "nostrong")]
     nostrong: bool,
 
-    /// Use sharper RGB to YUV conversion.
+    /// Use sharper RGB to YUV conversion (requires --lossy).
     #[arg(long = "sharp_yuv")]
     sharp_yuv: bool,
 
@@ -231,7 +231,7 @@ type Error = Box<dyn std::error::Error>;
 #[derive(Debug, PartialEq)]
 enum EncoderOptions {
     Lossless(LosslessOptions),
-    Lossy { quality: f32, alpha_quality: i32 },
+    Lossy(LossyOptions),
 }
 
 fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, Error> {
@@ -252,6 +252,8 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, 
         "near_lossless",
         "lossy",
         "alpha_q",
+        "sharp_yuv",
+        "pre",
     ];
     let command = Args::command();
     // matches.ids() also includes clap's derived "Args" group. Walk actual
@@ -290,13 +292,20 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, 
         if alpha_quality > 100 {
             return Err("alpha quality must be in 0..=100".into());
         }
-        return Ok(EncoderOptions::Lossy {
+        if args.pre.is_some_and(|pre| !matches!(pre, 0 | 4)) {
+            return Err("--pre currently supports only 0 or 4 (SharpYUV)".into());
+        }
+        return Ok(EncoderOptions::Lossy(LossyOptions {
             quality,
             alpha_quality,
-        });
+            use_sharp_yuv: args.sharp_yuv || args.pre == Some(4),
+        }));
     }
     if args.alpha_q.is_some() {
         return Err("--alpha_q requires --lossy".into());
+    }
+    if args.sharp_yuv || args.pre.is_some() {
+        return Err("--sharp_yuv and --pre require --lossy".into());
     }
     Ok(EncoderOptions::Lossless(LosslessOptions {
         quality: quality as u32,
@@ -346,16 +355,12 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
             options,
             &mut encoded,
         )?,
-        EncoderOptions::Lossy {
-            quality,
-            alpha_quality,
-        } => WebPEncodeRGBAWithAlphaQuality(
+        EncoderOptions::Lossy(options) => encode_lossy_rgba(
             rgba.as_raw(),
             width,
             height,
             width as usize * 4,
-            *quality,
-            *alpha_quality,
+            options,
             &mut encoded,
         )?,
     };
