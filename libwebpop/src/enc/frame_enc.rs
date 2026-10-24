@@ -1,5 +1,5 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/frame_enc.c, default token loop and fitting.
+// Derived from upstream/src/enc/frame_enc.c, direct residuals, token loop and fitting.
 // See COPYING and PATENTS.
 #![allow(non_upper_case_globals)]
 
@@ -7,7 +7,10 @@ use super::{
     cost_enc::*, filter_enc::VP8AdjustFilterStrength, iterator_enc::*,
     picture_enc::WebPYUVAPicture, quant_enc::*, token_enc::*, tree_enc::*, vp8i_enc::*,
 };
-use crate::{dsp::cost::SetResidualCoeffs_C, utils::bit_writer_utils::*};
+use crate::{
+    dsp::cost::{SetResidualCoeffs_C, VP8EncBands},
+    utils::bit_writer_utils::*,
+};
 use std::collections::TryReserveError;
 
 pub const VP8Cat3: [u8; 3] = [173, 148, 140];
@@ -22,6 +25,31 @@ pub fn ResetStats(proba: &mut VP8EncProba) {
 
 pub fn ResetTokenStats(proba: &mut VP8EncProba) {
     proba.stats = [[[[0; NUM_PROBAS]; NUM_CTX]; NUM_BANDS]; NUM_TYPES];
+}
+
+/// Floor probability of a non-skipped event. Counts must fit the u64 product.
+pub fn CalcSkipProba(nb: u64, total: u64) -> u8 {
+    assert!(nb <= total && total <= u64::MAX / 255);
+    if total == 0 {
+        255
+    } else {
+        ((total - nb) * 255 / total) as u8
+    }
+}
+
+/// Fit skip syntax for at most the VP8 format's 1024x1024 macroblocks.
+pub fn FinalizeSkipProba(proba: &mut VP8EncProba, nb_mbs: usize) -> i32 {
+    assert!(nb_mbs <= 1024 * 1024 && proba.nb_skip >= 0 && proba.nb_skip as usize <= nb_mbs);
+    let nb_events = proba.nb_skip;
+    proba.skip_proba = CalcSkipProba(nb_events as u64, nb_mbs as u64);
+    proba.use_skip_proba = proba.skip_proba < 250;
+    let mut size = 256;
+    if proba.use_skip_proba {
+        size += nb_events * VP8BitCost(1, proba.skip_proba)
+            + (nb_mbs as i32 - nb_events) * VP8BitCost(0, proba.skip_proba);
+        size += 8 * 256;
+    }
+    size
 }
 
 pub fn CalcTokenProba(nb: u32, total: u32) -> u8 {
@@ -124,6 +152,189 @@ pub fn SetLoopParams(enc: &mut VP8Encoder, quality: f32) {
     VP8SetSegmentParams(enc, quality.clamp(0., 100.));
     SetSegmentProbas(enc);
     ResetStats(&mut enc.proba);
+}
+
+/// Write one residual directly with the current coefficient probabilities.
+/// Allocation failures propagate immediately; callers must abandon the writer.
+pub fn PutCoeffs(
+    bw: &mut VP8BitWriter,
+    ctx: usize,
+    res: &VP8Residual<'_>,
+    proba: &VP8EncProba,
+) -> Result<bool, TryReserveError> {
+    assert!(ctx < NUM_CTX);
+    let probs = &proba.coeffs[res.coeff_type];
+    let mut n = res.first;
+    let mut p = &probs[n][ctx];
+    if VP8PutBit(bw, i32::from(res.last >= 0), p[0])? == 0 {
+        return Ok(false);
+    }
+    while n < 16 {
+        let c = res.coeffs[n];
+        n += 1;
+        let mut v = u32::from(c.unsigned_abs());
+        if VP8PutBit(bw, i32::from(v != 0), p[1])? == 0 {
+            p = &probs[VP8EncBands[n]][0];
+            continue;
+        }
+        if VP8PutBit(bw, i32::from(v > 1), p[2])? == 0 {
+            p = &probs[VP8EncBands[n]][1];
+        } else {
+            if VP8PutBit(bw, i32::from(v > 4), p[3])? == 0 {
+                if VP8PutBit(bw, i32::from(v != 2), p[4])? != 0 {
+                    VP8PutBit(bw, i32::from(v == 4), p[5])?;
+                }
+            } else if VP8PutBit(bw, i32::from(v > 10), p[6])? == 0 {
+                if VP8PutBit(bw, i32::from(v > 6), p[7])? == 0 {
+                    VP8PutBit(bw, i32::from(v == 6), 159)?;
+                } else {
+                    VP8PutBit(bw, i32::from(v >= 9), 165)?;
+                    VP8PutBit(bw, i32::from(v & 1 == 0), 145)?;
+                }
+            } else {
+                let tab: &[u8];
+                if v < 19 {
+                    VP8PutBit(bw, 0, p[8])?;
+                    VP8PutBit(bw, 0, p[9])?;
+                    v -= 11;
+                    tab = &VP8Cat3;
+                } else if v < 35 {
+                    VP8PutBit(bw, 0, p[8])?;
+                    VP8PutBit(bw, 1, p[9])?;
+                    v -= 19;
+                    tab = &VP8Cat4;
+                } else if v < 67 {
+                    VP8PutBit(bw, 1, p[8])?;
+                    VP8PutBit(bw, 0, p[10])?;
+                    v -= 35;
+                    tab = &VP8Cat5;
+                } else {
+                    VP8PutBit(bw, 1, p[8])?;
+                    VP8PutBit(bw, 1, p[10])?;
+                    v -= 67;
+                    tab = &VP8Cat6;
+                }
+                for (i, &prob) in tab.iter().enumerate() {
+                    VP8PutBit(bw, i32::from(v & (1 << (tab.len() - 1 - i)) != 0), prob)?;
+                }
+            }
+            p = &probs[VP8EncBands[n]][2];
+        }
+        VP8PutBitUniform(bw, i32::from(c < 0))?;
+        if n == 16 || VP8PutBit(bw, i32::from(n as i32 <= res.last), p[0])? == 0 {
+            return Ok(true);
+        }
+    }
+    Ok(true)
+}
+
+pub fn CodeResiduals(
+    bw: &mut VP8BitWriter,
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &VP8ModeScore,
+) -> Result<(), TryReserveError> {
+    VP8IteratorNzToBytes(it, enc);
+    let mb = enc.mb_info[it.y * enc.mb_w + it.x];
+    let i16 = mb.r#type == 1;
+    let pos1 = VP8BitWriterPos(bw);
+    if i16 {
+        let mut res = VP8InitResidual(0, 1);
+        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+        let nz = u8::from(PutCoeffs(
+            bw,
+            usize::from(it.top_nz[8] + it.left_nz[8]),
+            &res,
+            &enc.proba,
+        )?);
+        it.top_nz[8] = nz;
+        it.left_nz[8] = nz;
+    }
+    for n in 0..16 {
+        let (x, y) = (n % 4, n / 4);
+        let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
+        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
+        let nz = u8::from(PutCoeffs(
+            bw,
+            usize::from(it.top_nz[x] + it.left_nz[y]),
+            &res,
+            &enc.proba,
+        )?);
+        it.top_nz[x] = nz;
+        it.left_nz[y] = nz;
+    }
+    let pos2 = VP8BitWriterPos(bw);
+    for n in 0..8 {
+        let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
+        let mut res = VP8InitResidual(0, 2);
+        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
+        let nz = u8::from(PutCoeffs(
+            bw,
+            usize::from(it.top_nz[x] + it.left_nz[y]),
+            &res,
+            &enc.proba,
+        )?);
+        it.top_nz[x] = nz;
+        it.left_nz[y] = nz;
+    }
+    let pos3 = VP8BitWriterPos(bw);
+    it.luma_bits = pos2 - pos1;
+    it.uv_bits = pos3 - pos2;
+    it.bit_count[usize::from(mb.segment)][usize::from(i16)] += it.luma_bits;
+    it.bit_count[usize::from(mb.segment)][2] += it.uv_bits;
+    VP8IteratorBytesToNz(it, enc);
+    Ok(())
+}
+
+pub fn RecordResiduals(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8ModeScore) {
+    VP8IteratorNzToBytes(it, enc);
+    let i16 = enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1;
+    if i16 {
+        let mut res = VP8InitResidual(0, 1);
+        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+        let nz = u8::from(VP8RecordCoeffs(
+            usize::from(it.top_nz[8] + it.left_nz[8]),
+            &res,
+            &mut enc.proba,
+        ));
+        it.top_nz[8] = nz;
+        it.left_nz[8] = nz;
+    }
+    for n in 0..16 {
+        let (x, y) = (n % 4, n / 4);
+        let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
+        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
+        let nz = u8::from(VP8RecordCoeffs(
+            usize::from(it.top_nz[x] + it.left_nz[y]),
+            &res,
+            &mut enc.proba,
+        ));
+        it.top_nz[x] = nz;
+        it.left_nz[y] = nz;
+    }
+    for n in 0..8 {
+        let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
+        let mut res = VP8InitResidual(0, 2);
+        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
+        let nz = u8::from(VP8RecordCoeffs(
+            usize::from(it.top_nz[x] + it.left_nz[y]),
+            &res,
+            &mut enc.proba,
+        ));
+        it.top_nz[x] = nz;
+        it.left_nz[y] = nz;
+    }
+    VP8IteratorBytesToNz(it, enc);
+}
+
+/// Reset only the contexts invalidated by an omitted macroblock residual.
+pub fn ResetAfterSkip(it: &mut VP8EncIterator, enc: &mut VP8Encoder) {
+    if enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1 {
+        enc.nz[it.x + 1] = 0;
+        it.left_nz[8] = 0;
+    } else {
+        enc.nz[it.x + 1] &= 1 << 24;
+    }
 }
 
 pub fn RecordTokens(

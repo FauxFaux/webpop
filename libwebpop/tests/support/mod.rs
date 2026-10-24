@@ -22,6 +22,7 @@ pub mod vp8_alpha;
 pub mod vp8_analysis;
 pub mod vp8_boolean;
 pub mod vp8_cost;
+pub mod vp8_direct;
 pub mod vp8_dsp;
 pub mod vp8_fast;
 pub mod vp8_iterator;
@@ -62,6 +63,7 @@ impl Case {
             | "VP8FastAnalysisFrame"
             | "VP8DistortionSearch"
             | "VP8FastSearchFrame" => vp8_fast::evaluate(self),
+            "VP8DirectCoeffs" | "VP8DirectResiduals" | "VP8SkipProba" => vp8_direct::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),

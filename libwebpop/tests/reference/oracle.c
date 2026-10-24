@@ -104,6 +104,9 @@ unsigned WebpopVP8Residual(const uint32_t*, uint32_t*);
 unsigned WebpopVP8WriteProbas(const uint32_t*, uint32_t*);
 unsigned WebpopVP8DefaultProbas(uint32_t*);
 unsigned WebpopTokens(const uint32_t*, uint32_t*);
+unsigned WebpopDirectCoeffs(const uint32_t*, uint32_t*);
+unsigned WebpopDirectResiduals(const uint32_t*, uint32_t*);
+unsigned WebpopSkipProba(const uint32_t*, uint32_t*);
 unsigned WebpopTokenProba(const uint32_t*, uint32_t*);
 unsigned WebpopProbaState(const uint32_t*, uint32_t*);
 unsigned WebpopYuvTables(uint32_t*);
@@ -448,6 +451,34 @@ int main(void) {
       REQUIRE(n == 4 + size && output_size <= LIMIT);
       for (i = 4; i < n; ++i) REQUIRE(in[i] <= 255);
       count = WebpopYuvaImport(in, n, out);
+    } else if (IS(VP8DirectCoeffs)) {
+      REQUIRE(n>=1058 && in[0]<=31 && in[1]<=512 && n==1058+19*in[1]);
+      for(i=2;i<1058;++i) REQUIRE(in[i]<=255);
+      for(i=1058;i<n;i+=19) {
+        unsigned k; REQUIRE(in[i]<=1 && in[i+1]<4 && in[i+2]<3);
+        for(k=0;k<16;++k) REQUIRE((int32_t)in[i+3+k]>=-2047 && (int32_t)in[i+3+k]<=2047);
+        if(in[i]) REQUIRE(in[i+3]==0);
+      }
+      count=WebpopDirectCoeffs(in,out);
+    } else if (IS(VP8SkipProba)) {
+      uint64_t nb,total; REQUIRE(n==5 && in[0]<=1);
+      nb=Read64(in+1);total=Read64(in+3);REQUIRE(nb<=total && total<=UINT64_MAX/255);
+      if(in[0]) REQUIRE(total<=1048576);
+      count=WebpopSkipProba(in,out);
+    } else if (IS(VP8DirectResiduals)) {
+      unsigned blocks,at;
+      REQUIRE(n>=4 && in[0]>=1 && in[0]<=16 && in[1]>=1 && in[1]<=16 && in[2]<=31);
+      // At most 19 boolean events per coefficient, each at most 8 bits.
+      // 128 MBs plus logical traces fit the fixed LIMIT-word response buffer.
+      blocks=in[0]*in[1];at=1061+in[0];REQUIRE(blocks<=128 && n==at+403*blocks);
+      REQUIRE((in[3]&65535)<=(in[3]>>16));
+      for(i=4;i<1060;++i) REQUIRE(in[i]<=255);
+      for(;at<n;at+=403) {
+        unsigned k;REQUIRE(in[at]<=2 && in[at+1]<=1 && in[at+2]<4);
+        for(k=3;k<403;++k) REQUIRE((int32_t)in[at+k]>=-2047 && (int32_t)in[at+k]<=2047);
+        if(in[at+1]) for(k=0;k<16;++k) REQUIRE(in[at+19+16*k]==0);
+      }
+      count=WebpopDirectResiduals(in,out);
     } else if (IS(VP8TokenProba)) {
       REQUIRE(n == 3 && in[0] <= in[1] && in[1] <= 65535 && in[2] <= 255);
       count = WebpopTokenProba(in, out);

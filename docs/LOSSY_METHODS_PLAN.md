@@ -61,7 +61,7 @@ needed. Preserve their behavior and reference fixtures.
 | [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding still uses the method-4 token loop | Direct/token frame dispatch after the additional algorithms land |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
 | [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD and distortion refinement; non-RD `VP8Decimate` | Selected-mode requantization, trellis and remaining RD dispatch |
-| [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Probability fitting, token recording, refresh/retry loop and deterministic filter finalization | Direct residual writer/statistics, skip fitting/reset, statistics pass and direct final coding; generalize token RD level |
+| [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct residual coding/statistics, skip fitting/reset, token recording, refresh/retry loop and deterministic filter finalization | Statistics pass and direct final coding; generalize token RD level |
 | [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, filters, VP8L and raw fallback | Replace fixed effort 4/q32 throughout with method-dependent effort and quality |
 | [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including skip syntax | Compose with a direct-loop partition and fitted skip state; verify existing skip branches |
 | [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Parses methods 0–6 but rejects lossy methods other than 4 | Route every valid method to the checked configurable lossy API |
@@ -218,7 +218,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–2 are complete; milestones 3–8 remain pending. Integrate callers after
+Milestones 0–3 are complete; milestones 4–8 remain pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -228,7 +228,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | 0 (complete) | Extend the existing oracle with configurable full files, tool mapping and new branch traces; record pre-change method-4 baseline | Existing oracle/pin | 70 portable fixtures, 3,556 independently decoded C files, 672 tool mappings and 336 compact loop traces; method-4 Rust comparisons and wrapper/toolchain provenance recorded |
 | 1 (complete) | Validated internal method configuration, tool mapping and propagation into encoder setup; retain public method-4 entry points | 0 | 84 normal-resource setup states match C across all methods; 7 additional portable setup fixtures; invalid signed methods rejected before allocation; method-4 bytes unchanged |
 | 2 (complete) | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | 61 portable fixtures and 5,973 live C requests match fast decisions, selected modes, reconstruction, levels, nonzero masks and context/diffusion state for methods 0–2 |
-| 3 | Direct coefficient coding/statistics and skip-probability leaves | 0 | Exact residual bytes, boolean state, statistics, skip costs/thresholds and post-skip contexts; independent coefficient decoding |
+| 3 (complete) | Direct coefficient coding/statistics and skip-probability leaves | 0 | 37 portable fixtures and 4,811 live C requests; exact bytes, writer/counter/statistics state, skip costs and post-skip contexts; independent coefficient decoding and geometric context checks |
 | 4 | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | Methods 0–3 opaque files match normal C; method-0 probe limits, skip on/off, retries, borders and final filter state observed |
 | 5 | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | Exact levels/dequantized coefficients/masks and traceback; independent bounded path enumeration including terminal/tie cases |
 | 6 | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | Methods 5/6 opaque files match normal C; traces distinguish selected-mode versus candidate trellis; method 4 remains identical |
@@ -332,7 +332,24 @@ flat-source border safeguard from upstream bug #432, with its left/top mode
 choice and restriction of family switching. Commit only the selected output
 and nonzero mask, respecting the pin's UV/diffusion side effects.
 
-### 3–4. Direct residual coding and the two-pass frame path
+### 3. Direct residual coding, statistics and skip helpers
+
+Completed 2026-10-24, continuing from `998c02a` (lossy milestone 2 at `5918c1e`).
+`PutCoeffs`, `CodeResiduals`, `RecordResiduals`, `CalcSkipProba`,
+`FinalizeSkipProba` and `ResetAfterSkip` are ported. Direct coding propagates
+writer allocation failures and updates wide luma/UV and segment counters;
+statistics record only adaptive events. Existing basic/non-RD raster observers
+now use production `RecordResiduals` instead of their test-only implementation.
+The production frame loop and public method selection remain unchanged.
+
+The new direct suite stores 37 C fixtures and checks 4,811 live requests,
+including 247,644 coefficient blocks and 1,682 raster macroblocks. Exact checks
+include writer state/positions/bytes, nonzero contexts, 64-bit counters,
+statistics rescaling, skip costs and DC preservation/reset across row boundaries.
+Independent decoders recover every coded coefficient; syntax-event walks and
+contexts derived from geometric neighbors verify statistics and accounting.
+Skip fitting is independently checked for every skip count at totals 0–512,
+including the strict 249/250 boundary. See the [reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-3).
 
 Port `PutCoeffs` and `CodeResiduals`, reusing the existing category tables,
 boolean writer, residual setup and nonzero pack/unpack helpers. Port
@@ -346,6 +363,8 @@ the strict `skip_proba < 250` threshold and exact signaling costs.
 `ResetAfterSkip` clears the packed contexts for Intra16, including the left DC
 context, but preserves the packed DC context for Intra4. Exercise neighboring
 skipped/coded macroblocks and row transitions; do not reset all state uniformly.
+
+### 4. The two-pass frame path and method-3 tokens
 
 Port the applicable `PassStats` initialization, `OneStatPass`, `StatLoop`,
 `InitBitWriters`, `VP8EncLoop` and `PostLoopFinalize`. With no target and one

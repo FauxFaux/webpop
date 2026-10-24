@@ -374,47 +374,6 @@ pub fn fixture_cases() -> Vec<Case> {
     c
 }
 
-pub fn record_residuals(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8ModeScore) {
-    use libwebpop::{dsp::cost::SetResidualCoeffs_C, enc::iterator_enc::*};
-    VP8IteratorNzToBytes(it, enc);
-    let i16 = enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1;
-    if i16 {
-        let mut res = VP8InitResidual(0, 1);
-        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
-        let nz = u8::from(VP8RecordCoeffs(
-            usize::from(it.top_nz[8] + it.left_nz[8]),
-            &res,
-            &mut enc.proba,
-        ));
-        it.top_nz[8] = nz;
-        it.left_nz[8] = nz;
-    }
-    for n in 0..16 {
-        let (x, y) = (n % 4, n / 4);
-        let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
-        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
-        let nz = u8::from(VP8RecordCoeffs(
-            usize::from(it.top_nz[x] + it.left_nz[y]),
-            &res,
-            &mut enc.proba,
-        ));
-        it.top_nz[x] = nz;
-        it.left_nz[y] = nz;
-    }
-    for n in 0..8 {
-        let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
-        let mut res = VP8InitResidual(0, 2);
-        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
-        let nz = u8::from(VP8RecordCoeffs(
-            usize::from(it.top_nz[x] + it.left_nz[y]),
-            &res,
-            &mut enc.proba,
-        ));
-        it.top_nz[x] = nz;
-        it.left_nz[y] = nz;
-    }
-    VP8IteratorBytesToNz(it, enc);
-}
 pub fn frame_evaluate(a: &[u32]) -> Vec<u32> {
     frame_evaluate_with_method(a, 4)
 }
@@ -473,7 +432,7 @@ pub fn frame_evaluate_with_method(a: &[u32], method: i32) -> Vec<u32> {
             u32::from(mb.segment),
             u32::from(mb.alpha),
         ]);
-        record_residuals(&mut it, &mut enc, &rd);
+        libwebpop::enc::frame_enc::RecordResiduals(&mut it, &mut enc, &rd);
         out.extend(it.top_nz.map(u32::from));
         out.extend(it.left_nz.map(u32::from));
         out.push(enc.nz[it.x + 1]);

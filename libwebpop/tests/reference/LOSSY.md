@@ -1897,3 +1897,92 @@ Validation passed: full workspace `cargo test` and
 `lossy_fast` (10 tests) and `lossy_methods` (6 tests); the production library
 build; `cargo fmt --all -- --check`; and `git diff --check`. Existing method-4
 leaf, detailed-loop, full-file, alpha and SharpYUV comparisons remain unchanged.
+
+
+## Remaining lossy methods: milestone 3
+
+Completed 2026-10-24 from `998c02a` (lossy milestone 2 is `5918c1e`).
+Rust ports `PutCoeffs`, `CodeResiduals`, `RecordResiduals`, `CalcSkipProba`,
+`FinalizeSkipProba` and `ResetAfterSkip` in `frame_enc.rs`. The earlier test-only
+residual recorder is now production code and is reused by the existing basic
+and non-RD raster observers. Direct coding updates bit counters without
+recording statistics; recording statistics leaves writer/counter state unchanged.
+The full direct frame loop is milestone 4. Public encoding still uses method 4.
+
+New requests call original static helpers through the existing included-source
+`lossy_frame.c` wrapper; no upstream source or old request layout changed:
+
+- `VP8DirectCoeffs`: `(prefix_bits, block_count)`, 1,056 coefficient probability
+  words, then 19 words per block `(first, type, context, levels[16])`. Prefixes
+  use the low `prefix_bits` bits of `0x5ad`. Returns the initial writer snapshot,
+  then `(last, writer_snapshot)` for each block and a terminated writer snapshot,
+  byte count and complete bytes. Writer snapshots use the existing nine-word
+  boolean-writer layout, including logical position and emitted-byte hash.
+  First is 0/1; coefficient zero must be zero when first is 1. Test levels fit
+  -2,047..=2,047. Up to 512 blocks fit the bounded request/response buffers.
+- `VP8SkipProba`: `(finalize, skip_count_low, skip_count_high, total_low,
+  total_high)`. Calculation returns one floor probability; finalization returns
+  `(cost, skip_proba, use_skip_proba, nb_skip)`. Zero totals are defined. Wide
+  calculation counts fit the C u64 product by requiring `total <= UINT64_MAX/255`;
+  finalization uses at most 1,048,576 macroblocks, the VP8 geometry bound.
+- `VP8DirectResiduals`: `(mb_w, mb_h, prefix_bits, stats_seed)`, 1,056 coefficient
+  probabilities, `mb_w+1` packed nonzero seeds including the left sentinel, then
+  403 words per macroblock `(operation, family, segment, dc[16], y[256], uv[128])`.
+  Operation 0 records, 1 codes and 2 resets after skip. Initial top/left byte
+  contexts alternate, with initial left DC set; counters are seeded above 32 bits.
+  Width/height are 1–16 macroblocks, with at most 128 total to bound even the
+  worst boolean coding expansion within the fixed oracle response buffer.
+  Returns the initial writer snapshot, then `59+mb_w` words per macroblock:
+  writer snapshot, luma/UV counters, twelve segment counters (all wide values
+  low word first), nine top and nine left context bytes, all packed nonzero
+  columns, and `(x, y, left_dc)` after iterator advance. The tail is 1,056 final
+  statistics, terminated writer snapshot, byte count and complete bytes.
+  Scripted skips ignore the supplied levels and isolate reset/context behavior;
+  normal encode-time skip selection is checked during frame integration.
+
+The 4,811 live requests cover 840 coefficient batches (247,644 blocks), 3,575
+skip calculations/fits, and 396 raster scripts (1,682 macroblocks). Every
+magnitude 0–2,047 and both signs are exercised, as are first 0/1, every type and
+incoming context, all positions including final coefficient 15, nineteen
+probability sets including 0/255 extremes, empty residuals, and interspersed
+zero runs. Raster scripts exercise both luma families, all segments, all-code,
+all-record, all-skip and mixed operations, seeded DC contexts, row boundaries,
+statistics rescaling boundaries and wide counter accumulation. Persistent DC
+is preserved for skipped I4 and cleared for skipped I16, including left DC;
+other context bytes retain the pin's defined stale state until unpacked again.
+Observed raster branches include 556 recorded and 687 coded macroblocks, 210
+skipped I16 and 229 skipped I4 blocks, 100 skipped I4 blocks retaining a set DC
+bit, 91 I16 skips clearing a set incoming left DC, and 729 row boundaries.
+
+Independent arithmetic-stream parsing recovers every coded coefficient from
+both C and Rust outputs. A separate syntax-event walk verifies bytes, writer
+positions and per-plane/segment accounting. Statistics are checked from those
+adaptive events with an independent wide rescaling calculation; geometric north
+and west neighbors determine contexts without calling the packed context
+helpers. Every skip count at totals 0–512 is independently checked, along with
+wide counts and the exact probability-250 disabled / probability-249 enabled
+boundary. Finalization changes only the skip probability and enable flag.
+A forced capacity failure checks direct coefficient error propagation.
+
+The 37 new fixtures (16 coefficient streams, 13 skip states, eight raster scripts)
+were captured before porting these branches. All original fixtures are unchanged.
+Before capture, the clean pin and recorded toolchain were reviewed again:
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, scalar dispatch, threading off, token buffering enabled,
+Rust 1.101.0-nightly `7189d39d9` (2026-10-22). Regenerate after provenance review:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_direct direct_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_direct
+cargo test -p libwebpop --features native-oracle --test lossy_direct -- --nocapture
+cargo test -p libwebpop --release --features native-oracle \
+  --test lossy_direct --test lossy_fast --test lossy_methods -- --nocapture
+```
+
+Validation passed: full workspace `cargo test` and
+`cargo test --features native-oracle`; release native checks for `lossy_direct`
+(7 tests), `lossy_fast` (10 tests) and `lossy_methods` (6 tests); the production
+library build; `cargo fmt --all -- --check`; and staged/unstaged `git diff --check`.
+All inherited method-4 fixtures remain byte-identical, including full files,
+detailed frame traces, alpha and SharpYUV paths. The upstream checkout is clean.

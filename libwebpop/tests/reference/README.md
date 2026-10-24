@@ -80,6 +80,8 @@ Milestone 1 adds exact Rust setup comparisons for all methods under normal
 resource policy, preserving method-4-only public encoding for now.
 Milestone 2 adds fast analysis and non-RD macroblock/raster comparisons for
 methods 0–2, including partial reconstruction and preserved diffusion state.
+Milestone 3 adds direct coefficient/residual coding, production statistics and
+skip helpers, with independently decoded coefficients and raster context checks.
 
 The [animation reference record](ANIMATION.md) adds pixel/rectangle and blend
 eligibility leaves from `anim_encode.c`, 81 portable fixtures and 80,287 live
