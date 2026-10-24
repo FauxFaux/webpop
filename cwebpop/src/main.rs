@@ -9,14 +9,14 @@ use std::{
 };
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
-use libwebpop::{LosslessOptions, encode_near_lossless_rgba};
+use libwebpop::{LosslessOptions, WebPEncodeRGBAWithAlphaQuality, encode_near_lossless_rgba};
 
-/// Lossless and near-lossless WebP encoder, based on upstream/examples/cwebp.c.
+/// WebP encoder, based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "Lossless and near-lossless WebP encoder",
-    after_help = "Lossless encoding is the default; -o is required.\nUse --long_option for upstream's -long_option flags; -h/--help and -V/--version work."
+    about = "Lossless, near-lossless and lossy WebP encoder",
+    after_help = "Lossless encoding is the default; use --lossy for VP8. -o is required.\nUse --long_option for upstream's -long_option flags; -h/--help and -V/--version work."
 )]
 struct Args {
     /// Input image (or - for stdin).
@@ -27,11 +27,11 @@ struct Args {
     #[arg(short = 'o', long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
 
-    /// Lossless compression effort, 0..100 (upstream CLI default: 75).
+    /// Quality, 0..100 (default 75): color fidelity with --lossy, compression effort otherwise.
     #[arg(short = 'q', long)]
     quality: Option<f32>,
 
-    /// Compression method, 0..6 (upstream default: 4).
+    /// Compression method, 0..6 (default 4; --lossy currently requires 4).
     #[arg(short = 'm', long)]
     method: Option<u8>,
 
@@ -51,7 +51,7 @@ struct Args {
     #[arg(short = 's', long, num_args = 2, value_names = ["WIDTH", "HEIGHT"])]
     input_size: Vec<u32>,
 
-    /// Alpha quality, 0..100 (upstream default: 100).
+    /// Alpha quality with --lossy, 0..100 (default 100, preserving alpha exactly).
     #[arg(long = "alpha_q")]
     alpha_q: Option<u8>,
 
@@ -183,6 +183,10 @@ struct Args {
     #[arg(long = "lossless")]
     lossless: bool,
 
+    /// Encode lossy VP8 with the default preset; -q controls color quality.
+    #[arg(long, conflicts_with_all = ["lossless", "near_lossless", "exact"])]
+    lossy: bool,
+
     /// Condense encoding statistics.
     #[arg(long = "short")]
     short: bool,
@@ -224,7 +228,13 @@ fn main() -> ExitCode {
 
 type Error = Box<dyn std::error::Error>;
 
-fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions, Error> {
+#[derive(Debug, PartialEq)]
+enum EncoderOptions {
+    Lossless(LosslessOptions),
+    Lossy { quality: f32, alpha_quality: i32 },
+}
+
+fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, Error> {
     // Keep the existing option inventory, but reject unimplemented operations
     // before opening files instead of silently ignoring requested behavior.
     const SUPPORTED: &[&str] = &[
@@ -240,6 +250,8 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions,
         "verbose",
         "noasm",
         "near_lossless",
+        "lossy",
+        "alpha_q",
     ];
     let command = Args::command();
     // matches.ids() also includes clap's derived "Args" group. Walk actual
@@ -270,11 +282,27 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<LosslessOptions,
     if method > 6 {
         return Err("method must be in 0..=6".into());
     }
-    Ok(LosslessOptions {
+    if args.lossy {
+        if method != 4 {
+            return Err("--lossy currently supports only method 4".into());
+        }
+        let alpha_quality = i32::from(args.alpha_q.unwrap_or(100));
+        if alpha_quality > 100 {
+            return Err("alpha quality must be in 0..=100".into());
+        }
+        return Ok(EncoderOptions::Lossy {
+            quality,
+            alpha_quality,
+        });
+    }
+    if args.alpha_q.is_some() {
+        return Err("--alpha_q requires --lossy".into());
+    }
+    Ok(EncoderOptions::Lossless(LosslessOptions {
         quality: quality as u32,
         method: u32::from(method),
         exact: args.exact,
-    })
+    }))
 }
 
 fn run(matches: &ArgMatches) -> Result<(), Error> {
@@ -307,14 +335,27 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
     }
     let (width, height) = rgba.dimensions();
     let near_lossless = args.near_lossless.unwrap_or(100);
-    let encoded = encode_near_lossless_rgba(
-        rgba.as_raw(),
-        width,
-        height,
-        width as usize * 4,
-        i32::from(near_lossless),
-        &options,
-    )?;
+    let encoded = match &options {
+        EncoderOptions::Lossless(options) => encode_near_lossless_rgba(
+            rgba.as_raw(),
+            width,
+            height,
+            width as usize * 4,
+            i32::from(near_lossless),
+            options,
+        )?,
+        EncoderOptions::Lossy {
+            quality,
+            alpha_quality,
+        } => WebPEncodeRGBAWithAlphaQuality(
+            rgba.as_raw(),
+            width,
+            height,
+            width as usize * 4,
+            *quality,
+            *alpha_quality,
+        )?,
+    };
     if output.as_os_str() == "-" {
         let mut stdout = io::stdout().lock();
         stdout.write_all(&encoded)?;
@@ -327,7 +368,9 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
         if args.short {
             eprintln!("{}", encoded.len());
         } else {
-            let mode = if near_lossless < 100 {
+            let mode = if args.lossy {
+                "lossy"
+            } else if near_lossless < 100 {
                 "near-lossless"
             } else {
                 "lossless"
@@ -358,11 +401,11 @@ mod tests {
         let args = Args::from_arg_matches(&matches).unwrap();
         assert_eq!(
             encoder_options(&args, &matches).unwrap(),
-            LosslessOptions {
+            EncoderOptions::Lossless(LosslessOptions {
                 quality: 75,
                 method: 4,
                 exact: false,
-            }
+            })
         );
     }
 

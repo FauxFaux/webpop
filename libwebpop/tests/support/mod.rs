@@ -89,6 +89,7 @@ impl Case {
                 vp8_predictions::evaluate(self)
             }
             "VP8FTransform" => lossy::transform(self),
+            "WebPEncodeRGBA" | "WebPEncodeRGBAWithAlphaQuality" => lossy::evaluate(self),
             "VP8FTransform2" | "VP8ITransform" | "VP8FTransformWHT" | "VP8TransformWHT" => {
                 vp8_transforms::evaluate(self)
             }

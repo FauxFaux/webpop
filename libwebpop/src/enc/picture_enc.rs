@@ -12,7 +12,7 @@ pub(crate) struct WebPPicture {
 
 /// Owned YUV420 picture used by the lossy path. Rows are tightly packed;
 /// chroma dimensions round up, and an alpha plane exists only for nonopaque
-/// input. The ARGB picture remains separate until shared encoder integration.
+/// input. Typed encoder routes keep ARGB and YUVA storage separate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebPYUVAPicture {
     pub width: u32,

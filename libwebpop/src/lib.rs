@@ -1,4 +1,7 @@
-//! Bottom-up port of the pinned libwebp lossless encoder.
+//! Scalar Rust port of the pinned libwebp still-image encoders.
+//!
+//! [`WebPEncodeRGBA`] encodes lossy VP8 with exact alpha;
+//! [`WebPEncodeRGBAWithAlphaQuality`] also permits alpha quantization.
 //!
 //! [`WebPEncodeLosslessRGBA`] produces complete WebP images using libwebp's
 //! simple API defaults. [`encode_lossless_rgba`] also exposes effort and exact
@@ -16,8 +19,9 @@ pub mod webp;
 
 mod encode;
 pub use encode::{
-    LosslessEncodeError, LosslessOptions, WebPEncodeLosslessRGBA, WebPEncodeRGBAWithNearLossless,
-    encode_lossless_rgba, encode_near_lossless_rgba,
+    LosslessEncodeError, LosslessOptions, WebPEncodeLosslessRGBA, WebPEncodeRGBA,
+    WebPEncodeRGBAWithAlphaQuality, WebPEncodeRGBAWithNearLossless, encode_lossless_rgba,
+    encode_near_lossless_rgba,
 };
 
 /// Error type returned by the upstream-named simple encoding API.

@@ -1609,3 +1609,80 @@ Validation passes: full workspace `cargo test` and
 `native-oracle`, the portable alpha suite, `cargo fmt --all -- --check`, the
 normal library-only build and `git diff --check`. Existing manual tests remain
 ignored; upstream remains clean at the recorded pin.
+
+## Milestone 9: public APIs and CLI
+
+`WebPEncodeRGBA` and `WebPEncodeRGBAWithAlphaQuality` now return owned complete
+WebP files through the production RGBA importer and synchronous default VP8
+path. Standard encoding delegates to the custom-alpha API at alpha quality
+100. The checked private lossy configuration retains `f32` color quality and
+signed `i32` alpha quality; it rejects nonfinite/out-of-range settings before
+allocation, including invalid alpha settings on opaque input. The importer
+reuses the lossless checked geometry: dimensions 1–16383, positive stride at
+least width*4, minimum input through the final pixel with checked arithmetic.
+
+The shared `webp_enc.rs` glue uses separate typed ARGB/VP8L and YUVA/VP8
+routes. It performs transparent cleanup, analysis, alpha compression, token
+coding and final container writing in the upstream order. VP8L effort is never
+used to store fractional color quality. `LosslessOptions` and the
+`WebPEncodingError = LosslessEncodeError` alias remain; added variants report
+invalid alpha quality, alpha encoder errors and VP8 container failures.
+Allocation failures continue to propagate through `Result`.
+
+The existing public logical requests now evaluate the exported Rust APIs.
+Their layouts, native C implementations and all earlier text fixtures are
+unchanged. `lossy.rs` compares all 3,566 original public outputs to C, then
+independently decodes and checks alpha/container semantics. It observes 126,648
+changed alpha samples, 1,215 raw ALPH chunks and 1,755 compressed ALPH chunks.
+Cross-case checks establish standard/custom-100 identity and opaque invariance.
+The 32 committed public reference files also compare exact Rust bytes now.
+
+`lossy_public.rs` adds 310 exact public comparisons and independent decodes,
+covering the real image with alpha, skinny dimension limits, 64 seeded images
+and fractional qualities through both APIs, every integer color quality with
+matching integer alpha quality, adjacent f32 values at quality boundaries,
+frames across the probability refresh boundary and interval growth, and all
+baseline input/quality combinations. Source buffers begin at an unaligned
+slice offset and remain unchanged. These additional cases observe 785,297
+changed decoded alpha samples. Explicit decoded RGB comparisons against the C
+files have zero difference. Portable tests check padded/packed/surplus buffers,
+unchanged input through transparent cleanup, invalid dimensions/strides/short
+buffers/overflow, signed alpha extremes, NaN/infinities/out-of-range floats,
+single-row `usize::MAX` stride and both maximum skinny shapes. They also prove
+fractional quality changes encoded output and q100 still changes visible RGB.
+
+Two new binary real-image fixtures supplement those corpus comparisons:
+
+| File in `fixtures/corpus/` | Public C configuration | Bytes | SHA-256 |
+| --- | --- | --- | --- |
+| `test_ref.lossy.webp` | Standard RGBA, color quality 75 | 2,074 | `69b51cca94353c41bf9ff01e3995c86d0d5f377c998e72b937af7818e1c66dfa` |
+| `test_ref.alpha.webp` | Custom RGBA, color quality 75, alpha quality 70, synthetic alpha `(17*x+13*y)&255` | 2,540 | `6b6797d481f1921f8590c21209bee39d36001fc451d0e41490482fa279465956` |
+
+Source/toolchain provenance was reviewed before generating these files: clean
+pin `1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1,
+CMake 4.2.3, Release `-O3 -DNDEBUG`, SIMD/threading off, x86_64 Linux,
+Rust 1.101.0-nightly (`7189d39d9`, 2026-10-22). No existing fixtures or upstream
+sources changed. Reproduce with:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_public real_public_fixtures_match_pinned_c
+cargo test -p libwebpop --features native-oracle --test lossy --test lossy_public -- --nocapture
+```
+
+`cwebpop --lossy` calls the custom public API, preserving fractional `-q`
+(default 75), accepting `--alpha_q` (default 100) and supporting method 4.
+The existing lossless default remains. Lossy mode conflicts with lossless,
+near-lossless and exact settings; unsupported lossy controls and alpha quality
+outside lossy mode fail before opening input/output. Executable tests verify
+file and stdin/stdout output against the library, alpha settings, noalpha,
+reporting and preservation of existing output on invalid settings.
+
+Validation passes: full workspace `cargo test` and
+`cargo test --features native-oracle`, release public suites with the native
+oracle, final portable/new binary fixture tests, CLI unit/executable tests,
+`cargo fmt --all -- --check`, `git diff --check` and
+`cargo build -p libwebpop --lib`. Manual timing tests remain ignored by default.
+The [initial lossy baseline](../../../docs/benchmarks/2026-10-24-lossy.md) records
+28 size/PSNR/time/process-memory observations with reproduction instructions.
+All scalar lossy milestones 0–9 are complete; deferred advanced configurations
+and performance work remain outside this scope.

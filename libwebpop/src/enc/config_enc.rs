@@ -4,8 +4,7 @@
 
 use crate::webp::encode::LosslessEncodeError;
 
-/// VP8 setup parameters used by the bottom-up encoder. The public lossy API
-/// will use these defaults; alternate mode-search paths are not implemented yet.
+/// VP8 setup parameters for the default lossy preset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VP8EncoderConfig {
     pub method: i32,
@@ -71,4 +70,26 @@ pub(crate) fn WebPValidateConfig(config: &LosslessOptions) -> Result<(), Lossles
 pub(crate) struct EncoderConfig {
     pub options: LosslessOptions,
     pub near_lossless: u32,
+}
+
+/// Checked simple lossy configuration. Color quality stays floating point and
+/// is independent of VP8L's integer compression-effort setting.
+pub(crate) struct LossyConfig {
+    pub quality: f32,
+    pub alpha_quality: i32,
+}
+
+impl LossyConfig {
+    pub fn new(quality: f32, alpha_quality: i32) -> Result<Self, LosslessEncodeError> {
+        if !quality.is_finite() || !(0.0..=100.0).contains(&quality) {
+            return Err(LosslessEncodeError::InvalidQuality);
+        }
+        if !(0..=100).contains(&alpha_quality) {
+            return Err(LosslessEncodeError::InvalidAlphaQuality);
+        }
+        Ok(Self {
+            quality,
+            alpha_quality,
+        })
+    }
 }

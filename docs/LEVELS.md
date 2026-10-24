@@ -214,7 +214,7 @@ The upstream simple lossless functions also hard-code quality 70 in
 [`picture_enc.c`](../upstream/src/enc/picture_enc.c). This differs from quality
 75 in `WebPConfigInit()` and `cwebp -lossless`.
 
-[`cwebpop`](../cwebpop/README.md) encodes VP8L, with lossless pixels by default.
+[`cwebpop`](../cwebpop/README.md) defaults to VP8L with lossless pixels.
 Its `-q` (also `--quality`) and `-m` (also `--method`) map to those Rust fields, but its
 default quality is **75**, matching upstream's CLI. Fractional `-q` values are
 truncated to integer effort. Multi-letter upstream options use two dashes here,
@@ -237,6 +237,19 @@ with `--near_lossless N -q 70 -m 4` and no `--exact`.
 
 Below 100, RGB and intermediate alpha may change; `--exact` disables cleanup
 and predictor quantization, while standalone preprocessing may still change
-pixels. It does not promise exact alpha. `-z`, `--alpha_q` and other
-unimplemented options remain rejected even where parsing recognizes their
-names. Alpha quality and preset levels are not exposed by the Rust options.
+pixels. It does not promise exact alpha.
+
+`WebPEncodeRGBA(..., quality: f32)` exposes default-preset lossy color with
+exact alpha. `WebPEncodeRGBAWithAlphaQuality(..., quality: f32, alpha_quality: i32)`
+also controls alpha fidelity. Color quality must be finite and in `0..=100`;
+fractional values reach VP8 unchanged. Alpha quality must be in `0..=100`.
+The standard function equals the custom wrapper at alpha quality 100;
+alpha quality does not affect opaque output. Quality 100 still changes RGB.
+These controls are separate from `LosslessOptions`.
+
+`cwebpop --lossy -q 98.5 --alpha_q 70 input.png -o output.webp` selects VP8
+with color quality 98.5 and alpha quality 70. Its defaults are color quality
+75, alpha quality 100 and method 4; other lossy methods are not implemented.
+`--lossy` conflicts with `--lossless`, `--near_lossless` and `--exact`.
+`--alpha_q` requires `--lossy`. `-z` and other unimplemented settings remain
+rejected even where parsing recognizes their names.

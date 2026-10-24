@@ -452,3 +452,144 @@ fn near_lossless_streams_and_invalid_strengths_preserve_output_contracts() {
         .unwrap()
     );
 }
+
+#[test]
+fn lossy_files_and_streams_preserve_fractional_quality_and_alpha_settings() {
+    let temp = Scratch::new();
+    let input = temp.file("alpha.png");
+    let output = temp.file("alpha.webp");
+    let image = image::RgbaImage::from_fn(17, 19, |x, y| {
+        image::Rgba([
+            (x * 17) as u8,
+            (y * 23) as u8,
+            (x * y) as u8,
+            (x * 17 + y * 13) as u8,
+        ])
+    });
+    image.save(&input).unwrap();
+    for (q, aq, noalpha) in [
+        (None, None, false),
+        (Some("98.5"), Some("0"), false),
+        (Some("100"), Some("71"), false),
+        (Some("30.25"), Some("0"), true),
+    ] {
+        let mut command = command();
+        command
+            .arg(&input)
+            .arg("-o")
+            .arg(&output)
+            .args(["--lossy", "-m", "4"]);
+        if let Some(q) = q {
+            command.args(["-q", q]);
+        }
+        if let Some(aq) = aq {
+            command.args(["--alpha_q", aq]);
+        }
+        if noalpha {
+            command.arg("--noalpha");
+        }
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(result.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("lossy WebP"));
+        let mut pixels = image.clone();
+        if noalpha {
+            for p in pixels.pixels_mut() {
+                p[3] = 255;
+            }
+        }
+        let expected = libwebpop::WebPEncodeRGBAWithAlphaQuality(
+            pixels.as_raw(),
+            17,
+            19,
+            17 * 4,
+            q.map(|v| v.parse().unwrap()).unwrap_or(75.),
+            aq.map(|v| v.parse().unwrap()).unwrap_or(100),
+        )
+        .unwrap();
+        let actual = fs::read(&output).unwrap();
+        assert_eq!(actual, expected);
+        let decoded = decode(&actual);
+        assert_eq!(decoded.dimensions(), (17, 19));
+        if aq.is_none() || noalpha {
+            for (a, b) in pixels.pixels().zip(decoded.pixels()) {
+                assert_eq!(a[3], b[3]);
+            }
+        }
+    }
+    let mut child = command()
+        .args([
+            "--lossy",
+            "-q",
+            "98.5",
+            "--alpha_q",
+            "30",
+            "--quiet",
+            "-",
+            "-o",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&fs::read(&input).unwrap())
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(result.stderr.is_empty());
+    assert_eq!(
+        result.stdout,
+        libwebpop::WebPEncodeRGBAWithAlphaQuality(image.as_raw(), 17, 19, 17 * 4, 98.5, 30)
+            .unwrap()
+    );
+}
+
+#[test]
+fn invalid_lossy_settings_fail_before_input_and_preserve_output() {
+    let temp = Scratch::new();
+    let output = temp.file("existing.webp");
+    fs::write(&output, b"keep this").unwrap();
+    for flags in [
+        vec!["--lossy", "-q", "NaN"],
+        vec!["--lossy", "-q", "inf"],
+        vec!["--lossy", "-q", "101"],
+        vec!["--lossy", "--alpha_q=101"],
+        vec!["--lossy", "--alpha_q=-1"],
+        vec!["--lossy", "-m", "0"],
+        vec!["--lossy", "-m", "6"],
+        vec!["--lossy", "--lossless"],
+        vec!["--lossy", "--near_lossless", "100"],
+        vec!["--lossy", "--exact"],
+        vec!["--lossy", "--alpha_filter", "best"],
+        vec!["--lossy", "--alpha_method", "0"],
+        vec!["--alpha_q", "100"],
+    ] {
+        let result = command()
+            .arg(temp.file("absent.png"))
+            .arg("-o")
+            .arg(&output)
+            .args(&flags)
+            .output()
+            .unwrap();
+        assert!(!result.status.success(), "{flags:?}");
+        assert!(result.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert!(!stderr.is_empty());
+        assert!(!stderr.contains("cannot read"), "{flags:?}: {stderr}");
+        assert_eq!(fs::read(&output).unwrap(), b"keep this");
+    }
+}

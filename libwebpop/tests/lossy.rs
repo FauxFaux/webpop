@@ -17,9 +17,8 @@ fn committed_vp8_leaf_and_public_reference_files() {
     for ((case, expected), generated) in fixtures.iter().zip(cases) {
         assert_eq!(case.function, generated.function);
         assert_eq!(case.input, generated.input);
-        if case.function == "VP8FTransform" {
-            assert_eq!(case.rust(), *expected);
-        } else {
+        assert_eq!(case.rust(), *expected);
+        if case.function != "VP8FTransform" {
             let stats = lossy::check_decoded(case, expected);
             for i in 0..3 {
                 totals[i] += stats[i];
@@ -74,9 +73,12 @@ fn forward_transform_matches_pinned_scalar_reference() {
 
 #[cfg(feature = "native-oracle")]
 #[test]
-fn lossy_public_c_wrappers_decode_and_agree_at_alpha_100() {
+fn lossy_public_apis_match_c_decode_and_agree_at_alpha_100() {
     let cases = lossy::public_cases();
-    let outputs = native::run("lossy-public", &cases);
+    let outputs = native::parallel_cases("lossy-public", &cases, |case, output| {
+        native::compare(case, output, &case.rust());
+        output.to_vec()
+    });
     let mut totals = [0; 3];
     let mut standard = None;
     for (case, output) in cases.iter().zip(&outputs) {
@@ -100,7 +102,7 @@ fn lossy_public_c_wrappers_decode_and_agree_at_alpha_100() {
         "alpha changes/raw/compressed: {totals:?}"
     );
     eprintln!(
-        "{} independently decoded lossy C files; alpha changes/raw/compressed: {totals:?}",
+        "{} public Rust/C byte matches and independent decodes; alpha changes/raw/compressed: {totals:?}",
         cases.len()
     );
 }
@@ -124,8 +126,12 @@ fn lossy_public_c_wrappers_reject_invalid_qualities() {
     for alpha in [i32::MIN, -1, 101, i32::MAX] {
         cases.push(lossy::request(&image, 75., Some(alpha)));
     }
-    for output in native::run("lossy-invalid-qualities", &cases) {
+    for (case, output) in cases
+        .iter()
+        .zip(native::run("lossy-invalid-qualities", &cases))
+    {
         assert!(output.is_empty());
+        assert!(lossy::encode(case).is_err());
     }
     assert_eq!(
         native::run(
@@ -143,9 +149,8 @@ fn lossy_fixtures_match_pinned_reference() {
     let cases = lossy::fixture_cases();
     let outputs = native::run("lossy-fixtures", &cases);
     for (case, output) in cases.iter().zip(&outputs) {
-        if case.function == "VP8FTransform" {
-            native::compare(case, output, &case.rust());
-        } else {
+        native::compare(case, output, &case.rust());
+        if case.function != "VP8FTransform" {
             lossy::check_decoded(case, output);
         }
     }

@@ -1,6 +1,6 @@
 # cwebpop
 
-Encode image files as lossless or near-lossless WebP using Rust `libwebpop`.
+Encode image files as lossless, near-lossless or lossy WebP using Rust `libwebpop`.
 
 ```sh
 cargo run -p cwebpop -- --help
@@ -8,12 +8,13 @@ cargo run -p cwebpop -- --version
 cargo run -p cwebpop -- --lossless -q 80 input.png -o output.webp
 cargo run --release -p cwebpop -- --exact input.png -o output.webp
 cargo run --release -p cwebpop -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp
+cargo run --release -p cwebpop -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp
 cat input.png | target/release/cwebpop --quiet - -o - > output.webp
 ```
 
 Lossless encoding is the default; `--lossless` is optional and `-o` is required.
 The CLI reads bytes, decodes them with `image`, converts them to RGBA, calls
-`libwebpop::encode_near_lossless_rgba`, and writes the complete WebP. Supported
+the selected `libwebpop` encoder, and writes the complete WebP. Supported
 input formats are PNG, JPEG, PNM, TGA, TIFF, BMP and WebP. Content determines the input
 format, with the filename extension as a fallback for formats such as TGA.
 Use `-` for stdin or stdout. Diagnostics and statistics go to stderr.
@@ -21,13 +22,24 @@ Use `-` for stdin or stdout. Diagnostics and statistics go to stderr.
 Supported settings are `-q` (lossless compression effort, 0–100, default 75),
 `-m` (effort method, 0–6, default 4), `--exact` (disable transparent RGB cleanup),
 `--noalpha`, `--quiet`, `--short` (only the byte count) and `-v` (timing).
-Fractional quality values are truncated to the integer effort used by the
-current kernels. `--near_lossless N` selects fidelity from 0–100, independently
+In VP8L, fractional quality values are truncated to integer effort.
+`--near_lossless N` selects fidelity from 0–100, independently
 of compression effort; the default 100 disables pixel quantization. Lower
 strengths can change RGB and intermediate alpha. Alpha 0 and 255 stay exact.
 `--exact` also bypasses predictor quantization, but standalone preprocessing can
 still change pixels, including alpha. `--noasm` is accepted; the implementation
 is portable Rust. See [quality, effort and levels](../docs/LEVELS.md).
+
+`--lossy` selects the default-preset VP8 encoder through
+`WebPEncodeRGBAWithAlphaQuality`. Here `-q` controls color fidelity, accepts
+finite values from 0–100 and preserves fractional values; the default is 75.
+Quality 100 still uses YUV420 and quantization, so RGB can change.
+`--alpha_q N` accepts integer alpha quality 0–100 (default 100, exact alpha).
+Lower values permit alpha quantization; opaque output ignores alpha quality.
+The lossy path currently supports method 4 only, including explicit `-m 4`.
+`--lossy` conflicts with `--lossless`, `--near_lossless` and `--exact`;
+`--alpha_q` requires `--lossy`. `--noalpha`, streams and reporting options work
+in either mode. Invalid or unsupported settings fail before reading input.
 
 The existing upstream-style option inventory is retained, but unsupported
 options, including crop/resize, presets and metadata, fail before opening input

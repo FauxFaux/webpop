@@ -1,6 +1,42 @@
 use super::{Case, ImageCase, SEED, random};
 use libwebpop::dsp::enc::{BPS, FTransform_C};
 
+pub fn encode(case: &Case) -> Result<Vec<u8>, libwebpop::WebPEncodingError> {
+    let custom = case.function == "WebPEncodeRGBAWithAlphaQuality";
+    assert!(custom || case.function == "WebPEncodeRGBA");
+    let a = &case.input;
+    let mut rgba = vec![0xa5];
+    rgba.extend(
+        a[if custom { 5 } else { 4 }..]
+            .iter()
+            .map(|&v| u8::try_from(v).unwrap()),
+    );
+    let original = rgba.clone();
+    let q = f32::from_bits(a[3]);
+    let output = if custom {
+        libwebpop::WebPEncodeRGBAWithAlphaQuality(
+            &rgba[1..],
+            a[0],
+            a[1],
+            a[2] as usize,
+            q,
+            a[4] as i32,
+        )
+    } else {
+        libwebpop::WebPEncodeRGBA(&rgba[1..], a[0], a[1], a[2] as usize, q)
+    };
+    assert_eq!(rgba, original);
+    output
+}
+
+pub fn evaluate(case: &Case) -> Vec<u32> {
+    encode(case)
+        .unwrap_or_default()
+        .into_iter()
+        .map(u32::from)
+        .collect()
+}
+
 pub fn transform(case: &Case) -> Vec<u32> {
     assert_eq!(case.function, "VP8FTransform");
     assert_eq!(case.input.len(), 32);

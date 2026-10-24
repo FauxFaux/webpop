@@ -1,11 +1,51 @@
-//! Checked public RGBA entry points for the VP8L encoder.
+//! Checked public RGBA entry points for the VP8 and VP8L encoders.
 
 pub use crate::enc::config_enc::LosslessOptions;
 pub use crate::webp::encode::LosslessEncodeError;
 
-use crate::enc::config_enc::{EncoderConfig, WebPValidateConfig};
-use crate::enc::picture_csp_enc::{WebPPictureImportRGBA, checked_rgba_geometry};
-use crate::enc::webp_enc::WebPEncode;
+use crate::WebPEncodingError;
+use crate::enc::config_enc::{EncoderConfig, LossyConfig, WebPValidateConfig};
+use crate::enc::picture_csp_enc::{
+    WebPPictureImportRGBA, checked_rgba_geometry, import_rgba_to_yuva,
+};
+use crate::enc::webp_enc::{WebPEncode, WebPEncodeLossy};
+
+/// Encode positive-stride RGBA as a complete lossy still-image WebP using
+/// the pinned libwebp default preset (method 4). Color quality must be finite
+/// and in 0..=100; fractional values are preserved. Quality 100 still uses
+/// YUV420 and quantization, so RGB can change. Alpha is preserved exactly.
+///
+/// Dimensions must be in 1..=16383 and stride at least width * 4. The buffer
+/// must contain (height - 1) * stride + width * 4 bytes; final-row padding is
+/// optional. Inputs are validated before allocation and never modified.
+pub fn WebPEncodeRGBA(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    quality: f32,
+) -> Result<Vec<u8>, WebPEncodingError> {
+    WebPEncodeRGBAWithAlphaQuality(rgba, width, height, stride, quality, 100)
+}
+
+/// Encode lossy WebP with independent alpha quality in 0..=100. At 100,
+/// output is byte-identical to [`WebPEncodeRGBA`]. Lower values quantize alpha
+/// and can change intermediate transparency. Alpha quality has no effect on
+/// opaque images. Color quality, geometry and input guarantees follow
+/// [`WebPEncodeRGBA`]. This extends the simple API with quad-image's custom
+/// alpha-quality wrapper; the default preset and alpha compression are fixed.
+pub fn WebPEncodeRGBAWithAlphaQuality(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    quality: f32,
+    alpha_quality: i32,
+) -> Result<Vec<u8>, WebPEncodingError> {
+    let config = LossyConfig::new(quality, alpha_quality)?;
+    let mut picture = import_rgba_to_yuva(rgba, width, height, stride)?;
+    WebPEncodeLossy(&config, &mut picture)
+}
 
 /// Encode positive-stride RGBA as a complete lossless still-image WebP using
 /// the pinned libwebp simple API's defaults (quality 70, method 4, exact false).

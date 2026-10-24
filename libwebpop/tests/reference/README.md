@@ -59,8 +59,11 @@ trials/raw fallback and composed transparent files matching the custom C API,
 boolean-writer state traces, residual costs/statistics, probability headers,
 paginated tokens and adaptive fitting,
 both lossy public C adapters, the copied alpha-quality wrapper, portable
-VP8/ALPH files and independent decoding. The public lossy Rust encoder remains
-unimplemented. This extends the same scalar backend and word protocol.
+VP8/ALPH files and independent decoding. Both public Rust lossy APIs now match
+these adapters, including fractional quality and independent alpha fidelity;
+the public suites also cover checked geometry, layout, invalid settings,
+default/custom-100 identity and opaque invariance. This extends the same
+scalar backend and word protocol.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

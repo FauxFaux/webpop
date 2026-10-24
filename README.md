@@ -40,11 +40,19 @@ port well: we've kept the original C (for now).
 
  * `cargo run --release -- --lossless t.png -o t.webp`
  * `cargo run --release -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp`
+ * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp`
+
+The Rust library exposes `WebPEncodeRGBA(..., quality: f32)` for lossy color
+with exact alpha and `WebPEncodeRGBAWithAlphaQuality(..., quality, alpha_quality)`
+for independent alpha fidelity. Both use the pinned default preset and return
+complete WebP files. Lossless and near-lossless APIs remain available; the CLI
+defaults to lossless.
 
 
 ### Docs
 
  * [Original lossless encoder porting plan](docs/LOSSLESS_PORT_PLAN.md)
+ * [Lossy encoder porting plan](docs/LOSSY_PORT_PLAN.md)
  * [CLI documentation](cwebpop/README.md)
  * [reference Docker build](reference-cwebp/README.md)
  * [benchmark harness](docs/BENCHMARKS.md)
