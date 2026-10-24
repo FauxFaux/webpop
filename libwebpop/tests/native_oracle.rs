@@ -289,29 +289,35 @@ fn clustering_and_sampling_match_pinned_reference() {
     }
     let cases = support::clustering::cases();
     let mut reached = [false; 7];
-    for (case, expected) in cases.iter().zip(native::run("clustering", &cases)) {
-        native::compare(case, &expected, &case.rust());
+    for flags in native::parallel_cases("clustering", &cases, |case, expected| {
+        native::compare(case, expected, &case.rust());
+        let mut reached = [false; 7];
         if case.function != "VP8LClustering" {
-            continue;
+            return reached;
         }
         let mut pos = 0;
-        let (raw, used) = skip_set(&expected, &mut pos);
+        let (raw, used) = skip_set(expected, &mut pos);
         reached[0] |= used < raw;
-        let (initial, _) = skip_set(&expected, &mut pos);
+        let (initial, _) = skip_set(expected, &mut pos);
         let combine = expected[pos] != 0;
         pos += 1;
-        skip_set(&expected, &mut pos);
-        let (binned, _) = skip_set(&expected, &mut pos);
+        skip_set(expected, &mut pos);
+        let (binned, _) = skip_set(expected, &mut pos);
         reached[1] |= combine && binned < initial && case.input[3] == 0;
         reached[2] |= combine && binned < initial && case.input[3] != 0;
         let greedy = expected[pos] != 0;
         pos += 1;
-        let (stochastic, _) = skip_set(&expected, &mut pos);
+        let (stochastic, _) = skip_set(expected, &mut pos);
         reached[3] |= stochastic < binned;
         reached[4] |= !greedy && stochastic > 1;
-        let (final_size, _) = skip_set(&expected, &mut pos);
+        let (final_size, _) = skip_set(expected, &mut pos);
         reached[5] |= greedy && final_size < stochastic;
         reached[6] |= final_size > 1;
+        reached
+    }) {
+        for (reached, flag) in reached.iter_mut().zip(flags) {
+            *reached |= flag;
+        }
     }
     assert_eq!(
         reached, [true; 7],
@@ -824,9 +830,9 @@ fn predictor_foundations_match_pinned_reference() {
 #[test]
 fn predictor_search_matches_pinned_reference() {
     let cases = support::predictors::search_cases();
-    for (case, expected) in cases.iter().zip(native::run("predictor-search", &cases)) {
-        native::compare(case, &expected, &case.rust());
-    }
+    native::parallel_cases("predictor-search", &cases, |case, expected| {
+        native::compare(case, expected, &case.rust());
+    });
     eprintln!("Compared {} automatic predictor search cases", cases.len());
 }
 
@@ -836,9 +842,9 @@ fn predictor_transforms_match_pinned_reference() {
         .into_iter()
         .chain(support::predictors::transform_cases())
         .collect();
-    for (case, expected) in cases.iter().zip(native::run("predictor-transform", &cases)) {
-        native::compare(case, &expected, &case.rust());
-    }
+    native::parallel_cases("predictor-transform", &cases, |case, expected| {
+        native::compare(case, expected, &case.rust());
+    });
     eprintln!(
         "Compared {} predictor transform/clamping cases",
         cases.len()
@@ -857,21 +863,18 @@ fn cross_color_leaves_match_pinned_reference() {
 #[test]
 fn cross_color_search_matches_pinned_reference() {
     let cases = support::cross_color::search_cases();
-    for (case, expected) in cases.iter().zip(native::run("cross-color-search", &cases)) {
-        native::compare(case, &expected, &case.rust());
-    }
+    native::parallel_cases("cross-color-search", &cases, |case, expected| {
+        native::compare(case, expected, &case.rust());
+    });
     eprintln!("Compared {} cross-color search cases", cases.len());
 }
 
 #[test]
 fn cross_color_transforms_match_pinned_reference() {
     let cases = support::cross_color::transform_cases();
-    for (case, expected) in cases
-        .iter()
-        .zip(native::run("cross-color-transform", &cases))
-    {
-        native::compare(case, &expected, &case.rust());
-    }
+    native::parallel_cases("cross-color-transform", &cases, |case, expected| {
+        native::compare(case, expected, &case.rust());
+    });
     eprintln!("Compared {} cross-color transform streams", cases.len());
 }
 

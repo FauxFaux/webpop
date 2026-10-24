@@ -480,8 +480,7 @@ fn near_lossless_options_match_pinned_reference() {
             }
         }
     }
-    let outputs = native::run("near-lossless-public-options", &cases);
-    for (case, expected) in cases.iter().zip(outputs) {
+    native::parallel_cases("near-lossless-public-options", &cases, |case, expected| {
         let a = &case.input;
         let mut allocation = vec![0xa5];
         allocation.extend(a[7..].iter().map(|&b| b as u8));
@@ -503,7 +502,7 @@ fn near_lossless_options_match_pinned_reference() {
         assert_eq!(allocation, before);
         native::compare(
             case,
-            &expected,
+            expected,
             &actual.iter().map(|&b| u32::from(b)).collect::<Vec<_>>(),
         );
         let decoded = image::load_from_memory_with_format(&actual, image::ImageFormat::WebP)
@@ -531,7 +530,7 @@ fn near_lossless_options_match_pinned_reference() {
                 .unwrap()
             );
         }
-    }
+    });
     eprintln!(
         "{} configurable near-lossless public C comparisons",
         cases.len()

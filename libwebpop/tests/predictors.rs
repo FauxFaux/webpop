@@ -153,10 +153,15 @@ fn automatic_predictors_reconstruct_pixels() {
     let mut selected_modes = std::collections::BTreeSet::new();
     let mut mixed_maps = 0;
     let mut cleaned = 0;
-    for case in support::predictors::search_cases()
+    let cases: Vec<_> = support::predictors::search_cases()
         .into_iter()
         .filter(|c| c.input[0] == 6)
-    {
+        .collect();
+    for (bits, modes, mixed, changed) in support::parallel::map(&cases, |case| {
+        let mut selected_bits = std::collections::BTreeSet::new();
+        let mut selected_modes = std::collections::BTreeSet::new();
+        let mut mixed_maps = 0;
+        let mut cleaned = 0;
         let a = &case.input;
         let (w, h, low, exact) = (a[1] as usize, a[2] as usize, a[5] != 0, a[6] != 0);
         let out = case.rust();
@@ -216,6 +221,12 @@ fn automatic_predictors_reconstruct_pixels() {
                 }
             }
         }
+        (selected_bits, selected_modes, mixed_maps, cleaned)
+    }) {
+        selected_bits.extend(bits);
+        selected_modes.extend(modes);
+        mixed_maps += mixed;
+        cleaned += changed;
     }
     assert!(selected_bits.contains(&2) && selected_bits.contains(&9));
     assert!(selected_modes.len() >= 10);

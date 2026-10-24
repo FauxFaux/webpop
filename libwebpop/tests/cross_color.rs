@@ -114,35 +114,48 @@ fn selected_maps_reproduce_transforms_and_invert_all_argb() {
     let mut mixed_maps = 0;
     let mut optimized = 0;
     let mut transparent = 0;
-    for case in support::cross_color::search_cases() {
-        let a = &case.input;
-        let (width, height) = (a[1] as usize, a[2] as usize);
-        let out = case.rust();
-        let bits = out[0];
-        assert!((a[3]..=9).contains(&bits));
-        optimized += usize::from(bits > a[3]);
-        let map_width = width.div_ceil(1 << bits);
-        let map_size = map_width * height.div_ceil(1 << bits);
-        assert_eq!(out.len(), 1 + map_size + width * height);
-        let map = &out[1..1 + map_size];
-        mixed_maps += usize::from(map.iter().any(|m| *m != map[0]));
-        for (i, &pixel) in out[1 + map_size..].iter().enumerate() {
-            let code = map[((i / width) >> bits) * map_width + ((i % width) >> bits)];
-            assert_eq!(code >> 24, 255);
-            codes.insert(code);
-            let source = a[5 + i];
-            assert_eq!(pixel, transform_pixel(source, code));
-            assert_eq!(pixel & 0xff00ff00, source & 0xff00ff00);
-            let green = (pixel >> 8) as u8;
-            let red =
-                (i32::from((pixel >> 16) as u8) + delta(code as u8, green)).rem_euclid(256) as u8;
-            let blue = (i32::from(pixel as u8)
-                + delta((code >> 8) as u8, green)
-                + delta((code >> 16) as u8, red))
-            .rem_euclid(256) as u32;
-            assert_eq!((pixel & 0xff00ff00) | (u32::from(red) << 16) | blue, source);
-            transparent += usize::from(source >> 24 == 0);
-        }
+    let cases = support::cross_color::search_cases();
+    for (case_codes, mixed, optimized_count, transparent_count) in
+        support::parallel::map(&cases, |case| {
+            let mut codes = std::collections::BTreeSet::new();
+            let mut mixed_maps = 0;
+            let mut optimized = 0;
+            let mut transparent = 0;
+            let a = &case.input;
+            let (width, height) = (a[1] as usize, a[2] as usize);
+            let out = case.rust();
+            let bits = out[0];
+            assert!((a[3]..=9).contains(&bits));
+            optimized += usize::from(bits > a[3]);
+            let map_width = width.div_ceil(1 << bits);
+            let map_size = map_width * height.div_ceil(1 << bits);
+            assert_eq!(out.len(), 1 + map_size + width * height);
+            let map = &out[1..1 + map_size];
+            mixed_maps += usize::from(map.iter().any(|m| *m != map[0]));
+            for (i, &pixel) in out[1 + map_size..].iter().enumerate() {
+                let code = map[((i / width) >> bits) * map_width + ((i % width) >> bits)];
+                assert_eq!(code >> 24, 255);
+                codes.insert(code);
+                let source = a[5 + i];
+                assert_eq!(pixel, transform_pixel(source, code));
+                assert_eq!(pixel & 0xff00ff00, source & 0xff00ff00);
+                let green = (pixel >> 8) as u8;
+                let red = (i32::from((pixel >> 16) as u8) + delta(code as u8, green))
+                    .rem_euclid(256) as u8;
+                let blue = (i32::from(pixel as u8)
+                    + delta((code >> 8) as u8, green)
+                    + delta((code >> 16) as u8, red))
+                .rem_euclid(256) as u32;
+                assert_eq!((pixel & 0xff00ff00) | (u32::from(red) << 16) | blue, source);
+                transparent += usize::from(source >> 24 == 0);
+            }
+            (codes, mixed_maps, optimized, transparent)
+        })
+    {
+        codes.extend(case_codes);
+        mixed_maps += mixed;
+        optimized += optimized_count;
+        transparent += transparent_count;
     }
     assert!(mixed_maps > 0 && optimized > 0 && transparent > 0);
     for shift in [0, 8, 16] {

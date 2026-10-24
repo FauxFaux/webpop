@@ -8,6 +8,7 @@ pub mod lossy;
 pub mod main_images;
 pub mod matches;
 pub mod palette;
+pub mod parallel;
 pub mod predictors;
 pub mod public_images;
 pub mod references;
