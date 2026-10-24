@@ -41,6 +41,10 @@ unsigned WebpopAnalysisQuant(const uint32_t*, uint32_t*);
 unsigned WebpopQuantizeSingle(const uint32_t*, uint32_t*);
 unsigned WebpopDCError(const uint32_t*, uint32_t*);
 unsigned WebpopReconstruct(const uint32_t*, uint32_t*);
+unsigned WebpopFastAnalyze(const uint32_t*, uint32_t*);
+unsigned WebpopFastAnalysisFrame(const uint32_t*, uint32_t*);
+unsigned WebpopDistortionSearch(const uint32_t*, uint32_t*);
+unsigned WebpopFastSearchFrame(const uint32_t*, uint32_t*);
 unsigned WebpopModeSearch(const uint32_t*, uint32_t*);
 unsigned WebpopFlat(const uint32_t*, uint32_t*);
 unsigned WebpopModeCost(const uint32_t*, uint32_t*);
@@ -198,7 +202,9 @@ int main(void) {
         REQUIRE(quality>=0.f && quality<=100.f && in[4]<=100 && in[5]<=1 && (in[6]==0 || in[6]==4));
       }
       count=WebpopSharpYuvEncoder(in,n,IS(YuvaSharpImport),out);
-    } else if (IS(VP8SearchFrame)) {
+    } else if (IS(VP8SearchFrame) || IS(VP8FastSearchFrame)) {
+      uint32_t* request = in; unsigned size = n;
+      if (IS(VP8FastSearchFrame)) {REQUIRE(n>=6 && in[0]<=2); ++in; --n;}
       uint64_t pixels, mbw, mbh, output_size; float quality;
       REQUIRE(n >= 5 && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383 && in[2]>=1 && in[2]<=4 && in[4]<=65536);
       memcpy(&quality,in+3,sizeof(quality));REQUIRE(quality>=0.f && quality<=100.f);
@@ -207,7 +213,8 @@ int main(void) {
       output_size=1067+1047*mbw*mbh+(4*mbw+1)*(4*mbh+1)+mbw+(quality<=98.f?4*mbw:0);
       REQUIRE(n==5+pixels && output_size<=LIMIT);
       for(i=5;i<n;++i) REQUIRE(in[i]<=255);
-      count=WebpopSearchFrame(in,out);
+      count=IS(VP8FastSearchFrame) ? WebpopFastSearchFrame(request,out) : WebpopSearchFrame(in,out);
+      in=request; n=size;
     } else if (IS(VP8ModeSyntax)) {
       REQUIRE(n == 7 && in[0] <= 3 && in[2] < 10 && in[3] < 10);
       REQUIRE(in[1] < (in[0] == 0 ? 10 : 4));
@@ -263,13 +270,19 @@ int main(void) {
       REQUIRE(n==15 && in[0]<=100 && in[1]<=7 && in[2]<=63);
       for(i=3;i<15;i+=3) REQUIRE(in[i]<=2047 && in[i+1]<=65535 && in[i+2]<=63);
       count=WebpopAdjustFilter(in,out);
-    } else if (IS(VP8ModeSearch)) {
+    } else if (IS(VP8ModeSearch) || IS(VP8DistortionSearch)) {
+      uint32_t* request = in; unsigned size = n;
+      if (IS(VP8DistortionSearch)) {
+        REQUIRE(n == 728 && in[0]<=2 && in[1]<=1 && in[2]<=3 && in[4]<=0x7fffff && in[5]<=1 && in[6]<=1 && in[7]<=1);
+        in += 8; n -= 8;
+      }
       REQUIRE(n == 720 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && in[634] <= 4 && in[635] <= 65536 && in[636] <= 4 && in[638] <= 0x7fffff);
       REQUIRE((int32_t)in[6] >= -15 && (int32_t)in[6] <= 15 && (int32_t)in[7] >= -15 && (int32_t)in[7] <= 15);
       for (i = 8; i < 16; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
       for (i = 16; i < 634; ++i) REQUIRE(in[i] <= 255);
       for (i = 639; i < n; ++i) REQUIRE(in[i] <= 9);
-      count = WebpopModeSearch(in, out);
+      count = IS(VP8DistortionSearch) ? WebpopDistortionSearch(request, out) : WebpopModeSearch(in, out);
+      in = request; n = size;
     } else if (IS(VP8Flat)) {
       REQUIRE(n >= 514 && in[0] <= 240 && in[1] <= 16 && n == 514+16*in[1]);
       for (i = 2; i < 514; ++i) REQUIRE(in[i] <= 255);
@@ -353,7 +366,18 @@ int main(void) {
       REQUIRE(n == 587 && in[0] <= 3);
       for (i = 1; i < n; ++i) REQUIRE(in[i] <= 255);
       count = WebpopAnalysisProbe(in, out);
-    } else if (IS(VP8AnalysisFrame)) {
+    } else if (IS(VP8FastAnalyze)) {
+      float quality;
+      REQUIRE(n == 513); memcpy(&quality, in, sizeof(quality));
+      REQUIRE(quality>=0.f && quality<=100.f);
+      for(i=1;i<n;++i) REQUIRE(in[i]<=255);
+      count=WebpopFastAnalyze(in,out);
+    } else if (IS(VP8AnalysisFrame) || IS(VP8FastAnalysisFrame)) {
+      uint32_t* request = in; unsigned size = n;
+      if (IS(VP8FastAnalysisFrame)) {
+        float quality; REQUIRE(n>=5 && in[0]<=2); memcpy(&quality,in+1,sizeof(quality));
+        REQUIRE(quality>=0.f && quality<=100.f); in+=2; n-=2;
+      }
       uint64_t pixels, mbw, mbh, output_size;
       REQUIRE(n >= 3 && in[0] >= 1 && in[0] <= 16383 && in[1] >= 1 && in[1] <= 16383 && in[2] >= 1 && in[2] <= 4);
       pixels = (uint64_t)in[0]*in[1] + 2*(uint64_t)((in[0]+1)/2)*((in[1]+1)/2);
@@ -361,7 +385,8 @@ int main(void) {
       output_size = 273 + 10*mbw*mbh + (4*mbw+1)*(4*mbh+1);
       REQUIRE(n == 3 + pixels && output_size <= LIMIT);
       for (i = 3; i < n; ++i) REQUIRE(in[i] <= 255);
-      count = WebpopAnalysisFrame(in, out);
+      count = IS(VP8FastAnalysisFrame) ? WebpopFastAnalysisFrame(request,out) : WebpopAnalysisFrame(in, out);
+      in=request; n=size;
     } else if (IS(VP8IteratorNz)) {
       REQUIRE(n == 22 && in[0] <= 1 && in[3] <= 1);
       for (i = 4; i < n; ++i) REQUIRE(in[i] <= 1);

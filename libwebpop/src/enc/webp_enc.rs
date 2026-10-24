@@ -57,6 +57,7 @@ pub(crate) fn WebPEncodeLossy(
         config.quality <= 98.0,
         config.method,
     )?;
+    enc.config.quality = config.quality;
     VP8EncAnalyze(&mut enc, picture);
     let alpha = VP8EncStartAlpha(picture, config.alpha_quality)?;
     let tokens = VP8EncTokenLoop(&mut enc, picture, config.quality)?;

@@ -20,6 +20,7 @@ pub fn seed_matrix(seed: u16) -> VP8Matrix {
 pub fn seeded(a: &[u32]) -> VP8Encoder {
     let mut enc = VP8Encoder::new(128, 16, false).unwrap();
     enc.config = VP8EncoderConfig {
+        quality: 75.0,
         method: a[2] as i32,
         sns_strength: a[3] as i32,
         filter_strength: a[4] as i32,

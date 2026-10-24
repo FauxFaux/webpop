@@ -137,13 +137,14 @@ unsigned WebpopAnalysisProbe(const uint32_t* in, uint32_t* out) {
   ClearContext(&ctx);
   return n;
 }
-unsigned WebpopAnalysisFrame(const uint32_t* in, uint32_t* out) {
+static unsigned AnalysisFrame(const uint32_t* in, uint32_t* out, int method, float quality) {
   AnalysisContext ctx; SegmentJob job;
   unsigned i, n = 0;
   const unsigned pixels = in[0]*in[1] + 2*((in[0]+1)/2)*((in[1]+1)/2);
   InitContext(&ctx, in[0], in[1], in[2]);
+  ctx.enc.method = ctx.config.method = method; ctx.config.quality = quality;
   for (i = 0; i < pixels; ++i) ctx.planes[i] = in[3+i];
-  if (in[2] > 1) {
+  if (in[2] > 1 || method <= 1) {
     InitSegmentJob(&ctx.enc, &job, 0, ctx.enc.mb_h);
     if (!DoSegmentsJob(&job, &job.it)) abort();
     n += Stats(job.alphas, job.alpha, job.uv_alpha, out + n);
@@ -161,6 +162,25 @@ unsigned WebpopAnalysisFrame(const uint32_t* in, uint32_t* out) {
   for (i = 0; i < ctx.pred_size; ++i) out[n++] = ctx.preds[i];
   ClearContext(&ctx);
   return n;
+}
+
+unsigned WebpopAnalysisFrame(const uint32_t* in, uint32_t* out) {
+  return AnalysisFrame(in, out, 4, 75.f);
+}
+unsigned WebpopFastAnalysisFrame(const uint32_t* in, uint32_t* out) {
+  float quality; memcpy(&quality, in+1, sizeof(quality));
+  return AnalysisFrame(in+2, out, in[0], quality);
+}
+unsigned WebpopFastAnalyze(const uint32_t* in, uint32_t* out) {
+  AnalysisContext ctx; VP8EncIterator it = {0}; unsigned i, n = 0;
+  InitContext(&ctx, 16, 16, 1);
+  memcpy(&ctx.config.quality, in, sizeof(float));
+  VP8IteratorInit(&ctx.enc, &it);
+  for (i = 0; i < YUV_SIZE_ENC; ++i) it.yuv_in[i] = in[1+i];
+  out[n++] = FastMBAnalyze(&it);
+  n += MBs(&ctx.enc, out+n);
+  for (i = 0; i < ctx.pred_size; ++i) out[n++] = ctx.preds[i];
+  ClearContext(&ctx); return n;
 }
 
 // Compose the normally linked analysis and setup entry points on image planes.
@@ -185,25 +205,27 @@ unsigned WebpopAnalysisQuant(const uint32_t* in, uint32_t* out) {
 
 unsigned WebpopModeScore(const VP8ModeScore*, uint32_t*);
 void WebpopRecordModeResiduals(VP8EncIterator*, const VP8ModeScore*);
-unsigned WebpopSearchFrame(const uint32_t* in, uint32_t* out) {
+static unsigned SearchFrame(const uint32_t* in, uint32_t* out, int method) {
   AnalysisContext ctx; VP8EncIterator it = {0}; unsigned i, ch, k, n = 0;
   float quality; const unsigned pixels = in[0]*in[1] + 2*((in[0]+1)/2)*((in[1]+1)/2);
   memcpy(&quality, in+3, sizeof(quality)); InitContext(&ctx,in[0],in[1],in[2]);
+  ctx.enc.method = ctx.config.method = method; ctx.config.quality = quality;
+  ctx.enc.mb_header_limit = 256LL*510*8*1024/(ctx.enc.mb_w*ctx.enc.mb_h);
   ctx.enc.filter_hdr.simple = 1; ctx.enc.max_i4_header_bits = in[4];
   if (quality <= 98.f) {ctx.enc.top_derr = (DError*)calloc(ctx.enc.mb_w,sizeof(DError)); if (!ctx.enc.top_derr) abort();}
   for (i = 0; i < pixels; ++i) ctx.planes[i] = in[5+i];
   VP8EncDspCostInit(); VP8DefaultProbas(&ctx.enc);
   if (!VP8EncAnalyze(&ctx.enc)) abort(); VP8SetSegmentParams(&ctx.enc,quality); VP8CalculateLevelCosts(&ctx.enc.proba);
-  // Analysis seeded arbitrary interior modes. The coding pass starts with DC
-  // boundary modes; its interior is overwritten as each macroblock is selected.
-  memset(ctx.preds,0,ctx.pred_size);
+  // Preserve the old method-4 observer's DC reset. Fast methods retain the
+  // luma families/modes chosen by analysis; iterator init resets boundary modes.
+  if (method == 4) memset(ctx.preds,0,ctx.pred_size);
   VP8IteratorInit(&ctx.enc,&it); memset(it.yuv_p,0xa5,PRED_SIZE_ENC);
   memset(it.yuv_out,0x5a,YUV_SIZE_ENC); memset(it.yuv_out2,0xc3,YUV_SIZE_ENC);
   out[n++] = ctx.enc.segment_hdr.num_segments; out[n++] = ctx.enc.base_quant;
   for (i = 0; i < 4; ++i) out[n++] = ctx.enc.dqm[i].quant;
   do {
     VP8ModeScore rd = {0}, logical = {0};
-    VP8IteratorImport(&it,NULL); out[n++] = VP8Decimate(&it,&rd,RD_OPT_BASIC);
+    VP8IteratorImport(&it,NULL); out[n++] = VP8Decimate(&it,&rd,method == 4 ? RD_OPT_BASIC : RD_OPT_NONE);
     // The exported score serializer receives only defined fields.
     logical.D=rd.D; logical.SD=rd.SD; logical.R=rd.R; logical.H=rd.H; logical.score=rd.score; logical.nz=rd.nz;
     logical.mode_i16=rd.mode_i16; logical.mode_uv=rd.mode_uv;
@@ -212,6 +234,7 @@ unsigned WebpopSearchFrame(const uint32_t* in, uint32_t* out) {
     memcpy(logical.uv_levels,rd.uv_levels,sizeof(logical.uv_levels));
     if (it.mb->type==0) memcpy(logical.modes_i4,rd.modes_i4,sizeof(logical.modes_i4));
     if (ctx.enc.top_derr) memcpy(logical.derr,rd.derr,sizeof(logical.derr));
+    if (method != 4) logical = rd;
     n += WebpopModeScore(&logical,out+n);
     for (i=0;i<YUV_SIZE_ENC;++i) out[n++]=it.yuv_out[i];
     out[n++]=it.mb->type;out[n++]=it.mb->uv_mode;out[n++]=it.mb->skip;out[n++]=it.mb->segment;out[n++]=it.mb->alpha;
@@ -230,4 +253,11 @@ unsigned WebpopSearchFrame(const uint32_t* in, uint32_t* out) {
   if(ctx.enc.top_derr) for(i=0;i<(unsigned)ctx.enc.mb_w;++i) for(ch=0;ch<2;++ch) for(k=0;k<2;++k) out[n++]=(uint32_t)(int32_t)ctx.enc.top_derr[i][ch][k];
   for(i=0;i<4;++i) out[n++]=ctx.enc.dqm[i].max_edge;
   free(ctx.enc.top_derr); ClearContext(&ctx); return n;
+}
+
+unsigned WebpopSearchFrame(const uint32_t* in, uint32_t* out) {
+  return SearchFrame(in, out, 4);
+}
+unsigned WebpopFastSearchFrame(const uint32_t* in, uint32_t* out) {
+  return SearchFrame(in+1, out, in[0]);
 }

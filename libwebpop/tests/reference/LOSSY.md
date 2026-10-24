@@ -1827,3 +1827,73 @@ Validation passed: full workspace `cargo test`, full
 comparisons, the production library build, formatting and `git diff --check`.
 Method-4 full-file and detailed loop fixtures remain byte-identical, including
 SharpYUV routes and the existing alpha-quality APIs.
+
+
+## Remaining lossy methods: milestone 2
+
+Completed 2026-10-24 from repository revision `87adc67`. Rust now ports
+`FastMBAnalyze`, `MBAnalyze` method selection, the methods-0/1 analysis condition
+for a single segment, `RefineUsingDistortion`, and non-RD `VP8Decimate`.
+The internal VP8 config retains source color quality before analysis. Public
+options and complete-file encoding still use method 4; direct frame-loop
+integration follows in milestones 3–4.
+
+Four new logical requests reuse the original included C translation units and
+existing state serializers. Old request/fixture layouts remain unchanged:
+
+- `VP8FastAnalyze`: f32 quality bits and 512 source scratch bytes. Returns
+  the helper result, five macroblock fields and the 25 prediction-map bytes.
+- `VP8FastAnalysisFrame`: method and f32 quality bits followed by the existing
+  `VP8AnalysisFrame` request. Returns its same statistics/segment/mode/map layout,
+  including real analysis for one segment at methods 0/1.
+- `VP8DistortionSearch`: `(method, initial_family, initial_uv_mode,
+  mb_header_limit_low, mb_header_limit_high, try_both, refine_uv, decimate)`
+  followed by the existing 720-word `VP8ModeSearch` request. Calls original
+  `RefineUsingDistortion` directly or normally linked `VP8Decimate(RD_OPT_NONE)`.
+  Returns the same result/score/scratch/error/context/rotation/MB/map layout,
+  with all 435 seeded score words preserved for comparison. Non-RD helpers copy
+  no uninitialized candidate structs; unassigned mode fields and I16 DC levels
+  on an I4 winner retain their seeds. Chosen modes come from MB/prediction state.
+- `VP8FastSearchFrame`: method followed by the existing `VP8SearchFrame` request.
+  Retains analyzed modes before the raster scan and calls non-RD decimation.
+  Returns the same per-MB reconstruction/context/border and final-state layout,
+  with all fields of its initially zeroed score serialized. Normal C statistics
+  helpers propagate coefficient contexts after each decision; direct boolean
+  coding and complete-file integration are later milestones.
+
+`lossy_fast.rs` and `support/vp8_fast.rs` compare 5,973 live requests, including
+all integer qualities plus fractional threshold boundaries, eight quantizers,
+all image-edge/diffusion flags, both initial families, all refinement flags,
+restrictive header budgets, six geometries, one/four segments and ten source
+patterns. Both final families occur at each method; method 2 switches families
+in both directions (264 switches to I4, 429 to I16 in the leaf corpus). The
+187 partial I4 early-outs preserve written scratch/levels before I16 reconstruction. The boundary case rejects I4 at budget 16,116 after fifteen
+partial blocks and accepts at 16,117 and 16,118. A constructed equal TM/horizontal
+prediction-score case keeps TM, and flat-source left/top borders force DC/vertical
+without evaluating I4. Non-RD reconstruction computes UV diffusion errors while
+leaving persistent incoming errors unchanged. This differs from basic RD's
+`PickBestUV` commit and is intentional.
+
+Independent portable checks cover source-block concentration and strict ties,
+one-segment prediction initialization, flat-border selection, exact header
+cutoffs, earliest score ties, seeded score/mode/error preservation and 270 raster
+macroblocks whose nonzero masks are derived independently from their levels.
+The first 54 fixtures were captured from C before their Rust branches were added;
+seven focused boundary fixtures were appended during validation, for 61 total. The clean
+pin and milestone-0 scalar toolchain were reviewed again before capture: GCC
+15.2.0-16ubuntu1, CMake 4.2.3, Release `-O3 -DNDEBUG`, Rust 1.101.0-nightly
+`7189d39d9` (2026-10-22). The upstream checkout and all old fixtures are unchanged.
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_fast fast_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_fast
+cargo test -p libwebpop --features native-oracle --test lossy_fast -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test lossy_fast -- --nocapture
+```
+
+Validation passed: full workspace `cargo test` and
+`cargo test --features native-oracle`; release native checks for both
+`lossy_fast` (10 tests) and `lossy_methods` (6 tests); the production library
+build; `cargo fmt --all -- --check`; and `git diff --check`. Existing method-4
+leaf, detailed-loop, full-file, alpha and SharpYUV comparisons remain unchanged.

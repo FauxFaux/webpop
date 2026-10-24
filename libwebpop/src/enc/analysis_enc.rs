@@ -1,9 +1,9 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/analysis_enc.c (default method-4 scalar path).
+// Derived from upstream/src/enc/analysis_enc.c (scalar analysis).
 // See COPYING and PATENTS.
 
 use super::{iterator_enc::*, picture_enc::WebPYUVAPicture, quant_enc::*, vp8i_enc::*};
-use crate::dsp::enc::{CollectHistogram_C, VP8Histogram};
+use crate::dsp::enc::{BPS, CollectHistogram_C, Mean16x4_C, VP8Histogram};
 
 const MAX_ALPHA: usize = 255;
 const ALPHA_SCALE: i32 = 2 * MAX_ALPHA as i32;
@@ -135,6 +135,31 @@ pub fn MBAnalyzeBestIntra16Mode(it: &mut VP8EncIterator, enc: &mut VP8Encoder) -
     best_alpha
 }
 
+/// Choose a luma family from the sums of its sixteen 4x4 source blocks.
+pub fn FastMBAnalyze(it: &mut VP8EncIterator, enc: &mut VP8Encoder) -> i32 {
+    let q = enc.config.quality as i32;
+    let threshold = (8 + 9 * q / 100) as u64;
+    let mut dc = [0u32; 16];
+    for k in (0..16).step_by(4) {
+        Mean16x4_C(
+            &it.yuv_in[Y_OFF_ENC + k * BPS..],
+            (&mut dc[k..k + 4]).try_into().unwrap(),
+        );
+    }
+    let mut m = 0u64;
+    let mut m2 = 0u64;
+    for v in dc {
+        m += u64::from(v);
+        m2 += u64::from(v * v);
+    }
+    if threshold * m2 < m * m {
+        VP8SetIntra16Mode(it, enc, 0);
+    } else {
+        VP8SetIntra4Mode(it, enc, &[0; 16]);
+    }
+    0
+}
+
 pub fn MBAnalyzeBestUVMode(it: &mut VP8EncIterator, enc: &mut VP8Encoder) -> i32 {
     let (mut best_alpha, mut smallest_alpha, mut best_mode) = (-1, 0, 0);
     VP8MakeChroma8Preds(it, enc);
@@ -182,7 +207,11 @@ pub fn MBAnalyze(it: &mut VP8EncIterator, enc: &mut VP8Encoder, stats: &mut VP8A
     VP8SetIntra16Mode(it, enc, 0);
     VP8SetSkip(it, enc, false);
     VP8SetSegment(it, enc, 0);
-    let alpha = MBAnalyzeBestIntra16Mode(it, enc);
+    let alpha = if enc.config.method <= 1 {
+        FastMBAnalyze(it, enc)
+    } else {
+        MBAnalyzeBestIntra16Mode(it, enc)
+    };
     let uv_alpha = MBAnalyzeBestUVMode(it, enc);
     let final_alpha = FinalAlphaValue((3 * alpha + uv_alpha + 2) >> 2);
     stats.alphas[usize::from(final_alpha)] += 1;
@@ -221,11 +250,11 @@ fn ResetAllMBInfo(enc: &mut VP8Encoder) {
     enc.uv_alpha = 0;
 }
 
-/// Default method 4, preprocessing 0, no JPEG-size emulation or worker threads.
+/// Preprocessing 0, no JPEG-size emulation or worker threads.
 /// Returns diagnostics in addition to mutating modes and segment parameters.
 pub fn VP8EncAnalyze(enc: &mut VP8Encoder, pic: &WebPYUVAPicture) -> VP8AnalysisStats {
     assert!((1..=NUM_MB_SEGMENTS).contains(&enc.segment_hdr.num_segments));
-    if enc.segment_hdr.num_segments > 1 {
+    if enc.segment_hdr.num_segments > 1 || enc.config.method <= 1 {
         let stats = DoSegmentsJob(enc, pic);
         let total = (enc.mb_w * enc.mb_h) as i64;
         enc.alpha = (stats.alpha_sum / total) as i32;

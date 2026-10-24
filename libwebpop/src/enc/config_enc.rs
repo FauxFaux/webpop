@@ -13,8 +13,10 @@ pub(crate) fn validate_vp8_method(method: i32) -> Result<(), LosslessEncodeError
 }
 
 /// VP8 setup parameters for the default lossy preset.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VP8EncoderConfig {
+    /// Source color quality. Fast analysis truncates this for its threshold.
+    pub quality: f32,
     pub method: i32,
     pub sns_strength: i32,
     pub filter_strength: i32,
@@ -25,6 +27,7 @@ pub struct VP8EncoderConfig {
 impl Default for VP8EncoderConfig {
     fn default() -> Self {
         Self {
+            quality: 75.0,
             method: 4,
             sns_strength: 50,
             filter_strength: 60,

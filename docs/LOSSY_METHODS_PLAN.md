@@ -59,14 +59,15 @@ needed. Preserve their behavior and reference fixtures.
 | --- | --- | --- |
 | [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` now validates and carries method too | Expose method in existing public options after the algorithms compose; finish method propagation into alpha effort |
 | [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding still uses the method-4 token loop | Direct/token frame dispatch after the additional algorithms land |
-| [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram-based luma/UV probes, segmentation and synchronous source-border traversal | `FastMBAnalyze` for methods 0/1; retain analysis when these methods need prediction initialization |
-| [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, candidate reconstruction, diffusion and basic RD searches | Distortion refinement, selected-mode requantization, trellis, and complete `VP8Decimate` dispatch |
+| [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
+| [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD and distortion refinement; non-RD `VP8Decimate` | Selected-mode requantization, trellis and remaining RD dispatch |
 | [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Probability fitting, token recording, refresh/retry loop and deterministic filter finalization | Direct residual writer/statistics, skip fitting/reset, statistics pass and direct final coding; generalize token RD level |
 | [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, filters, VP8L and raw fallback | Replace fixed effort 4/q32 throughout with method-dependent effort and quality |
 | [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including skip syntax | Compose with a direct-loop partition and fitted skip state; verify existing skip branches |
 | [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Parses methods 0–6 but rejects lossy methods other than 4 | Route every valid method to the checked configurable lossy API |
 
-`VP8Decimate` and `VP8EncTokenLoopWithObserver` currently assert method 4;
+`VP8Decimate` now accepts non-RD and basic RD;
+`VP8EncTokenLoopWithObserver` still asserts method 4;
 `ReconstructIntra16` and `ReconstructIntra4` reject trellis. Removing assertions
 alone would produce the wrong encoder. Matrix setup already contains the
 method threshold for texture-distortion weighting and the trellis lambdas;
@@ -217,7 +218,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–1 are complete; milestones 2–8 remain pending. Integrate callers after
+Milestones 0–2 are complete; milestones 3–8 remain pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -226,7 +227,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | --- | --- | --- | --- |
 | 0 (complete) | Extend the existing oracle with configurable full files, tool mapping and new branch traces; record pre-change method-4 baseline | Existing oracle/pin | 70 portable fixtures, 3,556 independently decoded C files, 672 tool mappings and 336 compact loop traces; method-4 Rust comparisons and wrapper/toolchain provenance recorded |
 | 1 (complete) | Validated internal method configuration, tool mapping and propagation into encoder setup; retain public method-4 entry points | 0 | 84 normal-resource setup states match C across all methods; 7 additional portable setup fixtures; invalid signed methods rejected before allocation; method-4 bytes unchanged |
-| 2 | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | Fast decisions, selected modes, reconstruction, levels, nonzero masks and mutated context/diffusion state match C for methods 0–2 |
+| 2 (complete) | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | 61 portable fixtures and 5,973 live C requests match fast decisions, selected modes, reconstruction, levels, nonzero masks and context/diffusion state for methods 0–2 |
 | 3 | Direct coefficient coding/statistics and skip-probability leaves | 0 | Exact residual bytes, boolean state, statistics, skip costs/thresholds and post-skip contexts; independent coefficient decoding |
 | 4 | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | Methods 0–3 opaque files match normal C; method-0 probe limits, skip on/off, retries, borders and final filter state observed |
 | 5 | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | Exact levels/dequantized coefficients/masks and traceback; independent bounded path enumeration including terminal/tie cases |
@@ -301,6 +302,23 @@ per-macroblock header budget. Normal routing is direct for 0–2 and tokens for
 3–6. Method 3 is a useful early integration check for basic RD outside method 4.
 
 ### 2. Fast analysis and distortion decisions
+
+Completed 2026-10-24, continuing from `87adc67`. `FastMBAnalyze`, the method
+branch in `MBAnalyze`, and the methods-0/1 one-segment analysis condition are
+ported. Internal VP8 config carries the original floating-point quality before
+analysis; only the fast threshold truncates it to an integer.
+`RefineUsingDistortion` and non-RD `VP8Decimate` now reconstruct methods 0–2.
+The token frame loop and public entry points remain method 4 until integration.
+
+The new fast-path suite compares 5,973 requests with pinned scalar C and stores
+61 portable fixtures without modifying the original fixtures. Exact state checks
+include both luma families, method-2 family switches, partial I4 early-outs,
+strict score ties, the flat-border safeguard, coefficient masks, scratch buffers,
+raster borders and diffusion side effects. Independent checks establish block
+concentration thresholds, prediction initialization with one segment, coefficient
+mask consistency, and non-RD score/mode/error preservation. The C-observed header
+boundary case accepts I4 at budget 16,117 and rejects it at 16,116 after fifteen
+partial reconstructions. See the [reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-2).
 
 Port `FastMBAnalyze`, connect `MBAnalyze`'s method branch and preserve the
 `do_segments` condition that includes methods 0/1. Even a one-segment internal

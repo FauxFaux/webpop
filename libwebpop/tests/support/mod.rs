@@ -22,6 +22,7 @@ pub mod vp8_analysis;
 pub mod vp8_boolean;
 pub mod vp8_cost;
 pub mod vp8_dsp;
+pub mod vp8_fast;
 pub mod vp8_iterator;
 pub mod vp8_loop;
 pub mod vp8_predictions;
@@ -56,6 +57,10 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8FastAnalyze"
+            | "VP8FastAnalysisFrame"
+            | "VP8DistortionSearch"
+            | "VP8FastSearchFrame" => vp8_fast::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),

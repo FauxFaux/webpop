@@ -252,22 +252,146 @@ pub fn PickBestUV(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8Mod
     }
 }
 
-/// Required default-preset search. Other RD levels and methods remain deferred.
+/// Refine prediction modes using source SSE and fixed mode penalties.
+/// UV reconstruction computes diffusion errors without committing them here,
+/// as in the pinned non-RD path.
+pub fn RefineUsingDistortion(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    mut try_both_modes: bool,
+    refine_uv_mode: bool,
+    rd: &mut VP8ModeScore,
+) {
+    let mut best_score = MAX_COST;
+    let mut nz = 0;
+    let mut is_i16 = try_both_modes || enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1;
+    let segment = usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment);
+    let mut score_i4 = enc.dqm[segment].i4_penalty;
+    let mut i4_bit_sum = 0i64;
+    let bit_limit = if try_both_modes {
+        enc.mb_header_limit
+    } else {
+        MAX_COST
+    };
+    if is_i16 {
+        let mut best_mode = 0;
+        for (mode, &offset) in VP8I16ModeOffsets.iter().enumerate() {
+            let score = i64::from(SSE16x16_C(&it.yuv_in[Y_OFF_ENC..], &it.yuv_p[offset..])) * 256
+                + i64::from(VP8FixedCostsI16[mode]) * 106;
+            if mode > 0 && i64::from(VP8FixedCostsI16[mode]) > bit_limit {
+                continue;
+            }
+            if score < best_score {
+                best_mode = mode;
+                best_score = score;
+            }
+        }
+        // Prevent checkerboard resonance originating at a flat image border
+        // (upstream bug #432). The score still belongs to the evaluated mode.
+        if (it.x == 0 || it.y == 0) && IsFlatSource16(&it.yuv_in[Y_OFF_ENC..]) {
+            best_mode = if it.x == 0 { 0 } else { 2 };
+            try_both_modes = false;
+        }
+        VP8SetIntra16Mode(it, enc, best_mode as u8);
+    }
+    if try_both_modes || !is_i16 {
+        is_i16 = false;
+        VP8IteratorStartI4(it, enc);
+        loop {
+            let offset = VP8Scan[it.i4];
+            let costs = GetCostModeI4(it, enc, &rd.modes_i4);
+            MakeIntra4Preds(it);
+            let mut best_mode = 0;
+            let mut best_i4_score = MAX_COST;
+            for (mode, &pred_offset) in VP8I4ModeOffsets.iter().enumerate() {
+                let score = i64::from(SSE4x4_C(
+                    &it.yuv_in[Y_OFF_ENC + offset..],
+                    &it.yuv_p[pred_offset..],
+                )) * 256
+                    + i64::from(costs[mode]) * 11;
+                if score < best_i4_score {
+                    best_mode = mode;
+                    best_i4_score = score;
+                }
+            }
+            i4_bit_sum += i64::from(costs[best_mode]);
+            rd.modes_i4[it.i4] = best_mode as u8;
+            score_i4 += best_i4_score;
+            if score_i4 >= best_score || i4_bit_sum > bit_limit {
+                is_i16 = true;
+                break;
+            }
+            let mut dst = [0u8; 3 * BPS + 4];
+            nz |= u32::from(ReconstructIntra4(
+                it,
+                enc,
+                &mut rd.y_ac_levels[it.i4],
+                &it.yuv_in[Y_OFF_ENC + offset..],
+                &mut dst,
+                best_mode,
+            )) << it.i4;
+            Copy4x4_C(&dst, &mut it.yuv_out2[Y_OFF_ENC + offset..]);
+            let pixels = it.yuv_out2;
+            if !VP8IteratorRotateI4(it, &pixels) {
+                break;
+            }
+        }
+    }
+    if !is_i16 {
+        VP8SetIntra4Mode(it, enc, &rd.modes_i4);
+        std::mem::swap(&mut it.yuv_out, &mut it.yuv_out2);
+        best_score = score_i4;
+    } else {
+        let mode = enc.preds[enc.preds_offset(it.x, it.y)] as usize;
+        let mut dst = it.yuv_out;
+        nz = ReconstructIntra16(it, enc, rd, &mut dst[Y_OFF_ENC..], mode);
+        it.yuv_out = dst;
+    }
+    if refine_uv_mode {
+        let mut best_mode = 0;
+        let mut best_uv_score = MAX_COST;
+        for (mode, &offset) in VP8UVModeOffsets.iter().enumerate() {
+            let score = i64::from(SSE16x8_C(&it.yuv_in[U_OFF_ENC..], &it.yuv_p[offset..])) * 256
+                + i64::from(VP8FixedCostsUV[mode]) * 120;
+            if score < best_uv_score {
+                best_mode = mode;
+                best_uv_score = score;
+            }
+        }
+        VP8SetIntraUVMode(it, enc, best_mode as u8);
+    }
+    let mode = enc.mb_info[it.y * enc.mb_w + it.x].uv_mode as usize;
+    let mut dst = it.yuv_out;
+    nz |= ReconstructUV(it, enc, rd, &mut dst[U_OFF_ENC..], mode);
+    it.yuv_out = dst;
+    rd.nz = nz;
+    rd.score = best_score;
+}
+
+/// Scalar non-RD and basic-RD mode decisions. Trellis remains deferred.
 pub fn VP8Decimate(
     it: &mut VP8EncIterator,
     enc: &mut VP8Encoder,
     rd: &mut VP8ModeScore,
     rd_opt: VP8RDLevel,
 ) -> bool {
-    assert_eq!(rd_opt, VP8RDLevel::RD_OPT_BASIC);
-    assert_eq!(enc.config.method, 4);
+    assert!(matches!(
+        rd_opt,
+        VP8RDLevel::RD_OPT_NONE | VP8RDLevel::RD_OPT_BASIC
+    ));
     InitScore(rd);
     VP8MakeLuma16Preds(it, enc);
     VP8MakeChroma8Preds(it, enc);
-    it.do_trellis = false;
-    PickBestIntra16(it, enc, rd);
-    PickBestIntra4(it, enc, rd);
-    PickBestUV(it, enc, rd);
+    if rd_opt != VP8RDLevel::RD_OPT_NONE {
+        it.do_trellis = false;
+        PickBestIntra16(it, enc, rd);
+        if enc.config.method >= 2 {
+            PickBestIntra4(it, enc, rd);
+        }
+        PickBestUV(it, enc, rd);
+    } else {
+        RefineUsingDistortion(it, enc, enc.config.method >= 2, enc.config.method >= 1, rd);
+    }
     let skipped = rd.nz == 0;
     VP8SetSkip(it, enc, skipped);
     skipped

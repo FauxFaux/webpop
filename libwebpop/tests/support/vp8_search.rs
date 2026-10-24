@@ -416,10 +416,15 @@ pub fn record_residuals(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8M
     VP8IteratorBytesToNz(it, enc);
 }
 pub fn frame_evaluate(a: &[u32]) -> Vec<u32> {
+    frame_evaluate_with_method(a, 4)
+}
+pub fn frame_evaluate_with_method(a: &[u32], method: i32) -> Vec<u32> {
     use libwebpop::enc::{analysis_enc::VP8EncAnalyze, iterator_enc::*};
     let quality = f32::from_bits(a[3]);
     let mut enc = super::vp8_analysis::seeded(a[0], a[1], a[2] as usize);
     enc.max_i4_header_bits = a[4] as i32;
+    enc.config.method = method;
+    enc.config.quality = quality;
     if quality <= 98. {
         enc.top_derr = Some(vec![[[0; 2]; 2]; enc.mb_w]);
     }
@@ -429,7 +434,9 @@ pub fn frame_evaluate(a: &[u32]) -> Vec<u32> {
     VP8EncAnalyze(&mut enc, &pic);
     VP8SetSegmentParams(&mut enc, quality);
     VP8CalculateLevelCosts(&mut enc.proba);
-    enc.preds.fill(0);
+    if method == 4 {
+        enc.preds.fill(0);
+    }
     let mut it = VP8EncIterator::default();
     VP8IteratorInit(&mut enc, &mut it);
     it.yuv_p.fill(0xa5);
@@ -446,9 +453,17 @@ pub fn frame_evaluate(a: &[u32]) -> Vec<u32> {
             &mut it,
             &mut enc,
             &mut rd,
-            VP8RDLevel::RD_OPT_BASIC,
+            if method == 4 {
+                VP8RDLevel::RD_OPT_BASIC
+            } else {
+                VP8RDLevel::RD_OPT_NONE
+            },
         )));
-        reconstruction::score(&logical_score(&normalize, &enc, &it, &rd), &mut out);
+        if method == 4 {
+            reconstruction::score(&logical_score(&normalize, &enc, &it, &rd), &mut out);
+        } else {
+            reconstruction::score(&rd, &mut out);
+        }
         out.extend(it.yuv_out.map(u32::from));
         let mb = enc.mb_info[it.y * enc.mb_w + it.x];
         out.extend([

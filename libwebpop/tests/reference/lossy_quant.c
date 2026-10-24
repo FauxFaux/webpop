@@ -232,7 +232,7 @@ unsigned WebpopReconstruct(const uint32_t* in, uint32_t* out) {
 // mode/UV fields uninitialized, so those fields are omitted or zero-normalized.
 #undef VP8Decimate
 int VP8Decimate(VP8EncIterator*, VP8ModeScore*, VP8RDLevel);
-unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
+static unsigned ModeSearch(const uint32_t* in, uint32_t* out, const uint32_t* fast) {
   VP8Encoder enc = {0}; WebPConfig config; VP8EncIterator it = {0};
   VP8ModeScore rd, logical = {0}; VP8MBInfo mbs[4] = {{0}};
   uint8_t preds[99] = {0}, tops[64]; uint32_t nz[3]; DError top[2];
@@ -247,6 +247,7 @@ unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
   VP8EncDspInit(); VP8EncDspCostInit(); VP8IteratorInit(&enc, &it);
   VP8IteratorSetRow(&it, (in[3]>>1)&1); if (in[3]&1) VP8IteratorNext(&it);
   for (i = 0; i < 4; ++i) {mbs[i].segment = in[2]; mbs[i].alpha = 199; enc.dqm[i].quant = (in[1]+17*i)%128;}
+  if (fast) {enc.method = config.method = fast[0]; enc.mb_header_limit = (int64_t)((uint64_t)fast[3] | ((uint64_t)fast[4]<<32));}
   SetupMatrices(&enc); for (i = 0; i < 4; ++i) enc.dqm[i].max_edge = 1+i;
   for (i = 0; i < 17; ++i) it.y_left[(int)i-1] = in[at++];
   for (i = 0; i < 25; ++i) it.u_left[(int)i-1] = in[at++];
@@ -267,7 +268,11 @@ unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
   memset(it.yuv_p, 0xa5, PRED_SIZE_ENC); memset(it.yuv_out, 0x5a, YUV_SIZE_ENC); memset(it.yuv_out2, 0xc3, YUV_SIZE_ENC);
   SeedScore(&rd); rd.score = in[637] | ((int64_t)in[638]<<32);
   VP8MakeLuma16Preds(&it); VP8MakeChroma8Preds(&it);
-  if (stage == 0 || stage == 1) {
+  if (fast) {
+    it.mb->type = fast[1]; it.mb->uv_mode = fast[2];
+    if (fast[7]) result = VP8Decimate(&it, &rd, RD_OPT_NONE);
+    else RefineUsingDistortion(&it, fast[5], fast[6], &rd);
+  } else if (stage == 0 || stage == 1) {
     PickBestIntra16(&it, &rd);
     if (stage == 1) {for (i = 0; i < 16; ++i) rd.modes_i4[i] = i%10; result = PickBestIntra4(&it, &rd);}
   } else if (stage == 2) result = VP8Decimate(&it, &rd, RD_OPT_BASIC);
@@ -283,6 +288,7 @@ unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
     logical.mode_uv = rd.mode_uv; memcpy(logical.uv_levels, rd.uv_levels, sizeof(logical.uv_levels));
     if (enc.top_derr) memcpy(logical.derr, rd.derr, sizeof(logical.derr));
   }
+  if (fast) logical = rd;  // Every field was seeded; non-RD copies no undefined candidates.
   out[n++] = result; n += WebpopModeScore(&logical, out+n);
   for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = it.yuv_out[i];
   for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = it.yuv_out2[i];
@@ -297,6 +303,12 @@ unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
   for (i = 0; i < 3; ++i) out[n++] = nz[i];
   for (i = 0; i < 4; ++i) out[n++] = enc.dqm[i].max_edge;
   return n;
+}
+unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
+  return ModeSearch(in, out, NULL);
+}
+unsigned WebpopDistortionSearch(const uint32_t* in, uint32_t* out) {
+  return ModeSearch(in+8, out, in);
 }
 unsigned WebpopFlat(const uint32_t* in, uint32_t* out) {
   uint8_t src[512]; int16_t levels[256]; unsigned i;
