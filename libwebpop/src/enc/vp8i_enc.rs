@@ -210,6 +210,9 @@ pub struct VP8ModeScore {
 /// is the constant left sentinel, followed by one packed context per column.
 pub struct VP8Encoder {
     pub max_i4_header_bits: i32,
+    pub mb_header_limit: i64,
+    pub rd_opt_level: VP8RDLevel,
+    pub use_tokens: bool,
     pub config: super::config_enc::VP8EncoderConfig,
     pub filter_hdr: VP8EncFilterHeader,
     pub base_quant: i32,
@@ -240,7 +243,21 @@ impl VP8Encoder {
         height: u32,
         diffusion: bool,
     ) -> Result<Self, crate::webp::encode::LosslessEncodeError> {
+        Self::new_with_method(width, height, diffusion, 4)
+    }
+
+    /// Initialize method-dependent analysis/quantization state. Frame coding
+    /// currently implements method 4; other methods are available for staged
+    /// leaf ports and setup comparisons, not complete-file encoding yet.
+    /// Resource policy remains normal memory and one coefficient partition.
+    pub fn new_with_method(
+        width: u32,
+        height: u32,
+        diffusion: bool,
+        method: i32,
+    ) -> Result<Self, crate::webp::encode::LosslessEncodeError> {
         use crate::enc::picture_csp_enc::RgbaInputError;
+        super::config_enc::validate_vp8_method(method)?;
         if !(1..=16383).contains(&width) || !(1..=16383).contains(&height) {
             return Err(RgbaInputError::InvalidDimensions.into());
         }
@@ -271,9 +288,15 @@ impl VP8Encoder {
         }
         let mut proba = VP8EncProba::default();
         super::tree_enc::VP8DefaultProbas(&mut proba);
-        Ok(Self {
-            max_i4_header_bits: 256 * 16 * 16,
-            config: super::config_enc::VP8EncoderConfig::default(),
+        let mut enc = Self {
+            max_i4_header_bits: 0,
+            mb_header_limit: 0,
+            rd_opt_level: VP8RDLevel::RD_OPT_NONE,
+            use_tokens: false,
+            config: super::config_enc::VP8EncoderConfig {
+                method,
+                ..Default::default()
+            },
             filter_hdr: VP8EncFilterHeader::default(),
             base_quant: 0,
             dq_y1_dc: 0,
@@ -299,7 +322,9 @@ impl VP8Encoder {
                 None
             },
             proba,
-        })
+        };
+        super::webp_enc::MapConfigToTools(&mut enc);
+        Ok(enc)
     }
 
     pub fn preds_offset(&self, x: usize, y: usize) -> usize {

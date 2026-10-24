@@ -10,10 +10,25 @@ use super::{
     picture_enc::{WebPPicture, WebPYUVAPicture},
     picture_tools_enc::{WebPCleanupTransparentArea, WebPReplaceTransparentPixels},
     syntax_enc::VP8EncWriteWithAlpha,
-    vp8i_enc::VP8Encoder,
+    vp8i_enc::{VP8Encoder, VP8RDLevel},
     vp8l_enc::VP8LEncodeImage,
 };
 use crate::{utils::bit_writer_utils::VP8BitWriterBuf, webp::encode::LosslessEncodeError};
+
+/// Normal-memory tool mapping from the pinned webp_enc.c. Method validation
+/// precedes construction; partition_limit remains 0 and target search is off.
+pub(crate) fn MapConfigToTools(enc: &mut VP8Encoder) {
+    enc.rd_opt_level = match enc.config.method {
+        0..=2 => VP8RDLevel::RD_OPT_NONE,
+        3..=4 => VP8RDLevel::RD_OPT_BASIC,
+        5 => VP8RDLevel::RD_OPT_TRELLIS,
+        6 => VP8RDLevel::RD_OPT_TRELLIS_ALL,
+        _ => unreachable!("VP8 method was validated before encoder allocation"),
+    };
+    enc.use_tokens = !matches!(enc.rd_opt_level, VP8RDLevel::RD_OPT_NONE);
+    enc.max_i4_header_bits = 256 * 16 * 16;
+    enc.mb_header_limit = 256 * 510 * 8 * 1024 / (enc.mb_w * enc.mb_h) as i64;
+}
 
 pub(crate) fn WebPEncode(
     config: &EncoderConfig,
@@ -36,7 +51,12 @@ pub(crate) fn WebPEncodeLossy(
     output: &mut Vec<u8>,
 ) -> Result<(), LosslessEncodeError> {
     WebPCleanupTransparentArea(picture);
-    let mut enc = VP8Encoder::new(picture.width, picture.height, config.quality <= 98.0)?;
+    let mut enc = VP8Encoder::new_with_method(
+        picture.width,
+        picture.height,
+        config.quality <= 98.0,
+        config.method,
+    )?;
     VP8EncAnalyze(&mut enc, picture);
     let alpha = VP8EncStartAlpha(picture, config.alpha_quality)?;
     let tokens = VP8EncTokenLoop(&mut enc, picture, config.quality)?;

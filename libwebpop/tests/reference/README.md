@@ -76,6 +76,8 @@ adds configurable C encoding for methods 0–6, setup/tool observations and comp
 direct/token loop traces. These reference-first fixtures independently decode;
 method-4 outputs also compare against the current Rust encoder. Other methods
 remain unimplemented in Rust until the subsequent port milestones land.
+Milestone 1 adds exact Rust setup comparisons for all methods under normal
+resource policy, preserving method-4-only public encoding for now.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

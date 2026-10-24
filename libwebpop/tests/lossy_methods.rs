@@ -9,7 +9,12 @@ use support::{Case, lossy_methods as methods};
 
 fn check_reference(case: &Case, output: &[u32]) {
     match case.function.as_str() {
-        "VP8MethodTools" => methods::check_tools(case, output),
+        "VP8MethodTools" => {
+            methods::check_tools(case, output);
+            if case.input[4..6] == [0, 0] {
+                assert_eq!(output, methods::tools_output(case));
+            }
+        }
         "VP8MethodLoopFrame" => {
             let file = methods::check_loop(case, output);
             if case.input[0] == 4 {
@@ -48,6 +53,19 @@ fn committed_method_references_decode_and_preserve_method4_baseline() {
         coverage[method as usize][kind] += 1;
     }
     assert!(coverage.iter().flatten().all(|&count| count > 0));
+}
+
+#[test]
+fn invalid_methods_fail_before_encoder_allocation() {
+    use libwebpop::{WebPEncodingError, enc::vp8i_enc::VP8Encoder};
+    for method in [i32::MIN, -1, 7, i32::MAX] {
+        for (width, height) in [(1, 1), (0, 0), (u32::MAX, u32::MAX)] {
+            assert!(matches!(
+                VP8Encoder::new_with_method(width, height, true, method),
+                Err(WebPEncodingError::InvalidMethod)
+            ));
+        }
+    }
 }
 
 #[cfg(feature = "native-oracle")]
@@ -97,9 +115,15 @@ fn configurable_c_methods_decode_and_match_method4_rust() {
 #[test]
 fn method_tool_mapping_and_loop_branches_match_pinned_c() {
     let tools = methods::tools_cases();
+    let mut rust_mappings = 0;
     for (case, out) in tools.iter().zip(native::run("lossy-methods-tools", &tools)) {
         methods::check_tools(case, &out);
+        if case.input[4..6] == [0, 0] {
+            native::compare(case, &out, &methods::tools_output(case));
+            rust_mappings += 1;
+        }
     }
+    assert_eq!(rust_mappings, 84);
     let cases = methods::loop_cases();
     let coverage = native::parallel_cases("lossy-methods-loop", &cases, |case, out| {
         check_reference(case, out);
@@ -147,7 +171,7 @@ fn method_tool_mapping_and_loop_branches_match_pinned_c() {
         native::compare(&cases[1], &outputs[1], file);
     }
     eprintln!(
-        "{} tool mappings; {} loop traces, including {} normal-public-C comparisons",
+        "{} C tool mappings ({rust_mappings} Rust matches); {} loop traces, including {} normal-public-C comparisons",
         tools.len(),
         cases.len(),
         rgba.len()
@@ -191,7 +215,7 @@ fn method_fixtures_match_pinned_c() {
     }
     if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
         let mut text = format!(
-            "# Pinned scalar C remaining-lossy-method reference fixtures (milestone 0).\n# upstream={} seed={:08x}\n# See ../reference/LOSSY.md for protocol and provenance.\n",
+            "# Pinned scalar C remaining-lossy-method reference fixtures (milestones 0-1).\n# upstream={} seed={:08x}\n# See ../reference/LOSSY.md for protocol and provenance.\n",
             support::UPSTREAM_REVISION,
             support::SEED,
         );

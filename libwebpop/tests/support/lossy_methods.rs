@@ -93,6 +93,27 @@ pub fn tools_cases() -> Vec<Case> {
     cases
 }
 
+/// Logical setup state for the normal-memory, single-partition Rust scope.
+pub fn tools_output(case: &Case) -> Vec<u32> {
+    use libwebpop::enc::vp8i_enc::VP8Encoder;
+    let a = &case.input;
+    assert_eq!(&a[4..6], &[0, 0]);
+    let enc =
+        VP8Encoder::new_with_method(a[0], a[1], f32::from_bits(a[2]) <= 98., a[3] as i32).unwrap();
+    vec![
+        enc.config.method as u32,
+        enc.rd_opt_level as u32,
+        u32::from(enc.use_tokens),
+        1, // one coefficient partition
+        0, // target search disabled
+        enc.max_i4_header_bits as u32,
+        enc.mb_header_limit as u32,
+        (enc.mb_header_limit as u64 >> 32) as u32,
+        u32::from(enc.top_derr.is_some()),
+        0, // default complex-filter profile
+    ]
+}
+
 pub fn check_tools(case: &Case, out: &[u32]) {
     let a = &case.input;
     assert_eq!(out.len(), 10);
@@ -235,6 +256,14 @@ pub fn fixture_cases() -> Vec<Case> {
             input.extend(base.input);
             cases.push(Case::new("VP8MethodLoopFrame", input));
         }
+    }
+    // Append to the original 70 reference fixtures without altering their
+    // inputs or outputs. Normal resource policy is now also evaluated in Rust.
+    for method in 0..=6 {
+        cases.push(Case::new(
+            "VP8MethodTools",
+            vec![17, 19, 98.5f32.to_bits(), method, 0, 0],
+        ));
     }
     cases
 }

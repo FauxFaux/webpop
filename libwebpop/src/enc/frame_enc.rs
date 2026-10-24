@@ -225,6 +225,8 @@ pub fn VP8EncTokenLoopWithObserver(
     mut observe: impl FnMut(&VP8Encoder, VP8TokenLoopEvent<'_>),
 ) -> Result<VP8BitWriter, TryReserveError> {
     assert_eq!(enc.config.method, 4);
+    assert!(enc.use_tokens);
+    let rd_opt = enc.rd_opt_level;
     assert!(!enc.proba.use_skip_proba && quality.is_finite());
     assert_eq!(
         (enc.mb_w, enc.mb_h),
@@ -257,7 +259,7 @@ pub fn VP8EncTokenLoopWithObserver(
                 count = max_count as i32;
             }
             let mut rd = VP8ModeScore::default();
-            VP8Decimate(&mut it, enc, &mut rd, VP8RDLevel::RD_OPT_BASIC);
+            VP8Decimate(&mut it, enc, &mut rd, rd_opt);
             RecordTokens(&mut it, enc, &rd, &mut tokens)?;
             header_cost += rd.H as u64;
             distortion += rd.D as u64;

@@ -57,8 +57,8 @@ needed. Preserve their behavior and reference fixtures.
 
 | Rust location | Existing behavior | Additional work |
 | --- | --- | --- |
-| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` carries qualities; low-level `VP8EncoderConfig` has a method field | Add checked method selection to existing options and propagate it through all jobs |
-| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Default encoder construction and unconditional method-4 token loop; all four `VP8RDLevel` variants already exist | Tool mapping, selected RD level and direct/token routing |
+| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` now validates and carries method too | Expose method in existing public options after the algorithms compose; finish method propagation into alpha effort |
+| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding still uses the method-4 token loop | Direct/token frame dispatch after the additional algorithms land |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram-based luma/UV probes, segmentation and synchronous source-border traversal | `FastMBAnalyze` for methods 0/1; retain analysis when these methods need prediction initialization |
 | [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, candidate reconstruction, diffusion and basic RD searches | Distortion refinement, selected-mode requantization, trellis, and complete `VP8Decimate` dispatch |
 | [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Probability fitting, token recording, refresh/retry loop and deterministic filter finalization | Direct residual writer/statistics, skip fitting/reset, statistics pass and direct final coding; generalize token RD level |
@@ -217,7 +217,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestone 0 is complete; milestones 1–8 remain pending. Integrate callers after
+Milestones 0–1 are complete; milestones 2–8 remain pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -225,7 +225,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
 | 0 (complete) | Extend the existing oracle with configurable full files, tool mapping and new branch traces; record pre-change method-4 baseline | Existing oracle/pin | 70 portable fixtures, 3,556 independently decoded C files, 672 tool mappings and 336 compact loop traces; method-4 Rust comparisons and wrapper/toolchain provenance recorded |
-| 1 | Validated internal method configuration, tool mapping and propagation; retain public method-4 entry points | 0 | All 7 method/RD/loop mappings match C; default bytes unchanged; unsupported values rejected |
+| 1 (complete) | Validated internal method configuration, tool mapping and propagation into encoder setup; retain public method-4 entry points | 0 | 84 normal-resource setup states match C across all methods; 7 additional portable setup fixtures; invalid signed methods rejected before allocation; method-4 bytes unchanged |
 | 2 | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | Fast decisions, selected modes, reconstruction, levels, nonzero masks and mutated context/diffusion state match C for methods 0–2 |
 | 3 | Direct coefficient coding/statistics and skip-probability leaves | 0 | Exact residual bytes, boolean state, statistics, skip costs/thresholds and post-skip contexts; independent coefficient decoding |
 | 4 | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | Methods 0–3 opaque files match normal C; method-0 probe limits, skip on/off, retries, borders and final filter state observed |
@@ -276,12 +276,31 @@ scratch fields. Some fast-path score/mode fields stay initialized or unused;
 compare only defined logical state. Capture new C fixtures before implementing
 the corresponding Rust branches. Record observed branches, not just input names.
 
-### 1–2. Method mapping, fast analysis and distortion decisions
+### 1. Method mapping and internal configuration
 
-Port `MapConfigToTools`'s applicable mapping and preserve the default header
-limits: `max_i4_header_bits=256*16*16` at partition limit 0 and the existing
+Completed 2026-10-24, continuing from `9a1b16c`. Private `LossyConfig` validates
+and carries a signed method, and complete-file glue passes it to
+`VP8Encoder::new_with_method` before analysis. The original constructor and all
+public lossy routes still select method 4. `MapConfigToTools` sets the encoder's
+RD level, token/direct selection and both header budgets for the fixed normal
+resource policy. The token driver now uses the stored RD level. The unported
+algorithms retain their existing guards; method selection is not public yet.
+
+Seven new normal-resource setup fixtures are appended to the original 70
+without changing their inputs or outputs. Portable comparisons and 84 live C
+comparisons cover every method, geometry-dependent header budgets and the
+quality-98 diffusion allocation boundary. The remaining 588 setup observations
+still inspect C's low-memory/multi-partition routing only. Signed method
+extremes are rejected before allocation, and private configuration preserves
+fractional quality while checking quality/alpha ranges. Public alpha effort
+remains method 4 until milestone 7 generalizes that job.
+
+The mapping preserves the default header limits:
+`max_i4_header_bits=256*16*16` at partition limit 0 and the existing
 per-macroblock header budget. Normal routing is direct for 0–2 and tokens for
 3–6. Method 3 is a useful early integration check for basic RD outside method 4.
+
+### 2. Fast analysis and distortion decisions
 
 Port `FastMBAnalyze`, connect `MBAnalyze`'s method branch and preserve the
 `do_segments` condition that includes methods 0/1. Even a one-segment internal

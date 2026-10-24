@@ -56,6 +56,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            "VP8MethodTools" => lossy_methods::tools_output(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),
             "AlphaOps" | "VP8AlphaFile" => vp8_alpha::evaluate(self),

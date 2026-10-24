@@ -1792,3 +1792,38 @@ Validation passed: full workspace `cargo test`, full
 `git diff --check`. All inherited method-4 fixture comparisons remain unchanged.
 The remaining-method algorithms and public method selection are subsequent
 milestones, not implemented by this reference batch.
+
+## Remaining lossy methods: milestone 1
+
+Completed 2026-10-24 from repository revision `9a1b16c`. Private lossy config
+now validates and retains method `0..=6` as a signed integer. Public entry points
+continue to pass 4. `VP8Encoder::new_with_method` rejects invalid methods before
+allocation and initializes the method before analysis or quantizer setup;
+the existing `VP8Encoder::new` remains the method-4 constructor.
+
+The normal-resource subset of upstream `MapConfigToTools` now initializes
+`rd_opt_level`, `use_tokens`, `max_i4_header_bits` and `mb_header_limit` in Rust.
+The existing token loop reads that RD level instead of hardcoding BASIC.
+Additional frame algorithms, low-memory mode, partition selection and alpha
+effort are not enabled by this setup change.
+
+The 84 `VP8MethodTools` requests with low_memory=0 and partitions=0 now compare
+all ten logical output words with Rust construction, covering all methods,
+qualities 0/98/98.5/100 and geometries 1×1, 17×19 and 16383×1. The fixed Rust
+settings supply one partition, no target search and profile 0. The other 588
+requests remain C routing observations for future resource-policy work.
+The existing independent mapping/budget/diffusion checks are retained.
+
+Seven corresponding method setup snapshots at 17×19/quality 98.5 are appended
+to `fixtures/lossy_methods.txt`, bringing it to 77 cases. The original 70
+request/response pairs are unchanged. The native source and toolchain provenance
+recorded for milestone 0 was reviewed again before generation; no pin, C
+algorithm, wrapper or old fixture value changed. Use the same regeneration and
+test commands above. Invalid signed method tests include negative/positive
+extremes and invalid geometry to establish rejection before encoder allocation.
+
+Validation passed: full workspace `cargo test`, full
+`cargo test --features native-oracle`, the methods suite in release with native
+comparisons, the production library build, formatting and `git diff --check`.
+Method-4 full-file and detailed loop fixtures remain byte-identical, including
+SharpYUV routes and the existing alpha-quality APIs.

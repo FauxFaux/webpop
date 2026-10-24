@@ -4,6 +4,14 @@
 
 use crate::webp::encode::LosslessEncodeError;
 
+/// Check the signed VP8 method before allocation or conversion to an index.
+pub(crate) fn validate_vp8_method(method: i32) -> Result<(), LosslessEncodeError> {
+    if !(0..=6).contains(&method) {
+        return Err(LosslessEncodeError::InvalidMethod);
+    }
+    Ok(())
+}
+
 /// VP8 setup parameters for the default lossy preset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VP8EncoderConfig {
@@ -100,19 +108,55 @@ impl Default for LossyOptions {
 pub(crate) struct LossyConfig {
     pub quality: f32,
     pub alpha_quality: i32,
+    pub method: i32,
 }
 
 impl LossyConfig {
-    pub fn new(quality: f32, alpha_quality: i32) -> Result<Self, LosslessEncodeError> {
+    pub fn new(quality: f32, alpha_quality: i32, method: i32) -> Result<Self, LosslessEncodeError> {
         if !quality.is_finite() || !(0.0..=100.0).contains(&quality) {
             return Err(LosslessEncodeError::InvalidQuality);
         }
         if !(0..=100).contains(&alpha_quality) {
             return Err(LosslessEncodeError::InvalidAlphaQuality);
         }
+        validate_vp8_method(method)?;
         Ok(Self {
             quality,
             alpha_quality,
+            method,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lossy_config_retains_fractional_quality_and_validates_signed_method() {
+        for method in 0..=6 {
+            let config = LossyConfig::new(98.5, 71, method).unwrap();
+            assert_eq!(config.quality.to_bits(), 98.5f32.to_bits());
+            assert_eq!(config.alpha_quality, 71);
+            assert_eq!(config.method, method);
+        }
+        for method in [i32::MIN, -1, 7, i32::MAX] {
+            assert!(matches!(
+                LossyConfig::new(75., 100, method),
+                Err(LosslessEncodeError::InvalidMethod)
+            ));
+        }
+        for quality in [-1., 100.01, f32::NEG_INFINITY, f32::INFINITY, f32::NAN] {
+            assert!(matches!(
+                LossyConfig::new(quality, 100, 4),
+                Err(LosslessEncodeError::InvalidQuality)
+            ));
+        }
+        for alpha in [i32::MIN, -1, 101, i32::MAX] {
+            assert!(matches!(
+                LossyConfig::new(75., alpha, 4),
+                Err(LosslessEncodeError::InvalidAlphaQuality)
+            ));
+        }
     }
 }

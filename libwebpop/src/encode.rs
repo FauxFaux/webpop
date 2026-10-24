@@ -103,7 +103,7 @@ pub fn encode_lossy_rgba(
     options: &LossyOptions,
     output: &mut Vec<u8>,
 ) -> Result<(), WebPEncodingError> {
-    let config = LossyConfig::new(options.quality, options.alpha_quality)?;
+    let config = LossyConfig::new(options.quality, options.alpha_quality, 4)?;
     let mut picture = if options.use_sharp_yuv {
         import_rgba_to_yuva_sharp(rgba, width, height, stride)?
     } else {
