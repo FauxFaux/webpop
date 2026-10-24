@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod analysis;
+pub mod animation;
 pub mod clustering;
 pub mod cross_color;
 pub mod entropy_coding;
@@ -62,6 +63,7 @@ impl Case {
             | "VP8DistortionSearch"
             | "VP8FastSearchFrame" => vp8_fast::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
+            "AnimationLeaves" => animation::evaluate(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),
             "AlphaOps" | "VP8AlphaFile" => vp8_alpha::evaluate(self),

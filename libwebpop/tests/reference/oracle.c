@@ -123,6 +123,7 @@ int WebpopSharpYuvLeaves(const char*, const uint32_t*, unsigned, uint32_t*, unsi
 int WebpopSharpYuvDsp(const uint32_t*, unsigned, uint32_t*, unsigned*);
 int WebpopSharpYuvPublic(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 unsigned WebpopSharpYuvEncoder(const uint32_t*, unsigned, int, uint32_t*);
+unsigned WebpopAnimationLeaves(const uint32_t*, unsigned, uint32_t*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -165,7 +166,9 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (!strncmp(name, "SharpYuv", 8)) {
+    if (IS(AnimationLeaves)) {
+      count = WebpopAnimationLeaves(in, n, out);
+    } else if (!strncmp(name, "SharpYuv", 8)) {
       if (IS(SharpYuvConvert) || IS(SharpYuvPublicInfo) || IS(SharpYuvTrace) || IS(SharpYuvImport) || IS(SharpYuvTimedConvert)) {
         REQUIRE(WebpopSharpYuvPublic(name, in, n, out, &count));
       } else if (IS(SharpYuvDsp)) {

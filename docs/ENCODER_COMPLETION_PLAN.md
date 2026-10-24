@@ -113,6 +113,9 @@ The [animation and multi-frame plan](ANIMATION_PORT_PLAN.md) expands this work
 into output-layer, raw-frame, optimizer and CLI milestones. Basic full-frame
 animation can ship using the current codecs before the advanced still-image
 work is complete; optimized lossy blending needs a filter-control integration.
+Isolated animation pixel comparisons, rectangle refinement/even snapping and
+blend-eligibility leaves now have portable fixtures and pinned C comparisons
+under `src/mux/`; container assembly and raw-frame encoding remain unimplemented.
 
 - [ ] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. Current still-image VP8/VP8L and lossy

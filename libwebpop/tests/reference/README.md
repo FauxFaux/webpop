@@ -81,6 +81,11 @@ resource policy, preserving method-4-only public encoding for now.
 Milestone 2 adds fast analysis and non-RD macroblock/raster comparisons for
 methods 0–2, including partial reconstruction and preserved diffusion state.
 
+The [animation reference record](ANIMATION.md) adds pixel/rectangle and blend
+eligibility leaves from `anim_encode.c`, 81 portable fixtures and 80,287 live
+comparisons. The same scalar executable now also links pinned `libwebpmux`;
+container and optimized-animation file comparisons remain future work.
+
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been
 removed; its seven synthetic image cases now compare full public Rust output

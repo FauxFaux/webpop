@@ -1,11 +1,38 @@
 # Animation and multi-frame encoding plan
 
 Planned 2026-10-24 against pinned libwebp
-`1844042d1ca751e62e61df7617dba19c98588339`. Implementation has not started.
+`1844042d1ca751e62e61df7617dba19c98588339`. Isolated pixel/rectangle leaves and
+their native oracle are implemented; container and sequence encoding remain open.
 This expands the container/animation work in the
 [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building on the completed
 [lossless](LOSSLESS_PORT_PLAN.md), [near-lossless](NEAR_LOSSLESS_PORT_PLAN.md)
 and [lossy](LOSSY_PORT_PLAN.md) ports.
+
+## Implemented foundations (2026-10-24)
+
+[`src/mux/anim_encode.rs`](../libwebpop/src/mux/anim_encode.rs) ports
+`ComparePixelsLossless`, `PixelsAreSimilar`, `ComparePixelsLossy`,
+`IsEmptyRect`, `QualityToMaxDiff`, `MinimizeChangeRectangle`,
+`SnapToEvenOffsets`, `WebPAnimEncoderRefineRect`,
+`IsLosslessBlendingPossible` and `IsLossyBlendingPossible`. Checked borrowed
+ARGB views accept separate pixel strides without final-row padding. Refinement
+clips signed guesses using wide arithmetic and leaves them unchanged on
+validation failure. These are low-level helpers under `mux::anim_encode`, not
+the proposed public sequence API.
+
+The existing native oracle now links pinned scalar `libwebpmux` and includes
+the original animation source in an external wrapper with renamed exports.
+There are 81 committed C fixtures and 80,287 live leaf comparisons, including
+adjacent float values around quality thresholds. Independent checks exhaust
+3x3 change masks and alpha/channel-difference pairs. See the
+[animation reference record](../libwebpop/tests/reference/ANIMATION.md) for
+protocol, provenance and validation commands/results.
+
+Codec writers, still options and lossy methods are unchanged. These leaves
+establish neither complete mux-byte nor optimized-animation parity. Subframe
+views, transparency/carryover mutation, candidate encoding, caching and both
+single-frame cleanup oracle paths remain open, including the decode-dependent
+completion gate below.
 
 ## Scope and delivery order
 
@@ -197,8 +224,8 @@ Implement and test these output rules against the pinned sources:
 ### 0. Contract and native oracle
 
 - [ ] Finalize the types, timing/state rules and supported codec matrix above.
-- [ ] Extend the existing `native-oracle` CMake build: it currently disables
-  `WEBP_BUILD_LIBWEBPMUX`; enable/link `webpmux` for animation wrappers. Link
+- [x] Extend the existing `native-oracle` CMake build: enable
+  `WEBP_BUILD_LIBWEBPMUX` and link `libwebpmux` for animation wrappers. Link
   `webpdemux` only if needed for test inspection/decoding. Preserve scalar,
   synchronous configuration and the unmodified upstream checkout.
 - [ ] Add `tests/reference/animation*.c`, logical requests in the existing
@@ -240,8 +267,9 @@ neither this API nor cache flushing promises constant-memory output streaming.
 
 ### 3. Lossless animation optimizer
 
-- [ ] Port pixel comparison, change-rectangle minimization/refinement, empty
-  rectangle handling, even-offset expansion, and subframe views first.
+- [x] Port pixel comparison, change-rectangle minimization/refinement, empty
+  rectangle handling and even-offset expansion as isolated leaves.
+- [ ] Port subframe views and `GetSubRect`/`GetSubRects` routing.
 - [ ] Port blend eligibility, `IncreaseTransparency`, disposal alternatives,
   candidate encoding and strict size/tie selection in upstream evaluation order.
 - [ ] Port the pin's `prev_canvas`, `canvas_carryover`, candidate/best carryover
@@ -260,9 +288,10 @@ neither this API nor cache flushing promises constant-memory output streaming.
 - [ ] Add the internal lossy filter override and compare it independently to C,
   preserving the methods plan's default-filter fixtures. Reuse its validated
   method propagation and method-dependent alpha job for every enabled method.
-- [ ] Port `QualityToMaxDiff`, alpha-weighted similarity, lossy rectangle/blend
-  checks, `FlattenSimilarBlocks` and lossy carryover updates. Preserve floating
-  evaluation and integer truncation at heuristic thresholds.
+- [x] Port `QualityToMaxDiff`, alpha-weighted similarity and lossy rectangle/blend
+  checks as isolated leaves, preserving floating evaluation and integer
+  truncation at heuristic thresholds.
+- [ ] Port `FlattenSimilarBlocks` and lossy carryover updates.
 - [ ] Port mixed candidate eligibility (palette thresholds, both codecs in
   minimize-size mode), config reversal and winner selection. Ordinary mixed
   mode does not unconditionally try both codecs on every frame.
