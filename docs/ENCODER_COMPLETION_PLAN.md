@@ -85,8 +85,9 @@ allocation/free entry points or ABI structures.
   aspect-preserving zero dimensions and upstream YUV crop alignment. Add alpha
   blending against a background. Discarding alpha with `--noalpha` already works.
 - [ ] Add an output writer interface with write-error propagation, plus progress
-  reporting and caller cancellation. Current APIs return a complete `Vec<u8>`
-  and the CLI writes it after encoding. A writer callback does not promise
+  reporting and caller cancellation. Current APIs fill a caller-owned `&mut Vec<u8>`
+  with a complete WebP file and return `Result<(), _>`; the CLI writes the
+  buffer after encoding. A writer callback does not promise
   constant-memory or one-pass streaming: codec trials still need buffering.
 - [ ] Return auxiliary statistics and lossy macroblock information maps. Some
   lower-level lossless stream statistics and test observer events already exist;

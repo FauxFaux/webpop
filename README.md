@@ -42,11 +42,20 @@ port well: we've kept the original C (for now).
  * `cargo run --release -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp`
  * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp`
 
-The Rust library exposes `WebPEncodeRGBA(..., quality: f32)` for lossy color
-with exact alpha and `WebPEncodeRGBAWithAlphaQuality(..., quality, alpha_quality)`
-for independent alpha fidelity. Both use the pinned default preset and return
-complete WebP files. Lossless and near-lossless APIs remain available; the CLI
-defaults to lossless.
+The Rust library exposes `WebPEncodeRGBA(..., quality: f32, &mut output)` for
+lossy color with exact alpha and
+`WebPEncodeRGBAWithAlphaQuality(..., quality, alpha_quality, &mut output)` for
+independent alpha fidelity. Both use the pinned default preset. All six RGBA
+entry points take a final `&mut Vec<u8>` and return `Result<(), _>`. Success
+replaces the buffer with a complete WebP file, reusing its capacity; errors
+leave its contents unchanged. The CLI defaults to lossless.
+
+```rust
+let rgba = [12, 34, 56, 255];
+let mut output = Vec::new();
+libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
+// The encoded size is output.len(); reuse output for the next image.
+```
 
 
 ### Docs

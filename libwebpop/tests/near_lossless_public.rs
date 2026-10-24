@@ -114,7 +114,7 @@ fn public_strength_and_geometry_validation() {
     use libwebpop::{LosslessEncodeError, WebPEncodeRGBAWithNearLossless as encode};
     for strength in [i32::MIN, -1, 101, i32::MAX] {
         assert!(matches!(
-            encode(&[1, 2, 3, 255], 1, 1, 4, strength),
+            encode(&[1, 2, 3, 255], 1, 1, 4, strength, &mut Vec::new()),
             Err(LosslessEncodeError::InvalidNearLosslessStrength)
         ));
     }
@@ -137,13 +137,16 @@ fn public_strength_and_geometry_validation() {
             (&[][..], 1, 2, usize::MAX, RgbaInputError::SizeOverflow),
             (&[][..], 1, 3, usize::MAX / 2, RgbaInputError::SizeOverflow),
         ] {
-            assert!(matches!(encode(pixels, w, h, stride, strength),
-                Err(LosslessEncodeError::Input(actual)) if actual == expected));
+            assert!(
+                matches!(encode(pixels, w, h, stride, strength, &mut Vec::new()),
+                Err(LosslessEncodeError::Input(actual)) if actual == expected)
+            );
         }
-        assert!(encode(&[1, 2, 3, 255], 1, 1, usize::MAX, strength).is_ok());
+        assert!(encode(&[1, 2, 3, 255], 1, 1, usize::MAX, strength, &mut Vec::new()).is_ok());
         for (w, h) in [(1, 16383), (16383, 1)] {
             let pixels = vec![255; w as usize * h as usize * 4];
-            let bytes = encode(&pixels, w, h, w as usize * 4, strength).unwrap();
+            let mut bytes = Vec::new();
+            encode(&pixels, w, h, w as usize * 4, strength, &mut bytes).unwrap();
             let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::WebP)
                 .unwrap()
                 .into_rgba8();
@@ -165,39 +168,45 @@ fn strengths_share_buckets_and_ignore_padding_without_mutating_input() {
         let original = image.rgba.clone();
         let mut previous = Vec::new();
         for strength in 0..=100 {
-            let bytes = encode(
+            let mut bytes = Vec::new();
+            encode(
                 &image.rgba,
                 image.width,
                 image.height,
                 image.stride,
                 strength,
+                &mut bytes,
             )
             .unwrap();
-            assert_eq!(
-                bytes,
+            assert_eq!(bytes, {
+                let mut output = Vec::new();
                 encode(
                     &packed,
                     image.width,
                     image.height,
                     image.width as usize * 4,
-                    strength
+                    strength,
+                    &mut output,
                 )
-                .unwrap()
-            );
+                .unwrap();
+                output
+            });
             if strength % 20 != 0 {
                 assert_eq!(bytes, previous);
             }
             if strength == 100 {
-                assert_eq!(
-                    bytes,
+                assert_eq!(bytes, {
+                    let mut output = Vec::new();
                     libwebpop::WebPEncodeLosslessRGBA(
                         &image.rgba,
                         image.width,
                         image.height,
-                        image.stride
+                        image.stride,
+                        &mut output,
                     )
-                    .unwrap()
-                );
+                    .unwrap();
+                    output
+                });
             }
             previous = bytes;
         }
@@ -273,12 +282,14 @@ fn real_image_corpus_parity_and_metrics() {
                 String::from_utf8_lossy(&result.stderr)
             );
             let start = Instant::now();
-            let actual = libwebpop::WebPEncodeRGBAWithNearLossless(
+            let mut actual = Vec::new();
+            libwebpop::WebPEncodeRGBAWithNearLossless(
                 source.as_raw(),
                 w,
                 h,
                 w as usize * 4,
                 strength,
+                &mut actual,
             )
             .unwrap();
             let elapsed = start.elapsed().as_secs_f64() * 1000.;
@@ -311,9 +322,18 @@ fn real_image_corpus_parity_and_metrics() {
             if strength == 100 {
                 assert_eq!(errors, [0; 4]);
                 assert!(
-                    actual
-                        == libwebpop::WebPEncodeLosslessRGBA(source.as_raw(), w, h, w as usize * 4)
-                            .unwrap()
+                    actual == {
+                        let mut output = Vec::new();
+                        libwebpop::WebPEncodeLosslessRGBA(
+                            source.as_raw(),
+                            w,
+                            h,
+                            w as usize * 4,
+                            &mut output,
+                        )
+                        .unwrap();
+                        output
+                    }
                 );
             }
             // Linux process high-water RSS includes input, both encoded files,
@@ -347,7 +367,15 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
     let pixels = [127, 129, 131, 255];
     for strength in [i32::MIN, -1, 101, i32::MAX] {
         assert!(matches!(
-            encode_near_lossless_rgba(&pixels, 1, 1, 4, strength, &LosslessOptions::default()),
+            encode_near_lossless_rgba(
+                &pixels,
+                1,
+                1,
+                4,
+                strength,
+                &LosslessOptions::default(),
+                &mut Vec::new()
+            ),
             Err(LosslessEncodeError::InvalidNearLosslessStrength)
         ));
     }
@@ -362,7 +390,8 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
                 &LosslessOptions {
                     quality: 101,
                     ..Default::default()
-                }
+                },
+                &mut Vec::new()
             ),
             Err(LosslessEncodeError::InvalidQuality)
         ));
@@ -376,12 +405,21 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
                 &LosslessOptions {
                     method: 7,
                     ..Default::default()
-                }
+                },
+                &mut Vec::new()
             ),
             Err(LosslessEncodeError::InvalidMethod)
         ));
         assert!(matches!(
-            encode_near_lossless_rgba(&pixels[..3], 1, 1, 4, strength, &LosslessOptions::default()),
+            encode_near_lossless_rgba(
+                &pixels[..3],
+                1,
+                1,
+                4,
+                strength,
+                &LosslessOptions::default(),
+                &mut Vec::new()
+            ),
             Err(LosslessEncodeError::Input(_))
         ));
     }
@@ -389,23 +427,33 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
         let image = support::public_images::image(65, 5, pattern);
         for strength in [0, 60, 100] {
             assert_eq!(
-                encode_near_lossless_rgba(
-                    &image.rgba,
-                    image.width,
-                    image.height,
-                    image.stride,
-                    strength,
-                    &LosslessOptions::default()
-                )
-                .unwrap(),
-                libwebpop::WebPEncodeRGBAWithNearLossless(
-                    &image.rgba,
-                    image.width,
-                    image.height,
-                    image.stride,
-                    strength
-                )
-                .unwrap()
+                {
+                    let mut output = Vec::new();
+                    encode_near_lossless_rgba(
+                        &image.rgba,
+                        image.width,
+                        image.height,
+                        image.stride,
+                        strength,
+                        &LosslessOptions::default(),
+                        &mut output,
+                    )
+                    .unwrap();
+                    output
+                },
+                {
+                    let mut output = Vec::new();
+                    libwebpop::WebPEncodeRGBAWithNearLossless(
+                        &image.rgba,
+                        image.width,
+                        image.height,
+                        image.stride,
+                        strength,
+                        &mut output,
+                    )
+                    .unwrap();
+                    output
+                }
             );
         }
         for options in [
@@ -425,23 +473,33 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
             },
         ] {
             assert_eq!(
-                encode_near_lossless_rgba(
-                    &image.rgba,
-                    image.width,
-                    image.height,
-                    image.stride,
-                    100,
-                    &options
-                )
-                .unwrap(),
-                libwebpop::encode_lossless_rgba(
-                    &image.rgba,
-                    image.width,
-                    image.height,
-                    image.stride,
-                    &options
-                )
-                .unwrap()
+                {
+                    let mut output = Vec::new();
+                    encode_near_lossless_rgba(
+                        &image.rgba,
+                        image.width,
+                        image.height,
+                        image.stride,
+                        100,
+                        &options,
+                        &mut output,
+                    )
+                    .unwrap();
+                    output
+                },
+                {
+                    let mut output = Vec::new();
+                    libwebpop::encode_lossless_rgba(
+                        &image.rgba,
+                        image.width,
+                        image.height,
+                        image.stride,
+                        &options,
+                        &mut output,
+                    )
+                    .unwrap();
+                    output
+                }
             );
         }
     }
@@ -490,13 +548,15 @@ fn near_lossless_options_match_pinned_reference() {
             method: a[4],
             exact: a[5] != 0,
         };
-        let actual = encode_near_lossless_rgba(
+        let mut actual = Vec::new();
+        encode_near_lossless_rgba(
             &allocation[1..],
             a[0],
             a[1],
             a[2] as usize,
             a[6] as i32,
             &options,
+            &mut actual,
         )
         .unwrap();
         assert_eq!(allocation, before);
@@ -518,17 +578,19 @@ fn near_lossless_options_match_pinned_reference() {
             }
         }
         if a[6] == 100 {
-            assert_eq!(
-                actual,
+            assert_eq!(actual, {
+                let mut output = Vec::new();
                 libwebpop::encode_lossless_rgba(
                     &allocation[1..],
                     a[0],
                     a[1],
                     a[2] as usize,
-                    &options
+                    &options,
+                    &mut output,
                 )
-                .unwrap()
-            );
+                .unwrap();
+                output
+            });
         }
     });
     eprintln!(

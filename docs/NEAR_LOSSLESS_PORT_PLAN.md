@@ -9,7 +9,7 @@ implemented, ahead of the [lossy VP8 port](LOSSY_PORT_PLAN.md). This document re
 scalar near-lossless extension and its acceptance evidence.
 
 Near-lossless encoding changes pixels within the existing VP8L pipeline and
-returns the same still-image WebP container. Reuse the completed ARGB importer,
+writes the same still-image WebP container. Reuse the completed ARGB importer,
 transform selection, lossless compression, writer, validation, and oracle.
 No VP8 macroblock encoder, YUV conversion, boolean coder, `ALPH` chunk, alpha
 quality API, or new container format is a prerequisite. Those remain in the
@@ -86,8 +86,15 @@ Retain the wrapper's exported name:
 pub fn WebPEncodeRGBAWithNearLossless(
     rgba: &[u8], width: u32, height: u32, stride: usize,
     near_lossless: i32,
-) -> Result<Vec<u8>, WebPEncodingError>;
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError>;
 ```
+
+All RGBA entry points take the output buffer last and return `Result<(), _>`.
+Success replaces its contents with one complete WebP file, reusing its
+capacity; errors leave its contents unchanged. The encoded size is
+`output.len()`. Internal bitstream and picture working buffers remain owned
+by the encoder.
 
 This is quad-image's custom wrapper, not an upstream simple API. The reviewed
 source from `webp-wasm/near-lossless.c` at
@@ -109,9 +116,8 @@ with the author's permission.
 Reject near-lossless values outside `0..=100`. Preserve the lossless API's
 checked positive-stride geometry: dimensions in `1..=16383`,
 `stride >= width * 4`, and input length at least
-`(height - 1) * stride + width * 4`, with checked arithmetic. Return owned bytes
-or an error; C output-slot and pointer ownership details are not Rust API
-requirements. Input pixels must remain unmodified.
+`(height - 1) * stride + width * 4`, with checked arithmetic. Write encoded bytes into the caller's buffer
+or return an error; C pointer ownership details are not Rust API requirements. Input pixels must remain unmodified.
 
 Require `near_lossless=100` to produce exactly the same bytes as
 `WebPEncodeLosslessRGBA` for every valid input. Keep the existing API on its
@@ -128,7 +134,7 @@ new wrapper selecting quality 70, method 4 and exact false. Validate the signed
 strength before converting it to an unsigned internal value.
 
 The subsequent CLI integration adds
-`encode_near_lossless_rgba(rgba, width, height, stride, near_lossless, &options)`.
+`encode_near_lossless_rgba(rgba, width, height, stride, near_lossless, &options, &mut output)`.
 It accepts the existing `LosslessOptions` for effort/cleanup and validates
 strength separately. `encode_lossless_rgba` always selects 100, preserving its
 lossless contract. The named custom wrapper keeps its fixed defaults. At 100,

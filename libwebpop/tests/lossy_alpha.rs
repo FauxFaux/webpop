@@ -416,8 +416,17 @@ fn alpha_errors_are_checked_before_allocating_and_container_sizes_are_checked() 
     for alpha_len in 0..4 {
         for token_len in 0..4 {
             let alpha = vec![19; alpha_len];
-            let bytes =
-                AssembleWebP(17, 19, 0, &[1, 2, 3], &vec![7; token_len], Some(&alpha)).unwrap();
+            let mut bytes = Vec::new();
+            AssembleWebP(
+                17,
+                19,
+                0,
+                &[1, 2, 3],
+                &vec![7; token_len],
+                Some(&alpha),
+                &mut bytes,
+            )
+            .unwrap();
             assert_eq!(
                 u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize + 8,
                 bytes.len()

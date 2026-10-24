@@ -335,7 +335,8 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
     }
     let (width, height) = rgba.dimensions();
     let near_lossless = args.near_lossless.unwrap_or(100);
-    let encoded = match &options {
+    let mut encoded = Vec::new();
+    match &options {
         EncoderOptions::Lossless(options) => encode_near_lossless_rgba(
             rgba.as_raw(),
             width,
@@ -343,6 +344,7 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
             width as usize * 4,
             i32::from(near_lossless),
             options,
+            &mut encoded,
         )?,
         EncoderOptions::Lossy {
             quality,
@@ -354,6 +356,7 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
             width as usize * 4,
             *quality,
             *alpha_quality,
+            &mut encoded,
         )?,
     };
     if output.as_os_str() == "-" {

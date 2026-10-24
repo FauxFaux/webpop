@@ -9,6 +9,18 @@
 //! pixel changes with the same simple API effort settings. All use the pinned
 //! encoder's configuration trials.
 //! [`encode_near_lossless_rgba`] also exposes compression effort and exact handling.
+//!
+//! All RGBA entry points take a final `output: &mut Vec<u8>` and return
+//! `Result<(), _>`. Success replaces the output with a complete WebP file,
+//! reusing its capacity; errors leave its contents unchanged.
+//!
+//! ```
+//! let rgba = [12, 34, 56, 255];
+//! let mut output = Vec::new();
+//! libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
+//! assert_eq!(&output[..4], b"RIFF");
+//! # Ok::<(), libwebpop::WebPEncodingError>(())
+//! ```
 #![forbid(unsafe_code)]
 #![allow(non_snake_case)]
 

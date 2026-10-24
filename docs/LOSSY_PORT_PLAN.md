@@ -11,7 +11,7 @@ scalar scope, including their public APIs and pinned-reference validation.
 Lossy milestones 0–9 are complete, including public APIs and CLI integration.
 Preserve upstream function names and source layout where practical.
 The result is a
-pure Rust library accepting prepared RGBA pixels and returning a complete
+pure Rust library accepting prepared RGBA pixels and writing a complete
 still-image WebP file containing VP8, with a separate alpha stream when needed.
 
 The algorithm reference remains the pinned [`upstream/`](../upstream) revision
@@ -27,13 +27,21 @@ Implemented Rust APIs, retaining the exported names:
 ```rust
 pub fn WebPEncodeRGBA(
     rgba: &[u8], width: u32, height: u32, stride: usize, quality: f32,
-) -> Result<Vec<u8>, WebPEncodingError>;
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError>;
 
 pub fn WebPEncodeRGBAWithAlphaQuality(
     rgba: &[u8], width: u32, height: u32, stride: usize,
     quality: f32, alpha_quality: i32,
-) -> Result<Vec<u8>, WebPEncodingError>;
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError>;
 ```
+
+All RGBA entry points take the output buffer last and return `Result<(), _>`.
+Success replaces its contents with one complete WebP file, reusing its
+capacity; errors leave its contents unchanged. The encoded size is
+`output.len()`. Internal bitstream and picture working buffers remain owned
+by the encoder.
 
 `WebPEncodeRGBAWithAlphaQuality` is quad-image's wrapper, not an upstream API.
 The standard entry point must behave identically to it at `alpha_quality=100`.
@@ -301,7 +309,7 @@ public Rust APIs. The CLI exposes these through `--lossy`, fractional `-q` and
   invariant under alpha quality. Public API/configuration routing is covered below.
 - **Milestone 9 is complete.** `WebPEncodeRGBA` and the custom
   `WebPEncodeRGBAWithAlphaQuality` retain finite fractional color quality and
-  validate signed alpha quality, sharing checked RGBA geometry and owned-output
+  validate signed alpha quality, sharing checked RGBA geometry and caller-owned output
   error handling with VP8L. `LosslessOptions` and the `WebPEncodingError` alias
   remain compatible; errors add alpha validation/compression and VP8 container
   failures. Separate typed ARGB and YUVA routes in `webp_enc.rs` avoid mixing

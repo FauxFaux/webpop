@@ -21,6 +21,7 @@ pub fn file(a: &[u32]) -> Vec<u8> {
     VP8EncAnalyze(&mut enc, &pic);
     let alpha = VP8EncStartAlpha(&pic, a[4] as i32).unwrap();
     let tokens = VP8EncTokenLoop(&mut enc, &pic, q).unwrap();
+    let mut output = Vec::new();
     VP8EncWriteWithAlpha(
         &enc,
         a[0],
@@ -28,8 +29,10 @@ pub fn file(a: &[u32]) -> Vec<u8> {
         0,
         VP8BitWriterBuf(&tokens),
         alpha.as_ref().map(|a| a.data.as_slice()),
+        &mut output,
     )
-    .unwrap()
+    .unwrap();
+    output
 }
 pub fn evaluate(case: &Case) -> Vec<u32> {
     if case.function == "VP8AlphaFile" {

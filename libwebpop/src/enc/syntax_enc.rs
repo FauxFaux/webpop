@@ -145,16 +145,20 @@ pub fn WebPSizes(
     Ok((vp8 as u32, riff as u32))
 }
 
+/// Write an opaque WebP file into `output`; see [`AssembleWebP`].
 pub fn AssembleOpaqueWebP(
     width: u32,
     height: u32,
     profile: u8,
     partition0: &[u8],
     tokens: &[u8],
-) -> Result<Vec<u8>, VP8WriteError> {
-    AssembleWebP(width, height, profile, partition0, tokens, None)
+    output: &mut Vec<u8>,
+) -> Result<(), VP8WriteError> {
+    AssembleWebP(width, height, profile, partition0, tokens, None, output)
 }
 
+/// Replace `output` with a complete WebP file, reusing its capacity.
+/// Errors leave its contents unchanged.
 pub fn AssembleWebP(
     width: u32,
     height: u32,
@@ -162,50 +166,55 @@ pub fn AssembleWebP(
     partition0: &[u8],
     tokens: &[u8],
     alpha: Option<&[u8]>,
-) -> Result<Vec<u8>, VP8WriteError> {
+    output: &mut Vec<u8>,
+) -> Result<(), VP8WriteError> {
     let header = PutVP8FrameHeader(width, height, profile, partition0.len())?;
     let (vp8, riff) = WebPSizes(partition0.len(), tokens.len(), alpha.map(<[u8]>::len))?;
     let total = (riff as usize)
         .checked_add(8)
         .ok_or(VP8WriteError::FileTooBig)?;
-    let mut out = Vec::new();
-    out.try_reserve_exact(total)?;
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&riff.to_le_bytes());
-    out.extend_from_slice(b"WEBP");
+    // Reserve before clearing so allocation failure preserves the previous output.
+    output.try_reserve_exact(total.saturating_sub(output.len()))?;
+    output.clear();
+    output.extend_from_slice(b"RIFF");
+    output.extend_from_slice(&riff.to_le_bytes());
+    output.extend_from_slice(b"WEBP");
     if let Some(alpha) = alpha {
-        out.extend_from_slice(b"VP8X");
-        out.extend_from_slice(&10u32.to_le_bytes());
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&(width - 1).to_le_bytes()[..3]);
-        out.extend_from_slice(&(height - 1).to_le_bytes()[..3]);
-        out.extend_from_slice(b"ALPH");
-        out.extend_from_slice(&(alpha.len() as u32).to_le_bytes());
-        out.extend_from_slice(alpha);
+        output.extend_from_slice(b"VP8X");
+        output.extend_from_slice(&10u32.to_le_bytes());
+        output.extend_from_slice(&16u32.to_le_bytes());
+        output.extend_from_slice(&(width - 1).to_le_bytes()[..3]);
+        output.extend_from_slice(&(height - 1).to_le_bytes()[..3]);
+        output.extend_from_slice(b"ALPH");
+        output.extend_from_slice(&(alpha.len() as u32).to_le_bytes());
+        output.extend_from_slice(alpha);
         if alpha.len() & 1 != 0 {
-            out.push(0);
+            output.push(0);
         }
     }
-    out.extend_from_slice(b"VP8 ");
-    out.extend_from_slice(&vp8.to_le_bytes());
-    out.extend_from_slice(&header);
-    out.extend_from_slice(partition0);
-    out.extend_from_slice(tokens);
-    out.resize(total, 0);
-    Ok(out)
+    output.extend_from_slice(b"VP8 ");
+    output.extend_from_slice(&vp8.to_le_bytes());
+    output.extend_from_slice(&header);
+    output.extend_from_slice(partition0);
+    output.extend_from_slice(tokens);
+    output.resize(total, 0);
+    Ok(())
 }
 
-/// Internal opaque assembly from stored modes and finalized token bytes.
+/// Opaque assembly from stored modes and finalized token bytes.
+/// Output guarantees follow [`AssembleWebP`].
 pub fn VP8EncWrite(
     enc: &VP8Encoder,
     width: u32,
     height: u32,
     profile: u8,
     tokens: &[u8],
-) -> Result<Vec<u8>, VP8WriteError> {
-    VP8EncWriteWithAlpha(enc, width, height, profile, tokens, None)
+    output: &mut Vec<u8>,
+) -> Result<(), VP8WriteError> {
+    VP8EncWriteWithAlpha(enc, width, height, profile, tokens, None, output)
 }
 
+/// Assemble a WebP file with optional alpha; output guarantees follow [`AssembleWebP`].
 pub fn VP8EncWriteWithAlpha(
     enc: &VP8Encoder,
     width: u32,
@@ -213,11 +222,20 @@ pub fn VP8EncWriteWithAlpha(
     profile: u8,
     tokens: &[u8],
     alpha: Option<&[u8]>,
-) -> Result<Vec<u8>, VP8WriteError> {
+    output: &mut Vec<u8>,
+) -> Result<(), VP8WriteError> {
     PutVP8FrameHeader(width, height, profile, 0)?;
     if (width as usize).div_ceil(16) != enc.mb_w || (height as usize).div_ceil(16) != enc.mb_h {
         return Err(VP8WriteError::InvalidFrame);
     }
     let bw = GeneratePartition0(enc)?;
-    AssembleWebP(width, height, profile, VP8BitWriterBuf(&bw), tokens, alpha)
+    AssembleWebP(
+        width,
+        height,
+        profile,
+        VP8BitWriterBuf(&bw),
+        tokens,
+        alpha,
+        output,
+    )
 }

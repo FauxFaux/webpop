@@ -119,12 +119,14 @@ pub fn check_reference(case: &Case, words: &[u32]) -> (usize, usize) {
     let mut allocation = vec![0xa5];
     allocation.extend(&image.rgba);
     let original = allocation.clone();
-    let actual = libwebpop::WebPEncodeRGBAWithNearLossless(
+    let mut actual = Vec::new();
+    libwebpop::WebPEncodeRGBAWithNearLossless(
         &allocation[1..],
         image.width,
         image.height,
         image.stride,
         case.input[3] as i32,
+        &mut actual,
     )
     .unwrap();
     assert_eq!(allocation, original);
@@ -149,13 +151,18 @@ pub fn check_reference(case: &Case, words: &[u32]) -> (usize, usize) {
         allocation.extend(&image.rgba);
         let original = allocation.clone();
         assert_eq!(
-            libwebpop::WebPEncodeLosslessRGBA(
-                &allocation[1..],
-                image.width,
-                image.height,
-                image.stride
-            )
-            .unwrap(),
+            {
+                let mut output = Vec::new();
+                libwebpop::WebPEncodeLosslessRGBA(
+                    &allocation[1..],
+                    image.width,
+                    image.height,
+                    image.stride,
+                    &mut output,
+                )
+                .unwrap();
+                output
+            },
             bytes
         );
         assert_eq!(allocation, original);

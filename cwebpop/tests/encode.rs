@@ -70,7 +70,8 @@ fn default_cli_matches_upstream_cli_effort() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let expected = libwebpop::encode_lossless_rgba(
+    let mut expected = Vec::new();
+    libwebpop::encode_lossless_rgba(
         image.as_raw(),
         image.width(),
         image.height(),
@@ -79,6 +80,7 @@ fn default_cli_matches_upstream_cli_effort() {
             quality: 75,
             ..Default::default()
         },
+        &mut expected,
     )
     .unwrap();
     assert_eq!(fs::read(output).unwrap(), expected);
@@ -334,13 +336,15 @@ fn near_lossless_honors_strength_effort_exact_and_alpha_options() {
                 method: method.unwrap_or(4),
                 exact,
             };
-            let expected = libwebpop::encode_near_lossless_rgba(
+            let mut expected = Vec::new();
+            libwebpop::encode_near_lossless_rgba(
                 pixels.as_raw(),
                 65,
                 5,
                 65 * 4,
                 strength,
                 &options,
+                &mut expected,
             )
             .unwrap();
             let actual = fs::read(&output).unwrap();
@@ -358,11 +362,19 @@ fn near_lossless_honors_strength_effort_exact_and_alpha_options() {
                 }
             }
             if strength == 100 {
-                assert_eq!(
-                    actual,
-                    libwebpop::encode_lossless_rgba(pixels.as_raw(), 65, 5, 65 * 4, &options)
-                        .unwrap()
-                );
+                assert_eq!(actual, {
+                    let mut output = Vec::new();
+                    libwebpop::encode_lossless_rgba(
+                        pixels.as_raw(),
+                        65,
+                        5,
+                        65 * 4,
+                        &options,
+                        &mut output,
+                    )
+                    .unwrap();
+                    output
+                });
             }
         }
     }
@@ -435,8 +447,8 @@ fn near_lossless_streams_and_invalid_strengths_preserve_output_contracts() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert!(result.stderr.is_empty());
-    assert_eq!(
-        result.stdout,
+    assert_eq!(result.stdout, {
+        let mut output = Vec::new();
         libwebpop::encode_near_lossless_rgba(
             source().as_raw(),
             17,
@@ -446,11 +458,13 @@ fn near_lossless_streams_and_invalid_strengths_preserve_output_contracts() {
             &libwebpop::LosslessOptions {
                 quality: 90,
                 method: 6,
-                exact: false
-            }
+                exact: false,
+            },
+            &mut output,
         )
-        .unwrap()
-    );
+        .unwrap();
+        output
+    });
 }
 
 #[test]
@@ -502,13 +516,15 @@ fn lossy_files_and_streams_preserve_fractional_quality_and_alpha_settings() {
                 p[3] = 255;
             }
         }
-        let expected = libwebpop::WebPEncodeRGBAWithAlphaQuality(
+        let mut expected = Vec::new();
+        libwebpop::WebPEncodeRGBAWithAlphaQuality(
             pixels.as_raw(),
             17,
             19,
             17 * 4,
             q.map(|v| v.parse().unwrap()).unwrap_or(75.),
             aq.map(|v| v.parse().unwrap()).unwrap_or(100),
+            &mut expected,
         )
         .unwrap();
         let actual = fs::read(&output).unwrap();
@@ -551,11 +567,20 @@ fn lossy_files_and_streams_preserve_fractional_quality_and_alpha_settings() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert!(result.stderr.is_empty());
-    assert_eq!(
-        result.stdout,
-        libwebpop::WebPEncodeRGBAWithAlphaQuality(image.as_raw(), 17, 19, 17 * 4, 98.5, 30)
-            .unwrap()
-    );
+    assert_eq!(result.stdout, {
+        let mut output = Vec::new();
+        libwebpop::WebPEncodeRGBAWithAlphaQuality(
+            image.as_raw(),
+            17,
+            19,
+            17 * 4,
+            98.5,
+            30,
+            &mut output,
+        )
+        .unwrap();
+        output
+    });
 }
 
 #[test]

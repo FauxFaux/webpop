@@ -629,11 +629,12 @@ pub(crate) fn VP8LEncodeStreamWithNearLossless(
 }
 
 /// Encode the owned ARGB picture as a complete still-image RIFF/WebP file.
-/// Owned output replaces the upstream memory-writer callback.
+/// The caller-owned buffer replaces the upstream memory-writer callback.
 pub(crate) fn VP8LEncodeImage(
     config: &super::config_enc::EncoderConfig,
     picture: &super::picture_enc::WebPPicture,
-) -> Result<Vec<u8>, crate::webp::encode::LosslessEncodeError> {
+    output: &mut Vec<u8>,
+) -> Result<(), crate::webp::encode::LosslessEncodeError> {
     use super::picture_csp_enc::{RgbaInputError, WebPPictureHasTransparency};
     use crate::utils::bit_writer_utils::VP8LBitWriterInit;
     let initial_size = picture
@@ -655,7 +656,7 @@ pub(crate) fn VP8LEncodeImage(
         config.near_lossless,
         config.options.exact,
     )?;
-    Ok(WriteImage(&mut bw)?)
+    Ok(WriteImage(&mut bw, output)?)
 }
 
 /// Clamp a histogram/transform sampling size, respecting the auxiliary-image
@@ -1171,9 +1172,10 @@ pub fn WriteRiffHeader(webpll_size: usize) -> Result<[u8; 21], ImageWriteError> 
     Ok(header)
 }
 
-/// Upstream WriteImage, collecting the finalized stream in an owned RIFF file.
-/// The returned length replaces C's coded_size out parameter.
-pub fn WriteImage(bw: &mut VP8LBitWriter) -> Result<Vec<u8>, ImageWriteError> {
+/// Upstream WriteImage, writing the finalized RIFF file into `output`.
+/// Reuses capacity and replaces previous contents on success; errors leave
+/// contents unchanged. `output.len()` replaces C's coded_size out parameter.
+pub fn WriteImage(bw: &mut VP8LBitWriter, output: &mut Vec<u8>) -> Result<(), ImageWriteError> {
     let data = crate::utils::bit_writer_utils::VP8LBitWriterFinish(bw)?;
     let header = WriteRiffHeader(data.len())?;
     let padding = (data.len() + 1) & 1;
@@ -1181,12 +1183,13 @@ pub fn WriteImage(bw: &mut VP8LBitWriter) -> Result<Vec<u8>, ImageWriteError> {
         .len()
         .checked_add(header.len() + padding)
         .ok_or(ImageWriteError::SizeOverflow)?;
-    let mut output = Vec::new();
-    output.try_reserve_exact(size)?;
+    // Reserve before clearing so allocation failure preserves the previous output.
+    output.try_reserve_exact(size.saturating_sub(output.len()))?;
+    output.clear();
     output.extend_from_slice(&header);
     output.extend_from_slice(data);
     output.resize(size, 0);
-    Ok(output)
+    Ok(())
 }
 
 #[inline]

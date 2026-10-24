@@ -55,7 +55,8 @@ fn selected_streams_decode_and_preserve_source_pixels() {
             stats.lossless_size,
             stats.lossless_hdr_size + stats.lossless_data_size
         );
-        let file = WriteImage(&mut bw).unwrap();
+        let mut file = Vec::new();
+        WriteImage(&mut bw, &mut file).unwrap();
         let decoded = image::load_from_memory_with_format(&file, image::ImageFormat::WebP)
             .unwrap()
             .into_rgba8();

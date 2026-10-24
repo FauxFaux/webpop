@@ -34,8 +34,15 @@ pub fn encode(case: &Case) -> Vec<u8> {
     let mut allocation = vec![0xa5];
     allocation.extend_from_slice(&image.rgba);
     let original = allocation.clone();
-    let result = if case.function == "WebPEncodeLosslessRGBA" {
-        WebPEncodeLosslessRGBA(&allocation[1..], image.width, image.height, image.stride)
+    let mut result = Vec::new();
+    if case.function == "WebPEncodeLosslessRGBA" {
+        WebPEncodeLosslessRGBA(
+            &allocation[1..],
+            image.width,
+            image.height,
+            image.stride,
+            &mut result,
+        )
     } else {
         encode_lossless_rgba(
             &allocation[1..],
@@ -43,6 +50,7 @@ pub fn encode(case: &Case) -> Vec<u8> {
             image.height,
             image.stride,
             &options,
+            &mut result,
         )
     }
     .unwrap();

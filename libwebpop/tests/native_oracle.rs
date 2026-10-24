@@ -642,11 +642,9 @@ fn image_headers_match_pinned_reference() {
         WriteImageSize(&mut bw, a[0], a[1]).unwrap();
         WriteRealAlphaAndVersion(&mut bw, a[2] != 0).unwrap();
         VP8LPutBits(&mut bw, a[3], a[4]).unwrap();
-        let actual: Vec<u32> = WriteImage(&mut bw)
-            .unwrap()
-            .into_iter()
-            .map(u32::from)
-            .collect();
+        let mut output = Vec::new();
+        WriteImage(&mut bw, &mut output).unwrap();
+        let actual: Vec<u32> = output.into_iter().map(u32::from).collect();
         native::compare(case, &expected, &actual);
     }
     eprintln!("Compared {} image headers/containers", cases.len());

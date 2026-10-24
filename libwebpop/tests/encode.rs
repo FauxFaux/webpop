@@ -28,8 +28,15 @@ fn public_rgba_fixtures_match_scalar_c() {
         support::public_images::check_decoded(&case, &expected);
     }
     let image = support::public_images::real_image();
-    let encoded =
-        WebPEncodeLosslessRGBA(&image.rgba, image.width, image.height, image.stride).unwrap();
+    let mut encoded = Vec::new();
+    WebPEncodeLosslessRGBA(
+        &image.rgba,
+        image.width,
+        image.height,
+        image.stride,
+        &mut encoded,
+    )
+    .unwrap();
     assert_eq!(encoded, include_bytes!("fixtures/corpus/test_ref.webp"));
     support::public_images::check_decoded(&image.request(), &encoded);
 }
@@ -46,26 +53,42 @@ fn public_default_api_is_layout_independent() {
         }
         let mut unaligned = vec![0xa5];
         unaligned.extend_from_slice(&image.rgba);
-        let a = WebPEncodeLosslessRGBA(&unaligned[1..], image.width, image.height, image.stride)
-            .unwrap();
-        let b = encode_lossless_rgba(
+        let mut a = Vec::new();
+        WebPEncodeLosslessRGBA(
+            &unaligned[1..],
+            image.width,
+            image.height,
+            image.stride,
+            &mut a,
+        )
+        .unwrap();
+        let mut b = Vec::new();
+        encode_lossless_rgba(
             &packed,
             image.width,
             image.height,
             image.width as usize * 4,
             &LosslessOptions::default(),
+            &mut b,
         )
         .unwrap();
         assert_eq!(a, b);
         // Surplus bytes and stride beyond the last row are never consumed.
         packed.extend([0x5a; 7]);
-        assert_eq!(
-            a,
-            WebPEncodeLosslessRGBA(&packed, image.width, image.height, image.width as usize * 4)
-                .unwrap()
-        );
+        assert_eq!(a, {
+            let mut output = Vec::new();
+            WebPEncodeLosslessRGBA(
+                &packed,
+                image.width,
+                image.height,
+                image.width as usize * 4,
+                &mut output,
+            )
+            .unwrap();
+            output
+        });
     }
-    assert!(WebPEncodeLosslessRGBA(&[1, 2, 3, 255], 1, 1, usize::MAX).is_ok());
+    assert!(WebPEncodeLosslessRGBA(&[1, 2, 3, 255], 1, 1, usize::MAX, &mut Vec::new()).is_ok());
 }
 
 #[test]
@@ -115,12 +138,15 @@ fn rgba_entry_point_round_trips_palettes_photos_and_transparency() {
                         method,
                         exact,
                     };
-                    let encoded =
-                        encode_lossless_rgba(&rgba, width, height, stride, &options).unwrap();
-                    assert_eq!(
-                        encoded,
-                        encode_lossless_rgba(&rgba, width, height, stride, &options).unwrap()
-                    );
+                    let mut encoded = Vec::new();
+                    encode_lossless_rgba(&rgba, width, height, stride, &options, &mut encoded)
+                        .unwrap();
+                    assert_eq!(encoded, {
+                        let mut output = Vec::new();
+                        encode_lossless_rgba(&rgba, width, height, stride, &options, &mut output)
+                            .unwrap();
+                        output
+                    });
                     let decoded =
                         image::load_from_memory_with_format(&encoded, image::ImageFormat::WebP)
                             .unwrap()
@@ -168,11 +194,13 @@ fn invalid_input_and_options_return_errors() {
         (&[][..], 1, 3, usize::MAX / 2, RgbaInputError::SizeOverflow),
     ] {
         assert!(
-            matches!(encode_lossless_rgba(rgba, w, h, stride, &defaults),
+            matches!(encode_lossless_rgba(rgba, w, h, stride, &defaults, &mut Vec::new()),
             Err(LosslessEncodeError::Input(actual)) if actual == expected)
         );
-        assert!(matches!(WebPEncodeLosslessRGBA(rgba, w, h, stride),
-            Err(LosslessEncodeError::Input(actual)) if actual == expected));
+        assert!(
+            matches!(WebPEncodeLosslessRGBA(rgba, w, h, stride, &mut Vec::new()),
+            Err(LosslessEncodeError::Input(actual)) if actual == expected)
+        );
     }
     for options in [
         LosslessOptions {
@@ -184,7 +212,7 @@ fn invalid_input_and_options_return_errors() {
             ..defaults
         },
     ] {
-        let result = encode_lossless_rgba(&[0; 4], 1, 1, 4, &options);
+        let result = encode_lossless_rgba(&[0; 4], 1, 1, 4, &options, &mut Vec::new());
         if options.quality > 100 {
             assert!(matches!(result, Err(LosslessEncodeError::InvalidQuality)));
         } else {
@@ -209,11 +237,13 @@ fn public_encode_baseline() {
         // Warm up once, then record the median of five measured encodes.
         for iteration in 0..6 {
             let start = Instant::now();
-            let encoded = WebPEncodeLosslessRGBA(
+            let mut encoded = Vec::new();
+            WebPEncodeLosslessRGBA(
                 black_box(&image.rgba),
                 image.width,
                 image.height,
                 image.stride,
+                &mut encoded,
             )
             .unwrap();
             let elapsed = start.elapsed();

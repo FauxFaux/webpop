@@ -13,7 +13,8 @@ pub fn encode(case: &Case) -> Result<Vec<u8>, libwebpop::WebPEncodingError> {
     );
     let original = rgba.clone();
     let q = f32::from_bits(a[3]);
-    let output = if custom {
+    let mut output = Vec::new();
+    let result = if custom {
         libwebpop::WebPEncodeRGBAWithAlphaQuality(
             &rgba[1..],
             a[0],
@@ -21,12 +22,13 @@ pub fn encode(case: &Case) -> Result<Vec<u8>, libwebpop::WebPEncodingError> {
             a[2] as usize,
             q,
             a[4] as i32,
+            &mut output,
         )
     } else {
-        libwebpop::WebPEncodeRGBA(&rgba[1..], a[0], a[1], a[2] as usize, q)
+        libwebpop::WebPEncodeRGBA(&rgba[1..], a[0], a[1], a[2] as usize, q, &mut output)
     };
     assert_eq!(rgba, original);
-    output
+    result.map(|()| output)
 }
 
 pub fn evaluate(case: &Case) -> Vec<u32> {

@@ -21,7 +21,9 @@ fn encode(pixels: &[u32], width: usize, height: usize, quality: u32, low_effort:
         &mut bw, pixels, &mut chain, &mut refs, width, height, quality, low_effort,
     )
     .unwrap();
-    WriteImage(&mut bw).unwrap()
+    let mut output = Vec::new();
+    WriteImage(&mut bw, &mut output).unwrap();
+    output
 }
 
 #[test]
@@ -132,7 +134,8 @@ fn checked_headers_and_padding() {
         for i in 0..bytes {
             VP8LPutBits(&mut bw, i as u32, 8).unwrap();
         }
-        let file = WriteImage(&mut bw).unwrap();
+        let mut file = Vec::new();
+        WriteImage(&mut bw, &mut file).unwrap();
         assert_eq!(&file[..4], b"RIFF");
         assert_eq!(&file[8..16], b"WEBPVP8L");
         assert_eq!(

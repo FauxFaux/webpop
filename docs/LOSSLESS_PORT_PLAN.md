@@ -5,7 +5,7 @@
 Port the code reachable from `WebPEncodeLosslessRGBA` in the checked-out
 [`upstream/`](../upstream), preserving function names and source layout where
 practical. The result is a Rust library that takes prepared RGBA pixels and
-returns an owned buffer containing a complete still-image WebP file.
+writes a complete still-image WebP file into a caller-owned output buffer.
 
 Reference revision: `1844042d1ca751e62e61df7617dba19c98588339`, obtained from
 `git -C upstream rev-parse HEAD`. This is the source of truth for this plan.
@@ -20,8 +20,15 @@ pub fn WebPEncodeLosslessRGBA(
     width: u32,
     height: u32,
     stride: usize,
-) -> Result<Vec<u8>, WebPEncodingError>;
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError>;
 ```
+
+All RGBA entry points take the output buffer last and return `Result<(), _>`.
+Success replaces its contents with one complete WebP file, reusing its
+capacity; errors leave its contents unchanged. The encoded size is
+`output.len()`. Internal bitstream and picture working buffers remain owned
+by the encoder.
 
 Validate dimensions in `1..=16383`, `stride >= width * 4`, and input length at
 least `(height - 1) * stride + width * 4`, using checked arithmetic. The slice
@@ -82,7 +89,7 @@ it. Decoding successfully is necessary but cannot establish algorithm parity.
   checked RGBA entry point and public `WebPEncodeLosslessRGBA` simple API.
 - `WebPEncodeLosslessRGBA` imports checked positive-stride RGBA without changing
   the source, applies upstream transparent-pixel cleanup, analyzes and tries
-  configurations, and returns an owned RIFF/WebP file. `encode_lossless_rgba`
+  configurations, and writes a RIFF/WebP file into the caller's buffer. `encode_lossless_rgba`
   retains configurable quality/method/exact handling through `LosslessOptions`;
   defaults match the simple API. Allocation failures propagate through `Result`.
   There are 350 deterministic independent RGBA round trips spanning

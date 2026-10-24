@@ -1,4 +1,4 @@
-//! Errors for the checked, owned-output encoders. The historical lossless name
+//! Errors for the checked encoders with caller-owned output. The historical lossless name
 //! is retained for compatibility; the simple APIs also use WebPEncodingError.
 
 use crate::enc::{

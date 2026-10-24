@@ -47,7 +47,8 @@ fn main_images_decode_with_cache_and_multiple_huffman_groups() {
                 VP8LPutBits(&mut bw, 0, 1).unwrap(); // no transforms
                 let (cache, header, data) = support::main_images::encode(&case, &mut bw, 0);
                 assert_eq!(header + data, VP8LBitWriterNumBytes(&bw));
-                let file = WriteImage(&mut bw).unwrap();
+                let mut file = Vec::new();
+                WriteImage(&mut bw, &mut file).unwrap();
                 let stream = &file[21..]; // VP8L payload after signature
                 assert_eq!(bits_at(stream, 33, 1), u32::from(cache > 0));
                 let flag = if cache > 0 {

@@ -76,18 +76,18 @@ fn public_quality_and_geometry_validation() {
         f32::from_bits(0xffc00001),
     ] {
         assert!(matches!(
-            encode(&[0; 4], 1, 1, 4, q),
+            encode(&[0; 4], 1, 1, 4, q, &mut Vec::new()),
             Err(Error::InvalidQuality)
         ));
         assert!(matches!(
-            encode_alpha(&[0; 4], 1, 1, 4, q, 100),
+            encode_alpha(&[0; 4], 1, 1, 4, q, 100, &mut Vec::new()),
             Err(Error::InvalidQuality)
         ));
     }
     // Alpha settings are checked even for opaque input.
     for aq in [i32::MIN, -1, 101, i32::MAX] {
         assert!(matches!(
-            encode_alpha(&[255; 4], 1, 1, 4, 75., aq),
+            encode_alpha(&[255; 4], 1, 1, 4, 75., aq, &mut Vec::new()),
             Err(Error::InvalidAlphaQuality)
         ));
     }
@@ -105,21 +105,30 @@ fn public_quality_and_geometry_validation() {
         (&[][..], 1, 3, usize::MAX / 2, Input::SizeOverflow),
     ] {
         assert!(
-            matches!(encode(pixels, w, h, stride, 75.), Err(Error::Input(actual)) if actual == expected)
+            matches!(encode(pixels, w, h, stride, 75., &mut Vec::new()), Err(Error::Input(actual)) if actual == expected)
         );
         for aq in [0, 71, 100] {
             assert!(
-                matches!(encode_alpha(pixels, w, h, stride, 75., aq), Err(Error::Input(actual)) if actual == expected)
+                matches!(encode_alpha(pixels, w, h, stride, 75., aq, &mut Vec::new()), Err(Error::Input(actual)) if actual == expected)
             );
         }
     }
     // A single row does not consume the stride, including usize::MAX.
     for q in [-0., 0., f32::MIN_POSITIVE, 98.5, 100.] {
-        assert!(encode(&[1, 2, 3, 255], 1, 1, usize::MAX, q).is_ok());
+        assert!(encode(&[1, 2, 3, 255], 1, 1, usize::MAX, q, &mut Vec::new()).is_ok());
     }
     for (w, h) in [(1, 16383), (16383, 1)] {
         let image = lossy::image(w, h, 3);
-        let bytes = encode(&image.rgba, image.width, image.height, image.stride, 75.).unwrap();
+        let mut bytes = Vec::new();
+        encode(
+            &image.rgba,
+            image.width,
+            image.height,
+            image.stride,
+            75.,
+            &mut bytes,
+        )
+        .unwrap();
         let decoded = decode(&bytes);
         assert_eq!(decoded.dimensions(), (w as u32, h as u32));
         for y in 0..h {
@@ -146,17 +155,20 @@ fn padding_unaligned_input_and_transparent_cleanup_preserve_source() {
         let original = unaligned.clone();
         for q in [0., 75., 98.5, 100.] {
             for aq in [0, 71, 100] {
-                let expected = encode_alpha(&unaligned[1..], 19, 17, image.stride, q, aq).unwrap();
-                assert_eq!(
-                    expected,
-                    encode_alpha(&packed, 19, 17, 19 * 4, q, aq).unwrap()
-                );
+                let mut expected = Vec::new();
+                encode_alpha(&unaligned[1..], 19, 17, image.stride, q, aq, &mut expected).unwrap();
+                assert_eq!(expected, {
+                    let mut output = Vec::new();
+                    encode_alpha(&packed, 19, 17, 19 * 4, q, aq, &mut output).unwrap();
+                    output
+                });
                 let mut surplus = packed.clone();
                 surplus.extend([0x5a; 7]);
-                assert_eq!(
-                    expected,
-                    encode_alpha(&surplus, 19, 17, 19 * 4, q, aq).unwrap()
-                );
+                assert_eq!(expected, {
+                    let mut output = Vec::new();
+                    encode_alpha(&surplus, 19, 17, 19 * 4, q, aq, &mut output).unwrap();
+                    output
+                });
                 assert_eq!(unaligned, original);
             }
         }
@@ -170,11 +182,13 @@ fn standard_and_custom_100_agree_and_opaque_output_ignores_alpha_quality() {
     for pattern in 0..6 {
         let image = lossy::image(17, 19, pattern);
         for q in [0., 1., 30., 50., 75., 98., 98.5, 99., 100.] {
-            let standard = encode(&image.rgba, 17, 19, image.stride, q).unwrap();
-            assert_eq!(
-                standard,
-                encode_alpha(&image.rgba, 17, 19, image.stride, q, 100).unwrap()
-            );
+            let mut standard = Vec::new();
+            encode(&image.rgba, 17, 19, image.stride, q, &mut standard).unwrap();
+            assert_eq!(standard, {
+                let mut output = Vec::new();
+                encode_alpha(&image.rgba, 17, 19, image.stride, q, 100, &mut output).unwrap();
+                output
+            });
             let decoded = decode(&standard);
             for y in 0..19 {
                 for x in 0..17 {
@@ -187,15 +201,21 @@ fn standard_and_custom_100_agree_and_opaque_output_ignores_alpha_quality() {
             }
             if pattern == 0 {
                 for aq in 0..=100 {
-                    assert_eq!(
-                        standard,
-                        encode_alpha(&image.rgba, 17, 19, image.stride, q, aq).unwrap()
-                    );
+                    assert_eq!(standard, {
+                        let mut output = Vec::new();
+                        encode_alpha(&image.rgba, 17, 19, image.stride, q, aq, &mut output)
+                            .unwrap();
+                        output
+                    });
                 }
             }
             if q == 98.5 {
                 fractional_changes += usize::from(
-                    standard != encode(&image.rgba, 17, 19, image.stride, 98.).unwrap(),
+                    standard != {
+                        let mut output = Vec::new();
+                        encode(&image.rgba, 17, 19, image.stride, 98., &mut output).unwrap();
+                        output
+                    },
                 );
             }
         }
@@ -337,13 +357,14 @@ fn public_lossy_baseline() {
                 let mut encoded = Vec::new();
                 for iteration in 0..6 {
                     let start = Instant::now();
-                    encoded = encode_alpha(
+                    encode_alpha(
                         black_box(&image.rgba),
                         image.width,
                         image.height,
                         image.stride,
                         q,
                         *aq,
+                        &mut encoded,
                     )
                     .unwrap();
                     let elapsed = start.elapsed();

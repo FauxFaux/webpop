@@ -18,12 +18,13 @@ use crate::{utils::bit_writer_utils::VP8BitWriterBuf, webp::encode::LosslessEnco
 pub(crate) fn WebPEncode(
     config: &EncoderConfig,
     picture: &mut WebPPicture,
-) -> Result<Vec<u8>, LosslessEncodeError> {
+    output: &mut Vec<u8>,
+) -> Result<(), LosslessEncodeError> {
     WebPValidateConfig(&config.options)?;
     if !config.options.exact {
         WebPReplaceTransparentPixels(picture, 0);
     }
-    VP8LEncodeImage(config, picture)
+    VP8LEncodeImage(config, picture, output)
 }
 
 /// The default method-4 token path, with synchronous analysis/alpha jobs.
@@ -32,7 +33,8 @@ pub(crate) fn WebPEncode(
 pub(crate) fn WebPEncodeLossy(
     config: &LossyConfig,
     picture: &mut WebPYUVAPicture,
-) -> Result<Vec<u8>, LosslessEncodeError> {
+    output: &mut Vec<u8>,
+) -> Result<(), LosslessEncodeError> {
     WebPCleanupTransparentArea(picture);
     let mut enc = VP8Encoder::new(picture.width, picture.height, config.quality <= 98.0)?;
     VP8EncAnalyze(&mut enc, picture);
@@ -45,5 +47,6 @@ pub(crate) fn WebPEncodeLossy(
         0, // Default preset's complex filter uses VP8 profile 0.
         VP8BitWriterBuf(&tokens),
         alpha.as_ref().map(|a| a.data.as_slice()),
+        output,
     )?)
 }

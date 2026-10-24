@@ -101,7 +101,9 @@ pub fn fixed_image(w: u32, h: u32, profile: u8) -> Vec<u8> {
         .collect();
     VP8EmitTokens(&mut tokens, &mut bw, &probabilities, true).unwrap();
     let bytes = VP8BitWriterFinish(&mut bw).unwrap();
-    VP8EncWrite(&enc, w, h, profile, bytes).unwrap()
+    let mut output = Vec::new();
+    VP8EncWrite(&enc, w, h, profile, bytes, &mut output).unwrap();
+    output
 }
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;
@@ -133,11 +135,9 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
     }
     if a[0] == 5 {
         let tokens: Vec<_> = (0..a[30]).map(|i| (i * 73 + 19) as u8).collect();
-        return VP8EncWrite(&enc, a[1], a[2], a[3] as u8, &tokens)
-            .unwrap()
-            .into_iter()
-            .map(u32::from)
-            .collect();
+        let mut output = Vec::new();
+        VP8EncWrite(&enc, a[1], a[2], a[3] as u8, &tokens, &mut output).unwrap();
+        return output.into_iter().map(u32::from).collect();
     }
     let mut bw = VP8BitWriterInit(0).unwrap();
     match a[0] {

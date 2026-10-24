@@ -19,17 +19,21 @@ use crate::enc::webp_enc::{WebPEncode, WebPEncodeLossy};
 /// must contain (height - 1) * stride + width * 4 bytes; final-row padding is
 /// optional. Inputs are validated before allocation and never modified.
 ///
+/// On success, `output` contains one complete WebP file, replacing any previous
+/// contents and reusing its capacity. On error, its contents are unchanged.
+///
 /// Upstream simple API (`upstream/doc/api.md`):
 /// ```c
 /// size_t WebPEncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
 ///                       float quality_factor, uint8_t** output);
 /// ```
-/// Rust returns the encoded bytes in an owned vector:
+/// Rust writes the encoded bytes into the caller-owned vector:
 /// ```
 /// use libwebpop::WebPEncodeRGBA;
 ///
 /// let rgba = [255, 0, 0, 255]; // One opaque red pixel; stride is in bytes.
-/// let webp = WebPEncodeRGBA(&rgba, 1, 1, 4, 75.0)?;
+/// let mut webp = Vec::new();
+/// WebPEncodeRGBA(&rgba, 1, 1, 4, 75.0, &mut webp)?;
 /// # Ok::<(), libwebpop::WebPEncodingError>(())
 /// ```
 pub fn WebPEncodeRGBA(
@@ -38,8 +42,9 @@ pub fn WebPEncodeRGBA(
     height: u32,
     stride: usize,
     quality: f32,
-) -> Result<Vec<u8>, WebPEncodingError> {
-    WebPEncodeRGBAWithAlphaQuality(rgba, width, height, stride, quality, 100)
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError> {
+    WebPEncodeRGBAWithAlphaQuality(rgba, width, height, stride, quality, 100, output)
 }
 
 /// Encode lossy WebP with independent alpha quality in 0..=100. At 100,
@@ -48,6 +53,7 @@ pub fn WebPEncodeRGBA(
 /// opaque images. Color quality, geometry and input guarantees follow
 /// [`WebPEncodeRGBA`]. This extends the simple API with quad-image's custom
 /// alpha-quality wrapper; the default preset and alpha compression are fixed.
+/// Output replacement, capacity reuse and error guarantees follow [`WebPEncodeRGBA`].
 pub fn WebPEncodeRGBAWithAlphaQuality(
     rgba: &[u8],
     width: u32,
@@ -55,16 +61,18 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
     stride: usize,
     quality: f32,
     alpha_quality: i32,
-) -> Result<Vec<u8>, WebPEncodingError> {
+    output: &mut Vec<u8>,
+) -> Result<(), WebPEncodingError> {
     let config = LossyConfig::new(quality, alpha_quality)?;
     let mut picture = import_rgba_to_yuva(rgba, width, height, stride)?;
-    WebPEncodeLossy(&config, &mut picture)
+    WebPEncodeLossy(&config, &mut picture, output)
 }
 
 /// Encode positive-stride RGBA as a complete lossless still-image WebP using
 /// the pinned libwebp simple API's defaults (quality 70, method 4, exact false).
 /// Dimensions must be in 1..=16383. Final-row padding is optional; the source
 /// is never modified. RGB beneath alpha zero may change.
+/// Output replacement, capacity reuse and error guarantees follow [`WebPEncodeRGBA`].
 ///
 /// Upstream lossless API (`upstream/doc/api.md`):
 /// ```c
@@ -76,7 +84,8 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
 /// use libwebpop::WebPEncodeLosslessRGBA;
 ///
 /// let rgba = [255, 0, 0, 255];
-/// let webp = WebPEncodeLosslessRGBA(&rgba, 1, 1, 4)?;
+/// let mut webp = Vec::new();
+/// WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut webp)?;
 /// # Ok::<(), libwebpop::WebPEncodingError>(())
 /// ```
 pub fn WebPEncodeLosslessRGBA(
@@ -84,8 +93,16 @@ pub fn WebPEncodeLosslessRGBA(
     width: u32,
     height: u32,
     stride: usize,
-) -> Result<Vec<u8>, LosslessEncodeError> {
-    encode_lossless_rgba(rgba, width, height, stride, &LosslessOptions::default())
+    output: &mut Vec<u8>,
+) -> Result<(), LosslessEncodeError> {
+    encode_lossless_rgba(
+        rgba,
+        width,
+        height,
+        stride,
+        &LosslessOptions::default(),
+        output,
+    )
 }
 
 /// Encode positive-stride RGBA as a complete lossless still-image WebP.
@@ -96,6 +113,7 @@ pub fn WebPEncodeLosslessRGBA(
 /// Uses the pinned encoder's entropy analysis and configuration trial loop.
 /// Default options match [`WebPEncodeLosslessRGBA`]; other options retain
 /// near_lossless=100, the default image hint and synchronous execution.
+/// Output replacement, capacity reuse and error guarantees follow [`WebPEncodeRGBA`].
 ///
 /// `upstream/doc/api.md` recommends `WebPEncode()` with
 /// `WebPConfig::exact = 1` to preserve RGB beneath fully transparent pixels.
@@ -105,7 +123,8 @@ pub fn WebPEncodeLosslessRGBA(
 ///
 /// let rgba = [255, 0, 0, 0]; // Preserve this invisible red pixel too.
 /// let options = LosslessOptions { exact: true, ..Default::default() };
-/// let webp = encode_lossless_rgba(&rgba, 1, 1, 4, &options)?;
+/// let mut webp = Vec::new();
+/// encode_lossless_rgba(&rgba, 1, 1, 4, &options, &mut webp)?;
 /// # Ok::<(), libwebpop::WebPEncodingError>(())
 /// ```
 pub fn encode_lossless_rgba(
@@ -114,8 +133,9 @@ pub fn encode_lossless_rgba(
     height: u32,
     stride: usize,
     options: &LosslessOptions,
-) -> Result<Vec<u8>, LosslessEncodeError> {
-    encode_near_lossless_rgba(rgba, width, height, stride, 100, options)
+    output: &mut Vec<u8>,
+) -> Result<(), LosslessEncodeError> {
+    encode_near_lossless_rgba(rgba, width, height, stride, 100, options, output)
 }
 
 /// Encode positive-stride RGBA as a near-lossless still-image WebP. Strength
@@ -124,13 +144,15 @@ pub fn encode_lossless_rgba(
 /// identical to [`WebPEncodeLosslessRGBA`]. Uses quality 70, method 4 and
 /// transparent RGB cleanup. Input is never modified; geometry follows the
 /// lossless API, including optional final-row padding.
+/// Output replacement, capacity reuse and error guarantees follow [`WebPEncodeRGBA`].
 pub fn WebPEncodeRGBAWithNearLossless(
     rgba: &[u8],
     width: u32,
     height: u32,
     stride: usize,
     near_lossless: i32,
-) -> Result<Vec<u8>, LosslessEncodeError> {
+    output: &mut Vec<u8>,
+) -> Result<(), LosslessEncodeError> {
     encode_near_lossless_rgba(
         rgba,
         width,
@@ -138,6 +160,7 @@ pub fn WebPEncodeRGBAWithNearLossless(
         stride,
         near_lossless,
         &LosslessOptions::default(),
+        output,
     )
 }
 
@@ -152,6 +175,7 @@ pub fn WebPEncodeRGBAWithNearLossless(
 /// It does not guarantee exact alpha or RGB below strength 100.
 /// Geometry, minimum input length and unchanged-input guarantees follow the
 /// lossless API. Inputs and settings are validated before allocation.
+/// Output replacement, capacity reuse and error guarantees follow [`WebPEncodeRGBA`].
 pub fn encode_near_lossless_rgba(
     rgba: &[u8],
     width: u32,
@@ -159,7 +183,8 @@ pub fn encode_near_lossless_rgba(
     stride: usize,
     near_lossless: i32,
     options: &LosslessOptions,
-) -> Result<Vec<u8>, LosslessEncodeError> {
+    output: &mut Vec<u8>,
+) -> Result<(), LosslessEncodeError> {
     if !(0..=100).contains(&near_lossless) {
         return Err(LosslessEncodeError::InvalidNearLosslessStrength);
     }
@@ -170,5 +195,5 @@ pub fn encode_near_lossless_rgba(
         near_lossless: near_lossless as u32,
     };
     let mut picture = WebPPictureImportRGBA(rgba, width, height, stride)?;
-    WebPEncode(&config, &mut picture)
+    WebPEncode(&config, &mut picture, output)
 }

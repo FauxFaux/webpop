@@ -309,7 +309,8 @@ fn complete_files_decode_with_all_transform_combinations() {
                 initial,
             )
             .unwrap();
-            let file = WriteImage(&mut bw).unwrap();
+            let mut file = Vec::new();
+            WriteImage(&mut bw, &mut file).unwrap();
             let decoded = image::load_from_memory_with_format(&file, image::ImageFormat::WebP)
                 .unwrap()
                 .to_rgba8();

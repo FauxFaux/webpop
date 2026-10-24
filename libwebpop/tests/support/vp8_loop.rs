@@ -162,7 +162,8 @@ pub fn encode(a: &[u32]) -> (Vec<u32>, Vec<u8>) {
         out.push(tokens.len() as u32);
         out.extend(tokens.iter().map(|&v| u32::from(v)));
     }
-    let file = VP8EncWrite(&enc, a[0], a[1], 0, tokens).unwrap();
+    let mut file = Vec::new();
+    VP8EncWrite(&enc, a[0], a[1], 0, tokens, &mut file).unwrap();
     if a[7] != 0 {
         out.push(file.len() as u32);
     }

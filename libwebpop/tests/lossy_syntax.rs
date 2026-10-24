@@ -288,7 +288,8 @@ fn opaque_container_sizes_padding_and_frame_limits() {
     ));
     for n in 0..4 {
         let tokens = vec![0x93; n];
-        let bytes = AssembleOpaqueWebP(1, 1, 0, &[1, 2, 3], &tokens).unwrap();
+        let mut bytes = Vec::new();
+        AssembleOpaqueWebP(1, 1, 0, &[1, 2, 3], &tokens, &mut bytes).unwrap();
         assert_eq!(
             u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize,
             bytes.len() - 8
@@ -304,10 +305,17 @@ fn opaque_container_sizes_padding_and_frame_limits() {
         }
     }
     let enc = VP8Encoder::new(17, 17, false).unwrap();
+    let mut output = b"previous image".to_vec();
     assert!(matches!(
-        VP8EncWrite(&enc, 1, 1, 0, &[]),
+        VP8EncWrite(&enc, 1, 1, 0, &[], &mut output),
         Err(VP8WriteError::InvalidFrame)
     ));
+    assert_eq!(output, b"previous image");
+    assert!(matches!(
+        AssembleOpaqueWebP(0, 1, 0, &[], &[], &mut output),
+        Err(VP8WriteError::InvalidFrame)
+    ));
+    assert_eq!(output, b"previous image");
 }
 #[test]
 fn fixed_dc_images_decode_independently() {
