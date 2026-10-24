@@ -13,6 +13,7 @@ pub mod picture_enc;
 pub mod picture_tools_enc;
 pub mod predictor_enc;
 pub mod quant_enc;
+pub mod syntax_enc;
 pub mod token_enc;
 pub mod tree_enc;
 pub mod vp8i_enc;

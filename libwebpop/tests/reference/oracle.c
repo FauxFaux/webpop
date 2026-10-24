@@ -38,6 +38,12 @@ unsigned WebpopModeSearch(const uint32_t*, uint32_t*);
 unsigned WebpopFlat(const uint32_t*, uint32_t*);
 unsigned WebpopModeCost(const uint32_t*, uint32_t*);
 unsigned WebpopScoreOps(const uint32_t*, uint32_t*);
+unsigned WebpopLoopFrame(const uint32_t*, uint32_t*);
+unsigned WebpopFrameSegments(const uint32_t*, uint32_t*);
+unsigned WebpopAdjustFilter(const uint32_t*, uint32_t*);
+unsigned WebpopModeSyntax(const uint32_t*, uint32_t*);
+unsigned WebpopSyntax(const uint32_t*, uint32_t*);
+unsigned WebpopFixedImage(const uint32_t*, uint32_t*);
 unsigned WebpopSearchFrame(const uint32_t*, uint32_t*);
 unsigned WebpopPaletteTransform(const uint32_t*, uint32_t*);
 unsigned WebpopNearLosslessFeedback(const uint32_t*, unsigned, uint32_t*);
@@ -150,6 +156,56 @@ int main(void) {
       REQUIRE(n==5+pixels && output_size<=LIMIT);
       for(i=5;i<n;++i) REQUIRE(in[i]<=255);
       count=WebpopSearchFrame(in,out);
+    } else if (IS(VP8ModeSyntax)) {
+      REQUIRE(n == 7 && in[0] <= 3 && in[2] < 10 && in[3] < 10);
+      REQUIRE(in[1] < (in[0] == 0 ? 10 : 4));
+      for (i = 4; i < 7; ++i) REQUIRE(in[i] <= 255);
+      count = WebpopModeSyntax(in, out);
+    } else if (IS(VP8Syntax)) {
+      unsigned mw, mh, ps, at;
+      REQUIRE(n >= 31 && in[0] < 6 && in[1] > 0 && in[1] <= 129 && in[2] > 0 && in[2] <= 129);
+      mw = (in[1]+15)/16; mh = (in[2]+15)/16; ps = (4*mw+1)*(4*mh+1);
+      REQUIRE(n == 31 + ps + 4*mw*mh && in[3] <= 3 && in[4] >= 1 && in[4] <= 4);
+      REQUIRE(in[5] <= 1 && in[6] <= 1 && in[7] <= 63 && in[8] <= 7 && in[10] <= 127);
+      REQUIRE((int32_t)in[9] >= -63 && (int32_t)in[9] <= 63 && in[19] <= 1 && in[20] <= 255 && in[30] <= 4096);
+      for (i = 11; i < 16; ++i) REQUIRE((int32_t)in[i] >= -15 && (int32_t)in[i] <= 15);
+      for (i = 16; i < 19; ++i) REQUIRE(in[i] <= 255);
+      for (i = 22; i < 30; i += 2) {
+        REQUIRE((int32_t)in[i] >= -127 && (int32_t)in[i] <= 127);
+        REQUIRE((int32_t)in[i+1] >= -63 && (int32_t)in[i+1] <= 63);
+      }
+      for (i = 31; i < 31+ps; ++i) REQUIRE(in[i] < 10);
+      for (at = 31+ps; at < n; at += 4) {
+        unsigned x = ((at-31-ps)/4)%mw, y = ((at-31-ps)/4)/mw;
+        REQUIRE(in[at] <= 1 && in[at+1] < 4 && in[at+2] <= 1 && in[at+3] < 4);
+        if (in[at]) REQUIRE(in[31+(4*y+1)*(4*mw+1)+4*x+1] < 4);
+      }
+      count = WebpopSyntax(in, out);
+    } else if (IS(VP8FixedImage)) {
+      REQUIRE(n == 3 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] <= 3);
+      REQUIRE(((in[0]+15)/16)*((in[1]+15)/16) <= 4096);
+      count = WebpopFixedImage(in, out);
+    } else if (IS(VP8LoopFrame)) {
+      unsigned pixels;
+      float quality;
+      REQUIRE(n >= 9 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
+      REQUIRE(in[0]*in[1] <= 200000 && in[3] >= 1 && in[3] <= 4 && in[4] <= 65536 && in[5] <= ((524288u-2048u)<<11));
+      memcpy(&quality,in+2,4); REQUIRE(quality >= 0 && quality <= 100);
+      REQUIRE(in[6] <= 1 && in[7] <= 1 && in[8] >= 4*in[0] && in[8] <= 4*in[0]+64);
+      pixels=in[6]?(in[1]-1)*in[8]+4*in[0]:in[0]*in[1]+2*((in[0]+1)/2)*((in[1]+1)/2);
+      REQUIRE(n == 9+pixels);
+      for(i=9;i<n;++i) REQUIRE(in[i] <= 255);
+      if(in[6]) { unsigned x,y; for(y=0;y<in[1];++y) for(x=0;x<in[0];++x) REQUIRE(in[9+y*in[8]+4*x+3] == 255); }
+      count=WebpopLoopFrame(in,out);
+    } else if (IS(VP8FrameSegments)) {
+      REQUIRE(n>=6 && in[0]>=1 && in[0]<=4 && in[1]>=1 && in[1]<=4096 && n==5+in[1]);
+      for(i=2;i<5;++i) REQUIRE(in[i]<=255);
+      for(i=5;i<n;++i) REQUIRE(in[i]<4);
+      count=WebpopFrameSegments(in,out);
+    } else if (IS(VP8AdjustFilter)) {
+      REQUIRE(n==15 && in[0]<=100 && in[1]<=7 && in[2]<=63);
+      for(i=3;i<15;i+=3) REQUIRE(in[i]<=2047 && in[i+1]<=65535 && in[i+2]<=63);
+      count=WebpopAdjustFilter(in,out);
     } else if (IS(VP8ModeSearch)) {
       REQUIRE(n == 720 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && in[634] <= 4 && in[635] <= 65536 && in[636] <= 4 && in[638] <= 0x7fffff);
       REQUIRE((int32_t)in[6] >= -15 && (int32_t)in[6] <= 15 && (int32_t)in[7] >= -15 && (int32_t)in[7] <= 15);

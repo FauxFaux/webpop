@@ -1,9 +1,14 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/frame_enc.c, probability-fitting foundations.
+// Derived from upstream/src/enc/frame_enc.c, default token loop and fitting.
 // See COPYING and PATENTS.
 #![allow(non_upper_case_globals)]
 
-use crate::enc::{cost_enc::*, tree_enc::*, vp8i_enc::*};
+use super::{
+    cost_enc::*, filter_enc::VP8AdjustFilterStrength, iterator_enc::*,
+    picture_enc::WebPYUVAPicture, quant_enc::*, token_enc::*, tree_enc::*, vp8i_enc::*,
+};
+use crate::{dsp::cost::SetResidualCoeffs_C, utils::bit_writer_utils::*};
+use std::collections::TryReserveError;
 
 pub const VP8Cat3: [u8; 3] = [173, 148, 140];
 pub const VP8Cat4: [u8; 4] = [176, 155, 140, 135];
@@ -66,4 +71,243 @@ pub fn FinalizeTokenProbas(proba: &mut VP8EncProba) -> i32 {
     }
     proba.dirty = has_changed;
     size
+}
+
+pub const PARTITION0_SIZE_LIMIT: u64 = ((1 << 19) - 2048) << 11;
+
+pub fn GetProba(a: u32, b: u32) -> u8 {
+    let total = u64::from(a) + u64::from(b);
+    if total == 0 {
+        255
+    } else {
+        ((255 * u64::from(a) + total / 2) / total) as u8
+    }
+}
+
+pub fn ResetSegments(enc: &mut VP8Encoder) {
+    for mb in &mut enc.mb_info {
+        mb.segment = 0;
+    }
+}
+
+pub fn SetSegmentProbas(enc: &mut VP8Encoder) {
+    let mut p = [0u32; 4];
+    for mb in &enc.mb_info {
+        p[usize::from(mb.segment)] += 1;
+    }
+    if enc.segment_hdr.num_segments > 1 {
+        enc.proba.segments = [
+            GetProba(p[0] + p[1], p[2] + p[3]),
+            GetProba(p[0], p[1]),
+            GetProba(p[2], p[3]),
+        ];
+        let probs = enc.proba.segments;
+        enc.segment_hdr.update_map = probs.iter().any(|&v| v != 255);
+        if !enc.segment_hdr.update_map {
+            ResetSegments(enc);
+        }
+        // A valid frame's segment cost fits in i32 (at most 2^20 blocks).
+        enc.segment_hdr.size = (0..4)
+            .map(|s| {
+                p[s] as i32
+                    * (VP8BitCost(i32::from(s >= 2), probs[0])
+                        + VP8BitCost((s & 1) as i32, probs[1 + s / 2]))
+            })
+            .sum();
+    } else {
+        enc.segment_hdr.update_map = false;
+        enc.segment_hdr.size = 0;
+    }
+}
+
+pub fn SetLoopParams(enc: &mut VP8Encoder, quality: f32) {
+    VP8SetSegmentParams(enc, quality.clamp(0., 100.));
+    SetSegmentProbas(enc);
+    ResetStats(&mut enc.proba);
+}
+
+pub fn RecordTokens(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &VP8ModeScore,
+    tokens: &mut VP8TBuffer,
+) -> Result<(), TryReserveError> {
+    VP8IteratorNzToBytes(it, enc);
+    let i16 = enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1;
+    if i16 {
+        let mut res = VP8InitResidual(0, 1);
+        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+        let nz = u8::from(VP8RecordCoeffTokens(
+            usize::from(it.top_nz[8] + it.left_nz[8]),
+            &res,
+            tokens,
+            &mut enc.proba,
+        )?);
+        it.top_nz[8] = nz;
+        it.left_nz[8] = nz;
+    }
+    for n in 0..16 {
+        let (x, y) = (n % 4, n / 4);
+        let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
+        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
+        let nz = u8::from(VP8RecordCoeffTokens(
+            usize::from(it.top_nz[x] + it.left_nz[y]),
+            &res,
+            tokens,
+            &mut enc.proba,
+        )?);
+        it.top_nz[x] = nz;
+        it.left_nz[y] = nz;
+    }
+    for n in 0..8 {
+        let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
+        let mut res = VP8InitResidual(0, 2);
+        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
+        let nz = u8::from(VP8RecordCoeffTokens(
+            usize::from(it.top_nz[x] + it.left_nz[y]),
+            &res,
+            tokens,
+            &mut enc.proba,
+        )?);
+        it.top_nz[x] = nz;
+        it.left_nz[y] = nz;
+    }
+    VP8IteratorBytesToNz(it, enc);
+    Ok(())
+}
+
+/// Observation points for subgraph comparisons. Borrowed state is read-only;
+/// normal encoding instantiates the driver with a no-op observer.
+pub enum VP8TokenLoopEvent<'a> {
+    PassStart {
+        pass: usize,
+    },
+    Refresh {
+        pass: usize,
+        index: usize,
+    },
+    Macroblock {
+        pass: usize,
+        index: usize,
+        score: &'a VP8ModeScore,
+        iterator: &'a VP8EncIterator,
+        tokens: &'a VP8TBuffer,
+    },
+    PassEnd {
+        pass: usize,
+        header_cost: u64,
+        distortion: u64,
+        retry: bool,
+    },
+    Emit {
+        tokens: &'a VP8TBuffer,
+    },
+}
+
+/// Method 4, one configured pass, no target search, skip syntax or autofilter.
+/// Header-budget retries remain part of this default path.
+pub fn VP8EncTokenLoop(
+    enc: &mut VP8Encoder,
+    pic: &WebPYUVAPicture,
+    quality: f32,
+) -> Result<VP8BitWriter, TryReserveError> {
+    VP8EncTokenLoopWithObserver(enc, pic, quality, PARTITION0_SIZE_LIMIT, |_, _| {})
+}
+
+/// A smaller header limit permits bounded synthetic retry checks without
+/// enormous input images. Normal encoding always uses PARTITION0_SIZE_LIMIT.
+#[doc(hidden)]
+pub fn VP8EncTokenLoopWithObserver(
+    enc: &mut VP8Encoder,
+    pic: &WebPYUVAPicture,
+    quality: f32,
+    header_limit: u64,
+    mut observe: impl FnMut(&VP8Encoder, VP8TokenLoopEvent<'_>),
+) -> Result<VP8BitWriter, TryReserveError> {
+    assert_eq!(enc.config.method, 4);
+    assert!(!enc.proba.use_skip_proba && quality.is_finite());
+    assert_eq!(
+        (enc.mb_w, enc.mb_h),
+        (
+            (pic.width as usize).div_ceil(16),
+            (pic.height as usize).div_ceil(16)
+        )
+    );
+    assert!(header_limit <= PARTITION0_SIZE_LIMIT && enc.max_i4_header_bits >= 0);
+    let max_count = (enc.mb_info.len() >> 3).max(96);
+    let scale = 1f32 + quality * 5. / 100.;
+    let mut tokens = VP8TBufferInit((enc.mb_info.len() as f32 * 4. * scale) as usize);
+    let mut it = VP8EncIterator::default();
+    let mut pass = 0;
+    loop {
+        VP8IteratorInit(enc, &mut it);
+        SetLoopParams(enc, quality);
+        ResetTokenStats(&mut enc.proba);
+        VP8TBufferClear(&mut tokens);
+        observe(enc, VP8TokenLoopEvent::PassStart { pass });
+        let mut count = max_count as i32;
+        let (mut header_cost, mut distortion) = (0u64, 0u64);
+        for index in 0..enc.mb_info.len() {
+            VP8IteratorImport(&mut it, enc, pic, false);
+            count -= 1;
+            if count < 0 {
+                FinalizeTokenProbas(&mut enc.proba);
+                VP8CalculateLevelCosts(&mut enc.proba);
+                observe(enc, VP8TokenLoopEvent::Refresh { pass, index });
+                count = max_count as i32;
+            }
+            let mut rd = VP8ModeScore::default();
+            VP8Decimate(&mut it, enc, &mut rd, VP8RDLevel::RD_OPT_BASIC);
+            RecordTokens(&mut it, enc, &rd, &mut tokens)?;
+            header_cost += rd.H as u64;
+            distortion += rd.D as u64;
+            observe(
+                enc,
+                VP8TokenLoopEvent::Macroblock {
+                    pass,
+                    index,
+                    score: &rd,
+                    iterator: &it,
+                    tokens: &tokens,
+                },
+            );
+            VP8IteratorSaveBoundary(&mut it, enc);
+            if !VP8IteratorNext(&mut it, enc) {
+                break;
+            }
+        }
+        header_cost += enc.segment_hdr.size as u64;
+        let retry = enc.max_i4_header_bits > 0 && header_cost > header_limit;
+        observe(
+            enc,
+            VP8TokenLoopEvent::PassEnd {
+                pass,
+                header_cost,
+                distortion,
+                retry,
+            },
+        );
+        if !retry {
+            break;
+        }
+        enc.max_i4_header_bits >>= 1;
+        pass += 1;
+    }
+    FinalizeTokenProbas(&mut enc.proba);
+    observe(enc, VP8TokenLoopEvent::Emit { tokens: &tokens });
+    const AVERAGE_BYTES_PER_MB: [usize; 8] = [50, 24, 16, 9, 7, 5, 3, 2];
+    let mut bw =
+        VP8BitWriterInit(enc.mb_info.len() * AVERAGE_BYTES_PER_MB[(enc.base_quant >> 4) as usize])?;
+    // The probability array is fixed-size; avoid a fallible heap copy.
+    let mut probabilities = [0; NUM_TYPES * NUM_BANDS * NUM_CTX * NUM_PROBAS];
+    for (dst, &p) in probabilities
+        .iter_mut()
+        .zip(enc.proba.coeffs.iter().flatten().flatten().flatten())
+    {
+        *dst = p;
+    }
+    VP8EmitTokens(&mut tokens, &mut bw, &probabilities, true)?;
+    VP8BitWriterFinish(&mut bw)?;
+    VP8AdjustFilterStrength(enc);
+    Ok(bw)
 }

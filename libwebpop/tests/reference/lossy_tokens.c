@@ -104,3 +104,27 @@ unsigned WebpopTokens(const uint32_t* in, uint32_t* out) {
   if (n > (1u << 20)) abort();
   return n;
 }
+
+// Compact frame-loop diagnostics; optional complete tokens for small subgraphs.
+unsigned WebpopLoopTokenWords(const VP8TBuffer* b, uint32_t* out, int full, unsigned capacity) {
+  const VP8Tokens* p = b->pages;
+  unsigned count = 0;
+  uint32_t hash = 2166136261u;
+  if (capacity < 2) abort();
+  while (p != NULL) {
+    int i = b->page_size;
+    const int last = p->next == NULL ? b->left : 0;
+    while (i-- > last) {
+      const uint32_t v = TOKEN_DATA(p)[i];
+      hash = (hash ^ v) * 16777619u;
+      if (full) {
+        if (2 + count >= capacity) abort();
+        out[2 + count] = v;
+      }
+      ++count;
+    }
+    p = p->next;
+  }
+  out[0] = count; out[1] = hash;
+  return 2 + (full ? count : 0);
+}

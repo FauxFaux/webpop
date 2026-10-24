@@ -499,3 +499,82 @@ pub fn VP8WriteProbas(bw: &mut VP8BitWriter, probas: &VP8EncProba) -> Result<(),
     }
     Ok(())
 }
+
+pub fn PutI4Mode(bw: &mut VP8BitWriter, mode: u8, prob: &[u8; 9]) -> Result<(), TryReserveError> {
+    assert!(mode < 10);
+    if VP8PutBit(bw, i32::from(mode != 0), prob[0])? != 0
+        && VP8PutBit(bw, i32::from(mode != 1), prob[1])? != 0
+        && VP8PutBit(bw, i32::from(mode != 2), prob[2])? != 0
+    {
+        if VP8PutBit(bw, i32::from(mode >= 6), prob[3])? == 0 {
+            if VP8PutBit(bw, i32::from(mode != 3), prob[4])? != 0 {
+                VP8PutBit(bw, i32::from(mode != 4), prob[5])?;
+            }
+        } else if VP8PutBit(bw, i32::from(mode != 6), prob[6])? != 0
+            && VP8PutBit(bw, i32::from(mode != 7), prob[7])? != 0
+        {
+            VP8PutBit(bw, i32::from(mode != 8), prob[8])?;
+        }
+    }
+    Ok(())
+}
+
+pub fn PutI16Mode(bw: &mut VP8BitWriter, mode: u8) -> Result<(), TryReserveError> {
+    assert!(mode < 4);
+    if VP8PutBit(bw, i32::from(mode == 1 || mode == 3), 156)? != 0 {
+        VP8PutBit(bw, i32::from(mode == 1), 128)?;
+    } else {
+        VP8PutBit(bw, i32::from(mode == 2), 163)?;
+    }
+    Ok(())
+}
+
+pub fn PutUVMode(bw: &mut VP8BitWriter, mode: u8) -> Result<(), TryReserveError> {
+    assert!(mode < 4);
+    if VP8PutBit(bw, i32::from(mode != 0), 142)? != 0
+        && VP8PutBit(bw, i32::from(mode != 2), 114)? != 0
+    {
+        VP8PutBit(bw, i32::from(mode != 3), 183)?;
+    }
+    Ok(())
+}
+
+pub fn PutSegment(bw: &mut VP8BitWriter, segment: u8, p: &[u8; 3]) -> Result<(), TryReserveError> {
+    assert!(segment < 4);
+    let high = VP8PutBit(bw, i32::from(segment >= 2), p[0])?;
+    VP8PutBit(bw, i32::from(segment & 1), p[1 + high as usize])?;
+    Ok(())
+}
+
+/// Serialize the stored raster modes. No reconstructed borders or coefficient
+/// contexts are needed here, so traversal can borrow the frame immutably.
+pub fn VP8CodeIntraModes(bw: &mut VP8BitWriter, enc: &VP8Encoder) -> Result<(), TryReserveError> {
+    for y in 0..enc.mb_h {
+        for x in 0..enc.mb_w {
+            let mb = &enc.mb_info[y * enc.mb_w + x];
+            let start = enc.preds_offset(x, y);
+            if enc.segment_hdr.update_map {
+                PutSegment(bw, mb.segment, &enc.proba.segments)?;
+            }
+            if enc.proba.use_skip_proba {
+                VP8PutBit(bw, i32::from(mb.skip), enc.proba.skip_proba)?;
+            }
+            if VP8PutBit(bw, i32::from(mb.r#type != 0), 145)? != 0 {
+                PutI16Mode(bw, enc.preds[start])?;
+            } else {
+                for row in 0..4 {
+                    let offset = start + row * enc.preds_w;
+                    let mut left = enc.preds[offset - 1];
+                    for col in 0..4 {
+                        let top = enc.preds[offset - enc.preds_w + col];
+                        let mode = enc.preds[offset + col];
+                        PutI4Mode(bw, mode, &kBModesProba[top as usize][left as usize])?;
+                        left = mode;
+                    }
+                }
+            }
+            PutUVMode(bw, mb.uv_mode)?;
+        }
+    }
+    Ok(())
+}

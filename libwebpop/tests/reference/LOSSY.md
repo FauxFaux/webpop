@@ -1291,3 +1291,208 @@ Validation passes: full workspace `cargo test --quiet` and
 with `native-oracle`, `cargo fmt --all -- --check`, the normal library-only build
 and `git diff --check`. Existing manual tests remain ignored; upstream remains
 clean at the recorded pin.
+
+## Milestone 6: partition-0 syntax and opaque containers
+
+`lossy_syntax.c` includes the pinned `syntax_enc.c` and `tree_enc.c` with
+external definitions renamed. Static leaves are called directly; the complete
+partition/container path calls the original syntax writer and normally linked
+mode/probability coding. Public encoder references continue using the normally
+built pinned library. No syntax or coefficient-coding algorithms are copied
+into the C adapters. Production Rust adds `enc/syntax_enc.rs` and the mode
+writers in `enc/tree_enc.rs`.
+
+The default single coefficient partition is supported. `GeneratePartition0`
+returns an owned finished boolean writer; `VP8EncWrite` takes stored encoder
+state, dimensions/profile and finalized token bytes and returns an owned opaque
+file. Mode serialization borrows the frame immutably and leaves reconstructed
+borders, coefficient contexts, diffusion errors and decisions intact. It does
+not need C's incidental iterator reset during serialization. Buffer allocation,
+19-bit partition-0 limits, dimensions, profiles and RIFF size arithmetic return
+explicit errors. Pinned C counts its final padding byte inside the VP8 chunk
+length; Rust preserves that convention. Multiple token partitions, alpha
+container extensions and the real token frame loop remain later work.
+
+New logical requests:
+
+- `VP8ModeSyntax`: `(kind, mode, top, left, segment_p0, segment_p1, segment_p2)`.
+  Kinds 0/1/2/3 write Intra4/Intra16/UV/segment syntax. Intra4 probabilities
+  come from the pinned `(top, left)` table. Returns pre-marker bit position
+  as low/high u32 words, then finished bytes including an 11-bit `0x5ad` marker.
+- `VP8Syntax`: a 31-word header, the full predictor grid including its top row
+  and left column, then four words per raster macroblock
+  `(type, uv_mode, skip, segment)`. Header fields are `(op, width, height,
+  profile, num_segments, update_map, simple_filter, filter_level, sharpness,
+  i4_filter_delta, base_quant)`, the five signed quantizer deltas, three segment
+  probabilities, `(use_skip_proba, skip_proba, coeff_seed)`, four interleaved
+  `(segment_quant, segment_filter)` pairs and `token_byte_count`. Signed fields
+  travel as i32 encoded in u32. Coefficient seed 0 retains defaults, 1 sets
+  zeros, 2 sets 255 and other values set `(slot * 37 + seed) & 255`.
+  Operations 0/1/2/3 write segment/filter/quant/mode syntax and return the
+  same position/marker trace as `VP8ModeSyntax`. Operation 4 returns finished
+  partition-0 bytes without a marker. Operation 5 returns the complete opaque
+  file with deterministic raw token bytes `(offset * 73 + 19) & 255`; these
+  synthetic token bytes exercise assembly and are not meant to decode.
+- `VP8FixedImage`: `(width, height, profile)` returns a complete opaque file.
+  Both adapters store Intra16 DC and UV DC modes with zero residuals, record
+  the Y2, sixteen Y and eight UV blocks through their existing token recorders,
+  emit tokens with default probabilities and call their syntax writer. Skip
+  flags are true but skip syntax is disabled, so all residual blocks are coded.
+  These files independently decode to RGBA `(130,130,130,255)` everywhere.
+  This test-only checkpoint does not implement a substitute public encoder.
+
+All 4,164 native requests match: 1,024 mode leaves (all 1,000 Intra4
+mode/top/left combinations, eight Intra16/UV leaves and sixteen segment leaves),
+3,096 header/raster/partition/container cases and 44 fixed-mode files. Fields
+include every base quantizer, every signed 4-bit quantizer delta, every signed
+6-bit filter delta and segment-filter value, and every signed 7-bit segment
+quantizer. Mixed header states cover coefficient updates, map/skip signaling,
+filter type/sharpness and nonzero/zero deltas, all mode contexts across partial
+and multiple macroblock rows, profiles and odd/even token payloads.
+
+Independent portable tests decode syntax trees, all headers and raster modes,
+check trailing sentinels for leaf streams, inspect frame tags, check both sides
+of the partition-0/RIFF limits without huge allocations, and verify repeated
+writes preserve frame scratch. The existing `image` decoder checks all 44
+fixed-mode files across eleven geometries and four profiles, including both
+16,383-pixel skinny limits. `fixtures/lossy_syntax.txt` retains 276 compact
+C requests/responses. Existing fixtures and the upstream pin are unchanged.
+
+Provenance reviewed before generating fixtures: clean upstream pin,
+GCC 15.2.0-16ubuntu1, CMake 4.2.3, Release `-O3 -DNDEBUG`, SIMD/threading off,
+Rust 1.101.0-nightly (`7189d39d9`, 2026-10-22), x86_64 Linux. Review
+`target/native-oracle/provenance.txt` before regeneration:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_syntax syntax_fixtures_match_pinned_reference
+cargo test -p libwebpop --features native-oracle --test lossy_syntax -- --nocapture
+```
+
+Milestone 6 is complete. The next checkpoint is the default token frame loop,
+segment/probability feedback, header-budget retries and final filter adjustment.
+Public lossy Rust entry points remain unimplemented.
+
+Validation passes: full workspace `cargo test` and
+`cargo test --features native-oracle`, all eight syntax tests in release with
+`native-oracle`, `cargo fmt --all -- --check`, the normal library-only build
+and `git diff --check`. Existing manual tests remain ignored; upstream remains
+clean at the recorded pin.
+
+## Milestone 7: default token frame loop and probability feedback
+
+`enc/frame_enc.rs` adds `GetProba`, `ResetSegments`, `SetSegmentProbas`,
+`SetLoopParams`, macroblock `RecordTokens` and the method-4 single-pass
+`VP8EncTokenLoop`. It returns an owned finished coefficient partition for the
+syntax writer. The default path has no skip syntax, target search, user-configured
+multiple passes, autofilter or picture export. Those optional branches remain
+deferred; required header-budget retries and periodic/final probability fitting
+are implemented. `enc/filter_enc.rs::VP8AdjustFilterStrength` adjusts each
+segment from its largest observed edge and sets the frame's maximum strength.
+
+The refresh countdown is decremented before testing `< 0`. With minimum count
+96, fitting happens before zero-based macroblocks 96, 193, 290, etc.; the
+interval is `max(96, macroblocks / 8) + 1`. A retry halves the Intra4 budget
+and reinitializes iterator borders, contexts, diffusion, quantizer matrices,
+max-edge statistics, tokens and token statistics. It preserves fitted
+coefficient probabilities, predictor decisions and persistent segment merges.
+The next `SetLoopParams` recomputes costs before token statistics are reset.
+Final fitting deliberately leaves the cost cache stale until another pass
+needs it, matching C. All-zero macroblocks still record their residual tokens.
+
+A read-only observer on the Rust driver supports subgraph comparisons. The
+normal entry point uses a no-op observer and the pinned partition-0 estimate
+limit, `(524288 - 2048) << 11`. Test calls can lower that limit to exercise
+retries with small inputs. `lossy_loop.c` includes the original `webp_enc.c`
+and `frame_enc.c`, renaming external definitions and wrapping only observation
+points. It uses the original encoder initializer and original token loop.
+For synthetic low-limit tests, the C adapter adds
+`pinned_limit - test_limit` to the first macroblock's header-cost estimate on
+each pass. This drives the original retry comparison without changing modes,
+coefficients, tokens or any loop algorithm. Traces report the unmodified real
+scores and estimates. Normal public C references receive no injection.
+
+New requests use the existing logical transport:
+
+- `VP8FrameSegments`: `(num_segments, macroblock_count, initial_p0, initial_p1,
+  initial_p2)`, then raster segment IDs. Returns `(update_map, map_cost)`, the
+  three resulting probabilities and all resulting IDs. Includes the rounded
+  all-255 case where one rare segment-1 block among 1,024 is remapped to zero.
+- `VP8AdjustFilter`: `(filter_strength, sharpness, initial_frame_level)`, then
+  four `(max_edge, y2_ac_quant, initial_segment_strength)` triples. Returns the
+  frame level and all four segment strengths. Includes disabled adjustment,
+  exact WHT division boundaries and saturation of the existing lookup table.
+- `VP8LoopFrame`: `(width, height, quality_f32_bits, num_segments,
+  max_i4_header_bits, partition0_estimate_limit, source, trace, rgba_stride)`,
+  followed by tightly packed Y/U/V planes for source 0 or opaque RGBA bytes
+  for source 1. The RGBA importer uses a padded positive stride with no final-row
+  padding and the C adapter starts at an unaligned byte. The normal public
+  simple API is compared separately, using the existing `WebPEncodeRGBA` request.
+  Trace 0 returns complete WebP bytes. Trace 1 adds events, final frame state,
+  final predictor grid/macroblock information, coefficient-partition bytes and
+  complete file bytes, with variable arrays prefixed by their length.
+
+Event tags are pass start (0), periodic refresh (1), macroblock after token
+recording and before boundary save (2), pass end (3), final fitting before token
+emission/disposal (4) and final filter state (5). Pass/refresh events include the
+pass/index and logical segment/header state, full coefficient probabilities and
+statistics, and a level-cost cache hash. Macroblock events include scores,
+coefficient/pixel hashes, selected modes/skip/segment, all outgoing nonzero
+contexts and diffusion errors. Emission includes token count/hash, plus every
+packed token for frames of at most 64 macroblocks. Larger traces use compact
+summaries alongside exact probabilities, partition bytes and complete files.
+C's uninitialized scratch/padding is excluded. Token inspection stays in
+`lossy_tokens.c`, which already has access to the pinned page layout.
+
+All 2,123 new native requests match: 1,057 segment/filter leaves, 410 composed
+YUVA frame-loop traces (including forced retries) and 328 opaque RGBA files,
+plus 328 separate requests to the normally linked public C encoder. The 328
+RGBA outputs match public C byte for byte and decode independently. Geometry
+includes partial/multiple macroblock rows and both 16,383-pixel skinny limits.
+Qualities include 0, 1, 30, 50, 75, 98, 98.5, 99 and 100. Boundary frames have
+95/96/97/98, 193/194/195, 767/768/775/776/783/784/792/800 macroblocks.
+The pinned C first-pass header cost for the mixed 17×19 case at quality 75 is
+20,912 units; tests and fixtures retain limits 20,911/20,912/20,913 to prove
+strict greater-than retry behavior. A forced 97-block retry retains nondefault
+probabilities from its periodic fit while clearing the other pass state.
+
+Portable checks independently round segment probabilities and walk their tree
+costs, verify monotonic filter adjustment, trace 219 probability refreshes and
+199 retries, and check a retained nondefault probability state on restart.
+Separate boolean context grids validate 301 macroblocks (137 I4, 48 skip flags),
+rebuild every packed token from independent coefficient syntax trees, check
+all adaptive statistics and independently decode 152,929 final token bits.
+Another 151 complete files decode with correct dimensions and opaque alpha.
+`fixtures/lossy_loop.txt` retains 31 C fixtures, including periodic boundaries,
+header-cost ties and retries before/after probability refresh. Existing fixture
+files and the upstream pin remain unchanged.
+
+The existing real-image sample, decoded through `image`, records these RGB
+PSNR/size baselines against its source. Rust and the pinned C encoder produce
+identical bytes (and therefore identical decoded color):
+
+| Color quality | File bytes | RGB PSNR |
+| --- | ---: | ---: |
+| 30 | 1,060 | 31.413 dB |
+| 75 | 2,074 | 35.732 dB |
+| 98.5 | 6,010 | 47.737 dB |
+| 100 | 6,150 | 48.265 dB |
+
+Provenance reviewed before fixture generation remains clean pin
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, SIMD/threading off, Rust 1.101.0-nightly
+(`7189d39d9`, 2026-10-22), x86_64 Linux. Review
+`target/native-oracle/provenance.txt` before regenerating:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_loop frame_loop_fixtures_match_pinned_reference
+cargo test -p libwebpop --features native-oracle --test lossy_loop -- --nocapture
+```
+
+Milestone 7 is complete. ALPH and shared public lossy integration are next;
+public lossy Rust APIs remain unimplemented.
+
+Validation passes: full workspace `cargo test` and
+`cargo test --features native-oracle`, all nine frame-loop tests in release
+with `native-oracle`, `cargo fmt --all -- --check`, the normal library-only
+build and `git diff --check`. Existing manual tests remain ignored and the
+upstream checkout remains clean at the recorded pin.

@@ -1,5 +1,5 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/filter_enc.c, initial filter strength lookup.
+// Derived from upstream/src/enc/filter_enc.c, deterministic filter strengths.
 // See COPYING and PATENTS.
 #![allow(non_upper_case_globals)]
 
@@ -49,4 +49,19 @@ const kLevelsFromDelta: [[u8; 64]; 8] = [
 pub fn VP8FilterStrengthFromDelta(sharpness: i32, delta: i32) -> i32 {
     assert!((0..=7).contains(&sharpness) && delta >= 0);
     i32::from(kLevelsFromDelta[sharpness as usize][delta.min(63) as usize])
+}
+
+/// Default deterministic adjustment. Autofilter's SSIM statistics are deferred.
+pub fn VP8AdjustFilterStrength(enc: &mut super::vp8i_enc::VP8Encoder) {
+    if enc.config.filter_strength > 0 {
+        let mut max_level = 0;
+        for s in &mut enc.dqm {
+            let delta = (s.max_edge * i32::from(s.y2.q[1])) >> 3;
+            s.fstrength = s
+                .fstrength
+                .max(VP8FilterStrengthFromDelta(enc.filter_hdr.sharpness, delta));
+            max_level = max_level.max(s.fstrength);
+        }
+        enc.filter_hdr.level = max_level;
+    }
 }

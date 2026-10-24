@@ -129,40 +129,8 @@ fn probability_fit_and_reset_match_wide_arithmetic() {
     }
 }
 
-// Construct expected token bits by walking the syntax, independently of the
-// recorder's control flow and without reading any packed-token output.
-fn expected_tokens(block: &[u32]) -> Vec<u16> {
-    let (first, ty, mut ctx) = (block[0] as usize, block[1] as usize, block[2] as usize);
-    let coeffs = &block[3..];
-    let last = coeffs.iter().rposition(|&v| v != 0);
-    let adaptive = |n: usize, context: usize, node: usize, bit: bool| {
-        ((u16::from(bit)) << 15) | (11 * (context + 3 * (VP8EncBands[n] + 8 * ty)) + node) as u16
-    };
-    let mut out = vec![adaptive(first, ctx, 0, last.is_some())];
-    if let Some(last) = last {
-        for (n, &word) in coeffs.iter().enumerate().take(last + 1).skip(first) {
-            let v = (word as i32).unsigned_abs() as usize;
-            out.push(adaptive(n, ctx, 1, v != 0));
-            if v == 0 {
-                ctx = 0;
-                continue;
-            }
-            for (node, bit, fixed) in cost::level_events(v) {
-                out.push(if let Some(p) = fixed {
-                    let bit = if p == 128 { (word as i32) < 0 } else { bit };
-                    (u16::from(bit) << 15) | 0x4000 | u16::from(p)
-                } else {
-                    adaptive(n, ctx, node, bit)
-                });
-            }
-            ctx = v.min(2);
-            if n < 15 {
-                out.push(adaptive(n + 1, ctx, 0, n < last));
-            }
-        }
-    }
-    out
-}
+use tokens::expected_tokens;
+
 fn record(stats: &mut u32, bit: bool) {
     let mut count = u64::from(*stats);
     if count >= 0xfffe0000 {
