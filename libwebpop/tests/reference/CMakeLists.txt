@@ -30,6 +30,7 @@ target_sources(webpop_oracle PRIVATE lossy_analysis.c)
 target_sources(webpop_oracle PRIVATE lossy_quant.c)
 target_sources(webpop_oracle PRIVATE lossy_syntax.c)
 target_sources(webpop_oracle PRIVATE lossy_loop.c)
+target_sources(webpop_oracle PRIVATE lossy_alpha.c)
 
 target_sources(webpop_oracle PRIVATE predictor.c)
 

@@ -38,6 +38,7 @@ unsigned WebpopModeSearch(const uint32_t*, uint32_t*);
 unsigned WebpopFlat(const uint32_t*, uint32_t*);
 unsigned WebpopModeCost(const uint32_t*, uint32_t*);
 unsigned WebpopScoreOps(const uint32_t*, uint32_t*);
+unsigned WebpopAlphaOps(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopLoopFrame(const uint32_t*, uint32_t*);
 unsigned WebpopFrameSegments(const uint32_t*, uint32_t*);
 unsigned WebpopAdjustFilter(const uint32_t*, uint32_t*);
@@ -488,13 +489,31 @@ int main(void) {
         for (i = 0; i < 256; i += 16) REQUIRE((int32_t)in[i] >= -2048 && (int32_t)in[i] <= 2047);
       }
       count = WebpopLossyWHT(in, inverse, out);
-    } else if (IS(WebPEncodeRGBA) || IS(WebPEncodeRGBAWithAlphaQuality)) {
+    } else if (IS(AlphaOps)) {
+      uint64_t len;
+      REQUIRE(n>=9 && in[0]<=9 && in[1]<=16383 && in[2]<=16383);
+      if(in[0]!=3) REQUIRE(in[1]>0 && in[2]>0);
+      REQUIRE(in[3]>=in[1] && in[3]<=in[1]+64);
+      len=in[2]?(uint64_t)(in[2]-1)*in[3]+in[1]:0;
+      REQUIRE(n==9+len && len+6<=LIMIT);
+      if(in[0]==0) REQUIRE(in[8]>=in[1] && in[8]<=in[1]+64 && (uint64_t)(in[2]-1)*in[8]+in[1]+5<=LIMIT);
+      if(in[0]==1) REQUIRE(in[4]<4);
+      if(in[0]==3) REQUIRE(in[4]<=257 && in[5]<=1 && in[6]<=1);
+      if(in[0]==2 || in[0]==3 || (in[0]>=5 && in[0]<=8)) REQUIRE(in[3]==in[1]);
+      if(in[0]==6) REQUIRE((uint64_t)in[1]*in[2]<=65536);
+      if(in[0]==5) REQUIRE((in[4]==0 || in[4]==5 || in[4]==6) && in[5]<=6);
+      if(in[0]==7) REQUIRE(in[4]<=1 && in[5]<4 && in[6]<=1);
+      if(in[0]==8 || in[0]==9) REQUIRE(in[5]<=6 && (in[6]==0 || in[6]==1 || in[6]==5 || in[6]==6));
+      if(in[0]==8) REQUIRE(in[4]<=1 && (in[5]==0 || in[5]==5 || in[5]==6) && in[6]<=1);
+      for(i=9;i<n;++i) REQUIRE(in[i]<=255);
+      count=WebpopAlphaOps(in,n,out);
+    } else if (IS(WebPEncodeRGBA) || IS(WebPEncodeRGBAWithAlphaQuality) || IS(VP8AlphaFile)) {
       const unsigned offset = IS(WebPEncodeRGBA) ? 4 : 5;
       REQUIRE(n >= offset && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
       REQUIRE(in[2] >= in[0] * 4 && in[2] <= INT32_MAX);
       REQUIRE((uint64_t)(in[1] - 1) * in[2] + in[0] * 4 == n - offset);
       for (i = offset; i < n; ++i) REQUIRE(in[i] <= 255);
-      count = WebpopLossyEncode(in, n, IS(WebPEncodeRGBAWithAlphaQuality), out);
+      count = WebpopLossyEncode(in, n, IS(WebPEncodeRGBAWithAlphaQuality) || IS(VP8AlphaFile), out);
     } else if (IS(AlphaQualityWrapperErrors)) {
       REQUIRE(n == 0);
       count = WebpopAlphaWrapperErrors(out);

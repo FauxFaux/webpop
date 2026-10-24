@@ -47,6 +47,8 @@ default rate-distortion mode selection and raster context propagation,
 partition-0 mode/header syntax, opaque VP8 containers and fixed-mode decodes,
 the default token frame loop, refresh/retry state, final filter adjustment
 and complete opaque files matching the normal public C encoder,
+alpha dispatch/filter/centroid leaves, q32/exact headerless streams, filter
+trials/raw fallback and composed transparent files matching the custom C API,
 boolean-writer state traces, residual costs/statistics, probability headers,
 paginated tokens and adaptive fitting,
 both lossy public C adapters, the copied alpha-quality wrapper, portable

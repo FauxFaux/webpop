@@ -113,6 +113,14 @@ pub fn PutVP8FrameHeader(
 /// Check lengths without allocating, including synthetic sizes near RIFF limits.
 /// Pinned libwebp includes the final padding byte in the VP8 chunk length.
 pub fn OpaqueWebPSizes(size0: usize, token_size: usize) -> Result<(u32, u32), VP8WriteError> {
+    WebPSizes(size0, token_size, None)
+}
+
+pub fn WebPSizes(
+    size0: usize,
+    token_size: usize,
+    alpha_size: Option<usize>,
+) -> Result<(u32, u32), VP8WriteError> {
     if size0 >= VP8_MAX_PARTITION0_SIZE {
         return Err(VP8WriteError::Partition0Overflow);
     }
@@ -121,8 +129,17 @@ pub fn OpaqueWebPSizes(size0: usize, token_size: usize) -> Result<(u32, u32), VP
         .and_then(|s| s.checked_add(token_size))
         .and_then(|s| s.checked_add(s & 1))
         .ok_or(VP8WriteError::FileTooBig)?;
+    let alpha_extra = match alpha_size {
+        Some(size) if size <= u32::MAX as usize => size
+            .checked_add(size & 1)
+            .and_then(|n| n.checked_add(18 + 8))
+            .ok_or(VP8WriteError::FileTooBig)?,
+        Some(_) => return Err(VP8WriteError::FileTooBig),
+        None => 0,
+    };
     let riff = vp8
         .checked_add(12)
+        .and_then(|n| n.checked_add(alpha_extra))
         .filter(|&s| s <= 0xffff_fffe)
         .ok_or(VP8WriteError::FileTooBig)?;
     Ok((vp8 as u32, riff as u32))
@@ -135,8 +152,19 @@ pub fn AssembleOpaqueWebP(
     partition0: &[u8],
     tokens: &[u8],
 ) -> Result<Vec<u8>, VP8WriteError> {
+    AssembleWebP(width, height, profile, partition0, tokens, None)
+}
+
+pub fn AssembleWebP(
+    width: u32,
+    height: u32,
+    profile: u8,
+    partition0: &[u8],
+    tokens: &[u8],
+    alpha: Option<&[u8]>,
+) -> Result<Vec<u8>, VP8WriteError> {
     let header = PutVP8FrameHeader(width, height, profile, partition0.len())?;
-    let (vp8, riff) = OpaqueWebPSizes(partition0.len(), tokens.len())?;
+    let (vp8, riff) = WebPSizes(partition0.len(), tokens.len(), alpha.map(<[u8]>::len))?;
     let total = (riff as usize)
         .checked_add(8)
         .ok_or(VP8WriteError::FileTooBig)?;
@@ -144,7 +172,21 @@ pub fn AssembleOpaqueWebP(
     out.try_reserve_exact(total)?;
     out.extend_from_slice(b"RIFF");
     out.extend_from_slice(&riff.to_le_bytes());
-    out.extend_from_slice(b"WEBPVP8 ");
+    out.extend_from_slice(b"WEBP");
+    if let Some(alpha) = alpha {
+        out.extend_from_slice(b"VP8X");
+        out.extend_from_slice(&10u32.to_le_bytes());
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&(width - 1).to_le_bytes()[..3]);
+        out.extend_from_slice(&(height - 1).to_le_bytes()[..3]);
+        out.extend_from_slice(b"ALPH");
+        out.extend_from_slice(&(alpha.len() as u32).to_le_bytes());
+        out.extend_from_slice(alpha);
+        if alpha.len() & 1 != 0 {
+            out.push(0);
+        }
+    }
+    out.extend_from_slice(b"VP8 ");
     out.extend_from_slice(&vp8.to_le_bytes());
     out.extend_from_slice(&header);
     out.extend_from_slice(partition0);
@@ -153,8 +195,7 @@ pub fn AssembleOpaqueWebP(
     Ok(out)
 }
 
-/// Internal opaque checkpoint. Mode decisions and finalized token bytes must
-/// already come from the caller; public encoding awaits the real frame loop.
+/// Internal opaque assembly from stored modes and finalized token bytes.
 pub fn VP8EncWrite(
     enc: &VP8Encoder,
     width: u32,
@@ -162,10 +203,21 @@ pub fn VP8EncWrite(
     profile: u8,
     tokens: &[u8],
 ) -> Result<Vec<u8>, VP8WriteError> {
+    VP8EncWriteWithAlpha(enc, width, height, profile, tokens, None)
+}
+
+pub fn VP8EncWriteWithAlpha(
+    enc: &VP8Encoder,
+    width: u32,
+    height: u32,
+    profile: u8,
+    tokens: &[u8],
+    alpha: Option<&[u8]>,
+) -> Result<Vec<u8>, VP8WriteError> {
     PutVP8FrameHeader(width, height, profile, 0)?;
     if (width as usize).div_ceil(16) != enc.mb_w || (height as usize).div_ceil(16) != enc.mb_h {
         return Err(VP8WriteError::InvalidFrame);
     }
     let bw = GeneratePartition0(enc)?;
-    AssembleOpaqueWebP(width, height, profile, VP8BitWriterBuf(&bw), tokens)
+    AssembleWebP(width, height, profile, VP8BitWriterBuf(&bw), tokens, alpha)
 }

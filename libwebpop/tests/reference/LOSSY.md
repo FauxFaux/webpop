@@ -1496,3 +1496,116 @@ Validation passes: full workspace `cargo test` and
 with `native-oracle`, `cargo fmt --all -- --check`, the normal library-only
 build and `git diff --check`. Existing manual tests remain ignored and the
 upstream checkout remains clean at the recorded pin.
+
+## Milestone 8: alpha planes, centroid quantization and ALPH
+
+The Rust alpha path now consists of `dsp/alpha_processing.rs`, encoder-only
+`dsp/filters.rs`, `utils/{filters_utils,quant_levels_utils}.rs` and
+`enc/alpha_enc.rs`. It dispatches alpha to green with A/R/B zero, retains scalar
+horizontal/vertical/clipped-gradient filtering and the sampled filter estimator,
+quantizes levels with fixed source extrema, and runs the existing headerless
+`VP8LEncodeStream` at method 4, quality 32, exact true. The implementation is
+synchronous and owns its buffers; Rust drops replace C worker cleanup/free
+operations. No decoder, SIMD, worker framework or new lossless encoder is added.
+
+`QuantizeLevels` retains six centroid iterations, lower-class midpoint ties,
+fixed minimum/maximum, the strict floating-point convergence criterion and
+rounding after the final class assignment. Its returned SSE truncates the
+floating-point centroid error before rounding representatives, which can differ
+from the final integer-plane SSE. For example, `[0,4,5,6,7,10]` at three levels
+becomes `[0,6,6,6,6,10]` with reported SSE 5, while integer-plane SSE is 6.
+Frequency sums/products are widened to avoid signed C aggregate overflow on
+large planes. Inputs with already-small palettes remain unchanged with SSE 0.
+
+Alpha quality below 100 maps to `2 + quality / 5` levels through quality 70,
+then `16 + (quality - 70) * 8`. The preprocessing bit is set whenever quality
+is below 100, including unchanged small palettes. C's scalar filter values are
+0/1/2/3; `LAST=4`, `BEST=5`, `FAST=6`. At default effort 4, FAST always includes
+NONE and may also try the estimator's candidate. The estimator uses occupied
+coarse-error bins, rather than their frequencies. Trial selection keeps the
+first strictly smallest payload. A compressed payload falls back to raw only
+when larger than the source, preserving compressed/raw equal-size ties and
+retaining the filter bits if a filtered trial falls back.
+
+`VP8EncStartAlpha` returns no payload for opaque pictures; otherwise it copies
+and optionally quantizes the alpha plane and returns owned ALPH bytes plus
+SSE. Color import/coding continues using original alpha, and quantization never
+changes the source picture. `syntax_enc.rs` adds checked extended RIFF assembly:
+`VP8X`, `ALPH` with its unpadded chunk size and optional zero padding, then VP8.
+The existing opaque assembly delegates to the same writer with no alpha.
+Partition-0, file/plane arithmetic and chunk lengths are checked before writing.
+The pinned convention of counting VP8's final padding inside its chunk size is
+preserved. Shared public lossy APIs/configuration remain milestone 9.
+
+`lossy_alpha.c` includes the original `alpha_enc.c`, renaming external lifecycle
+symbols. It directly invokes its static helpers, normally linked scalar DSP,
+`QuantizeLevels` and the existing stream encoder. No alpha algorithms are copied
+into the C wrapper. The logical `AlphaOps` request has a nine-word header
+`(op, width, height, stride, param0, param1, param2, reserved, dst_stride)`, then
+one word per source byte, excluding padding after the final row:
+
+| Op | Original function | Parameters and logical result |
+| --- | --- | --- |
+| 0 | `WebPDispatchAlphaToGreen` | Destination stride in header; returns the full guarded u32 buffer, initialized to `5aa5a55a` |
+| 1 | `WebPFilters` | param0 is scalar filter; returns bytes including preserved padding and five `a5` guard bytes |
+| 2 | `WebPEstimateBestFilter` | Returns the filter index; tightly packed input |
+| 3 | `QuantizeLevels` | param0 levels, param1 null-SSE flag, param2 null-data flag; returns success, SSE low/high and mutated input; SSE sentinel is `12345678` |
+| 4 | `GetNumColors` | Returns the distinct color count, ignoring stride padding |
+| 5 | `GetFilterMap` | param0 filter option, param1 effort; returns filter bitmap |
+| 6 | `EncodeLossless` | Returns finished headerless method-4/q32/exact VP8L bytes |
+| 7 | `EncodeAlphaInternal` | param0 compression, param1 scalar filter, param2 reduce-levels flag; returns control byte and trial payload |
+| 8 | `ApplyFiltersAndEncode` | param0 compression, param1 filter option, param2 reduce-levels flag; returns selected trial |
+| 9 | `EncodeAlpha` | param0 signed quality, param1 compression, param2 filter option; returns success, SSE low/high and final payload; accepts padded input stride |
+
+`VP8AlphaFile` uses the existing custom-alpha public request layout
+`(width, height, rgba_stride, color_quality_f32_bits, signed_alpha_quality)`, then
+RGBA bytes. C routes this request to the normally linked custom public wrapper;
+Rust composes its internal importer, cleanup, analysis, alpha job, token loop
+and extended syntax writer. No public Rust lossy entry point is exposed yet.
+
+All 8,614 native requests match, including 3,259 complete files. The corpus
+covers every alpha quality 0 through 100, quantizer levels 0 through 257
+(including rejection), both compression choices, all four scalar filters,
+NONE/BEST/FAST trials, 16/17 and 192/193-color thresholds, odd/padded/minimum
+planes, all four estimator choices, both skinny geometry limits and a real
+image with synthetic smooth alpha. The complete public-file subset covers
+alpha qualities 0/4/5/10/30/69/70/71/99/100 and color qualities
+0/1/30/50/75/98/98.5/99/100, opaque/zero/binary/smooth/noisy/two-level alpha and
+hidden RGB. All 3,259 files also decode independently: 1,098 raw and 1,620
+compressed ALPH chunks and 316,376 changed decoded alpha samples are observed.
+Quality 100 preserves original alpha everywhere. Lower qualities match C bytes
+and therefore the same decoder's smoothing semantics; they are not assumed to
+equal the unsmoothed centroid plane. Opaque output is independent of alpha quality.
+
+Independent portable checks invert every filter, exhaust all 256^3 gradient
+predictions, check untouched padding, centroid extrema/order/small palettes,
+explicit midpoint/SSE examples, input/configuration failures, chunk layout and
+synthetic RIFF size limits. They decode 87 headerless VP8L streams by adding
+only ordinary image/container headers, checking exact green and zero A/R/B.
+Trial checks invert 890 raw and 358 compressed payloads, retain 12 exact
+compressed/raw size ties, and verify earliest selection in 102 equal-size
+filter comparisons. Another 172 complete file decodes observe both raw and
+compressed ALPH and changed quantized alpha. `fixtures/lossy_alpha.txt` retains
+70 portable C fixtures, explicitly including centroid SSE rounding, compressed/
+raw ties, earliest filter ties and padded alpha extraction. Earlier fixtures
+and the source pin are unchanged.
+
+Provenance reviewed before generation: clean pin
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, SIMD/threading off, Rust 1.101.0-nightly
+(`7189d39d9`, 2026-10-22), x86_64 Linux. Review
+`target/native-oracle/provenance.txt` before regeneration:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test lossy_alpha alpha_fixtures_match_pinned_reference
+cargo test -p libwebpop --features native-oracle --test lossy_alpha -- --nocapture
+```
+
+Milestone 8 is complete. Shared public lossy configuration/picture routing and
+the public APIs are next.
+
+Validation passes: full workspace `cargo test` and
+`cargo test --features native-oracle`, all eleven alpha tests in release with
+`native-oracle`, the portable alpha suite, `cargo fmt --all -- --check`, the
+normal library-only build and `git diff --check`. Existing manual tests remain
+ignored; upstream remains clean at the recorded pin.

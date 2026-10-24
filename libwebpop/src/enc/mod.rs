@@ -1,3 +1,4 @@
+pub mod alpha_enc;
 pub mod analysis_enc;
 pub mod backward_references_cost_enc;
 pub mod backward_references_enc;
