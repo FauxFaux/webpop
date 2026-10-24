@@ -96,3 +96,100 @@ unsigned WebpopAnimationLeaves(const uint32_t* in, unsigned n, uint32_t* out) {
   }
   abort();
 }
+
+// Output-only mux oracle: use exactly the supplied still payloads. Raw pixels
+// are carried in the logical request solely for the Rust evaluator; C does not
+// encode them, so this comparison isolates the mux from codec differences.
+static void AnimationMuxData(const uint32_t* in, unsigned n, WebPData* result) {
+  unsigned at = 5, i, j, frames;
+  uint8_t* metadata[3] = {NULL, NULL, NULL};
+  const char* const tags[3] = {"ICCP", "EXIF", "XMP "};
+  WebPMuxAnimParams params;
+  WebPMux* mux = WebPMuxNew();
+  if (n < 6 || mux == NULL || in[4] > 7) abort();
+  if (WebPMuxSetCanvasSize(mux, in[0], in[1]) != WEBP_MUX_OK) abort();
+  params.bgcolor = in[2]; params.loop_count = in[3];
+  if (WebPMuxSetAnimationParams(mux, &params) != WEBP_MUX_OK) abort();
+  for (i = 0; i < 3; ++i) {
+    if (in[4] & (1u << i)) {
+      WebPData data;
+      unsigned len;
+      if (at >= n) abort();
+      len = in[at++];
+      if (len > n - at) abort();
+      // Retain a non-null byte pointer for present, empty metadata too.
+      metadata[i] = (uint8_t*)malloc(len ? len : 1);
+      if (!metadata[i]) abort();
+      for (j = 0; j < len; ++j) metadata[i][j] = in[at++];
+      data.bytes = metadata[i]; data.size = len;
+      if (WebPMuxSetChunk(mux, tags[i], &data, 0) != WEBP_MUX_OK) abort();
+    }
+  }
+  if (at >= n) abort();
+  frames = in[at++];
+  for (i = 0; i < frames; ++i) {
+    const uint32_t* f;
+    uint8_t* bytes;
+    WebPMuxFrameInfo info;
+    unsigned len;
+    if (n - at < 10) abort();
+    f = in + at; at += 10;
+    if (f[8] > n - at) abort();
+    at += f[8];  // Skip raw RGBA.
+    len = f[9];
+    if (len > n - at || f[7] > 3) abort();
+    bytes = (uint8_t*)malloc(len);
+    if (!bytes) abort();
+    for (j = 0; j < len; ++j) bytes[j] = in[at++];
+    memset(&info, 0, sizeof(info));
+    info.bitstream.bytes = bytes; info.bitstream.size = len;
+    info.id = WEBP_CHUNK_ANMF;
+    info.x_offset = f[4]; info.y_offset = f[5]; info.duration = f[6];
+    info.blend_method = (f[7] & 2) ? WEBP_MUX_NO_BLEND : WEBP_MUX_BLEND;
+    info.dispose_method = (f[7] & 1) ? WEBP_MUX_DISPOSE_BACKGROUND : WEBP_MUX_DISPOSE_NONE;
+    if (WebPMuxPushFrame(mux, &info, 1) != WEBP_MUX_OK) abort();
+    free(bytes);
+  }
+  if (at != n || WebPMuxAssemble(mux, result) != WEBP_MUX_OK) abort();
+  WebPMuxDelete(mux);
+  for (i = 0; i < 3; ++i) free(metadata[i]);
+}
+
+unsigned WebpopAnimationMux(const uint32_t* in, unsigned n, uint32_t* out) {
+  unsigned i;
+  WebPData result;
+  WebPDataInit(&result);
+  AnimationMuxData(in, n, &result);
+  if (result.size > (1u << 20)) abort();
+  for (i = 0; i < result.size; ++i) out[i] = result.bytes[i];
+  i = (unsigned)result.size;
+  WebPDataClear(&result);
+  return i;
+}
+
+// Reference-only completion gate. This invokes the original decode-dependent
+// OptimizeSingleFrame, not a Rust parity evaluator. Store before and after so
+// portable tests demonstrate exactly which branch remains unsupported.
+unsigned WebpopAnimationSingleFrame(const uint32_t* in, unsigned n, uint32_t* out) {
+  unsigned i, at = 0;
+  WebPAnimEncoderOptions options;
+  WebPAnimEncoder* enc;
+  WebPData result;
+  if (n < 6 || !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
+  enc = WebpopIncludedAnimNew(in[0], in[1], &options, WEBP_MUX_ABI_VERSION);
+  if (!enc || !WebPConfigInit(&enc->last_config)) abort();
+  enc->last_config.lossless = 1;
+  enc->last_config.quality = 70.f;
+  enc->last_config.method = 4;
+  enc->out_frame_count = 1;
+  AnimationMuxData(in, n, &result);
+  if (result.size > (1u << 19) - 1) abort();
+  out[at++] = result.size;
+  for (i = 0; i < result.size; ++i) out[at++] = result.bytes[i];
+  if (OptimizeSingleFrame(enc, &result) != WEBP_MUX_OK || result.size > (1u << 19) - 1) abort();
+  out[at++] = result.size;
+  for (i = 0; i < result.size; ++i) out[at++] = result.bytes[i];
+  WebPDataClear(&result);
+  WebpopIncludedAnimDelete(enc);
+  return at;
+}

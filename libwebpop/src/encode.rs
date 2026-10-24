@@ -103,13 +103,26 @@ pub fn encode_lossy_rgba(
     options: &LossyOptions,
     output: &mut Vec<u8>,
 ) -> Result<(), WebPEncodingError> {
+    encode_lossy_rgba_with(rgba, width, height, stride, options, |image| {
+        image.write_still(output)
+    })
+}
+
+pub(crate) fn encode_lossy_rgba_with<T>(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    options: &LossyOptions,
+    write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, WebPEncodingError>,
+) -> Result<T, WebPEncodingError> {
     let config = LossyConfig::new(options.quality, options.alpha_quality, 4)?;
     let mut picture = if options.use_sharp_yuv {
         import_rgba_to_yuva_sharp(rgba, width, height, stride)?
     } else {
         import_rgba_to_yuva(rgba, width, height, stride)?
     };
-    WebPEncodeLossy(&config, &mut picture, output)
+    WebPEncodeLossy(&config, &mut picture, write)
 }
 
 /// Encode positive-stride RGBA as a complete lossless still-image WebP using
@@ -229,6 +242,26 @@ pub fn encode_near_lossless_rgba(
     options: &LosslessOptions,
     output: &mut Vec<u8>,
 ) -> Result<(), LosslessEncodeError> {
+    encode_near_lossless_rgba_with(
+        rgba,
+        width,
+        height,
+        stride,
+        near_lossless,
+        options,
+        |image| image.write_still(output),
+    )
+}
+
+pub(crate) fn encode_near_lossless_rgba_with<T>(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    near_lossless: i32,
+    options: &LosslessOptions,
+    write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, WebPEncodingError>,
+) -> Result<T, WebPEncodingError> {
     if !(0..=100).contains(&near_lossless) {
         return Err(LosslessEncodeError::InvalidNearLosslessStrength);
     }
@@ -239,5 +272,5 @@ pub fn encode_near_lossless_rgba(
         near_lossless: near_lossless as u32,
     };
     let mut picture = WebPPictureImportRGBA(rgba, width, height, stride)?;
-    WebPEncode(&config, &mut picture, output)
+    WebPEncode(&config, &mut picture, write)
 }

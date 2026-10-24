@@ -85,8 +85,10 @@ skip helpers, with independently decoded coefficients and raster context checks.
 
 The [animation reference record](ANIMATION.md) adds pixel/rectangle and blend
 eligibility leaves from `anim_encode.c`, 81 portable fixtures and 80,287 live
-comparisons. The same scalar executable now also links pinned `libwebpmux`;
-container and optimized-animation file comparisons remain future work.
+comparisons. The same scalar executable also links pinned `libwebpmux` and
+checks 193 complete prepared-frame mux outputs, including 33 portable fixtures.
+A separate reference-only fixture records the decode-dependent single-frame
+optimization; optimized-animation Rust parity remains future work.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

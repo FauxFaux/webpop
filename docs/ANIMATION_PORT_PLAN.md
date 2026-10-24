@@ -1,8 +1,9 @@
 # Animation and multi-frame encoding plan
 
 Planned 2026-10-24 against pinned libwebp
-`1844042d1ca751e62e61df7617dba19c98588339`. Isolated pixel/rectangle leaves and
-their native oracle are implemented; container and sequence encoding remain open.
+`1844042d1ca751e62e61df7617dba19c98588339`. Isolated pixel/rectangle leaves,
+checked prepared-frame container assembly and their native oracles are
+implemented; the raw-frame sequence API and optimizer remain open.
 This expands the container/animation work in the
 [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building on the completed
 [lossless](LOSSLESS_PORT_PLAN.md), [near-lossless](NEAR_LOSSLESS_PORT_PLAN.md)
@@ -28,11 +29,41 @@ adjacent float values around quality thresholds. Independent checks exhaust
 [animation reference record](../libwebpop/tests/reference/ANIMATION.md) for
 protocol, provenance and validation commands/results.
 
-Codec writers, still options and lossy methods are unchanged. These leaves
-establish neither complete mux-byte nor optimized-animation parity. Subframe
-views, transparency/carryover mutation, candidate encoding, caching and both
-single-frame cleanup oracle paths remain open, including the decode-dependent
-completion gate below.
+The public prepared-frame layer now exposes `EncodedFrame`,
+`AnimationContainer`, `AnimationContainerOptions`, `BackgroundColor`,
+`ContainerFrameOptions`, `FrameBlend`, `FrameDispose` and `MuxError` from the
+crate root. `EncodedFrame` provides checked lossless, near-lossless and method-4
+lossy RGBA encoding, reusing `LosslessOptions`/`LossyOptions`, including alpha
+quality and SharpYUV. It captures typed codec output directly at the still-writer
+boundary; it does not parse RIFF input. Existing still options/defaults and
+output bytes are preserved.
+
+`muxinternal.rs`/`muxedit.rs` assemble RIFF/VP8X/ICCP/ANIM/ANMF/EXIF/XMP with
+checked canvas area, even frame origins, containment, duration, chunk and file
+sizes and fallible allocation before output mutation. Background has explicit
+RGBA channels and BGRA serialization. Metadata is owned supplied bytes;
+`None` omits a chunk and `Some(Vec::new())` writes a present empty chunk. The
+builder owns only encoded rectangles, so valid canvases larger than codec
+limits need no raw canvas allocation. Adds validate before mutation;
+`assemble(&self, &mut Vec<u8>)` is repeatable and preserves output on errors.
+This output-only builder accepts durations directly; the proposed stateful
+sequence API's timestamps, finish transitions and encoding policies remain open.
+A public rustdoc example demonstrates two prepared lossless frames.
+
+There are 33 committed mux fixtures and 193 live complete-byte comparisons to
+`WebPMux` supplied with exactly the same encoded payloads. Portable checks walk
+every chunk and nested ANMF, inspect all controls/flags/padding, compare payloads
+to the still writers, and exercise synthetic size bounds without large
+allocations. Full-canvas single-frame mux cleanup is covered with every codec,
+alpha and metadata. A separate reference-only fixture records the original
+`OptimizeSingleFrame` decoding a single subrectangle and replacing its 94-byte
+ANMF representation with a 44-byte full-canvas still. Rust reproduces the before
+representation; the recorded after result is independently decoded, outside
+the Rust parity corpus. Exact reconstruction remains an open completion gate.
+
+Subframe views, transparency/carryover mutation, candidate encoding and caching
+remain open. Prepared-frame `WebPMux` parity does not establish optimized
+`WebPAnimEncoder` parity or complete raw-frame sequence support.
 
 ## Scope and delivery order
 
@@ -232,19 +263,23 @@ Implement and test these output rules against the pinned sources:
   dispatcher/evaluator, and `tests/reference/ANIMATION.md` with pin, toolchain,
   protocol and fixture provenance. Wrap public mux/animation APIs and selected
   static helpers outside the submodule, following the existing include-source
-  wrapper convention without duplicate linked definitions.
+  wrapper convention without duplicate linked definitions. Leaves, output mux
+  and the reference-only decode-dependent single-frame path now have wrappers
+  and provenance; optimizer candidates/cache/keyframe protocols remain open.
 - [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
   default and explicit keyframe options, duration merging/splitting and both
   single-frame cleanup paths. Capture the decode-dependent case as an open
   completion requirement, not an ignored mismatch in a passing parity corpus.
+  Raw mux assembly and both single-frame paths are now recorded; optimized
+  candidates, keyframe options and duration merging/splitting remain open.
 
 ### 1. Container assembly and metadata
 
-- [ ] Factor typed codec payload output and port output-only mux assembly.
-- [ ] Add checked canvas/frame controls, global animation settings and metadata.
-- [ ] Compare complete bytes to `WebPMux` for identical prepared payloads;
+- [x] Factor typed codec payload output and port output-only mux assembly.
+- [x] Add checked canvas/frame controls, global animation settings and metadata.
+- [x] Compare complete bytes to `WebPMux` for identical prepared payloads;
   independently inspect every field, padding byte and calculated size.
-- [ ] Re-run still-image parity after factoring writers. This milestone also
+- [x] Re-run still-image parity after factoring writers. This milestone also
   supplies the completion plan's still-image metadata output foundation.
 
 ### 2. Usable raw-frame encoding

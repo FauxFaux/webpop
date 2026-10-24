@@ -9,7 +9,7 @@ use super::{
     frame_enc::VP8EncTokenLoop,
     picture_enc::{WebPPicture, WebPYUVAPicture},
     picture_tools_enc::{WebPCleanupTransparentArea, WebPReplaceTransparentPixels},
-    syntax_enc::VP8EncWriteWithAlpha,
+    syntax_enc::{GeneratePartition0, PutVP8FrameHeader},
     vp8i_enc::{VP8Encoder, VP8RDLevel},
     vp8l_enc::VP8LEncodeImage,
 };
@@ -30,26 +30,26 @@ pub(crate) fn MapConfigToTools(enc: &mut VP8Encoder) {
     enc.mb_header_limit = 256 * 510 * 8 * 1024 / (enc.mb_w * enc.mb_h) as i64;
 }
 
-pub(crate) fn WebPEncode(
+pub(crate) fn WebPEncode<T>(
     config: &EncoderConfig,
     picture: &mut WebPPicture,
-    output: &mut Vec<u8>,
-) -> Result<(), LosslessEncodeError> {
+    write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, LosslessEncodeError>,
+) -> Result<T, LosslessEncodeError> {
     WebPValidateConfig(&config.options)?;
     if !config.options.exact {
         WebPReplaceTransparentPixels(picture, 0);
     }
-    VP8LEncodeImage(config, picture, output)
+    VP8LEncodeImage(config, picture, write)
 }
 
 /// The default method-4 token path, with synchronous analysis/alpha jobs.
 /// Separate owned picture types make the required storage explicit: callers
 /// import ARGB for VP8L and YUVA for VP8 before entering either encoder.
-pub(crate) fn WebPEncodeLossy(
+pub(crate) fn WebPEncodeLossy<T>(
     config: &LossyConfig,
     picture: &mut WebPYUVAPicture,
-    output: &mut Vec<u8>,
-) -> Result<(), LosslessEncodeError> {
+    write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, LosslessEncodeError>,
+) -> Result<T, LosslessEncodeError> {
     WebPCleanupTransparentArea(picture);
     let mut enc = VP8Encoder::new_with_method(
         picture.width,
@@ -61,13 +61,14 @@ pub(crate) fn WebPEncodeLossy(
     VP8EncAnalyze(&mut enc, picture);
     let alpha = VP8EncStartAlpha(picture, config.alpha_quality)?;
     let tokens = VP8EncTokenLoop(&mut enc, picture, config.quality)?;
-    Ok(VP8EncWriteWithAlpha(
-        &enc,
-        picture.width,
-        picture.height,
-        0, // Default preset's complex filter uses VP8 profile 0.
-        VP8BitWriterBuf(&tokens),
-        alpha.as_ref().map(|a| a.data.as_slice()),
-        output,
-    )?)
+    PutVP8FrameHeader(picture.width, picture.height, 0, 0)?;
+    let partition0 = GeneratePartition0(&enc)?;
+    write(crate::mux::muxinternal::EncodedImage::Vp8 {
+        width: picture.width,
+        height: picture.height,
+        profile: 0, // Default preset's complex filter uses VP8 profile 0.
+        partition0: VP8BitWriterBuf(&partition0),
+        tokens: VP8BitWriterBuf(&tokens),
+        alpha: alpha.as_ref().map(|a| a.data.as_slice()),
+    })
 }

@@ -628,13 +628,15 @@ pub(crate) fn VP8LEncodeStreamWithNearLossless(
     EncodeStreamHook(&mut enc, bw)
 }
 
-/// Encode the owned ARGB picture as a complete still-image RIFF/WebP file.
-/// The caller-owned buffer replaces the upstream memory-writer callback.
-pub(crate) fn VP8LEncodeImage(
+/// Encode the owned ARGB picture and lend its finalized VP8L bits to the
+/// selected still/container writer before releasing the bit writer.
+pub(crate) fn VP8LEncodeImage<T>(
     config: &super::config_enc::EncoderConfig,
     picture: &super::picture_enc::WebPPicture,
-    output: &mut Vec<u8>,
-) -> Result<(), crate::webp::encode::LosslessEncodeError> {
+    write: impl FnOnce(
+        crate::mux::muxinternal::EncodedImage<'_>,
+    ) -> Result<T, crate::webp::encode::LosslessEncodeError>,
+) -> Result<T, crate::webp::encode::LosslessEncodeError> {
     use super::picture_csp_enc::{RgbaInputError, WebPPictureHasTransparency};
     use crate::utils::bit_writer_utils::VP8LBitWriterInit;
     let initial_size = picture
@@ -656,7 +658,8 @@ pub(crate) fn VP8LEncodeImage(
         config.near_lossless,
         config.options.exact,
     )?;
-    Ok(WriteImage(&mut bw, output)?)
+    let data = crate::utils::bit_writer_utils::VP8LBitWriterFinish(&mut bw)?;
+    write(crate::mux::muxinternal::EncodedImage::Vp8l { data })
 }
 
 /// Clamp a histogram/transform sampling size, respecting the auxiliary-image
@@ -1177,6 +1180,11 @@ pub fn WriteRiffHeader(webpll_size: usize) -> Result<[u8; 21], ImageWriteError> 
 /// contents unchanged. `output.len()` replaces C's coded_size out parameter.
 pub fn WriteImage(bw: &mut VP8LBitWriter, output: &mut Vec<u8>) -> Result<(), ImageWriteError> {
     let data = crate::utils::bit_writer_utils::VP8LBitWriterFinish(bw)?;
+    WriteImageData(data, output)
+}
+
+/// Assemble an already finalized VP8L bitstream (without the 0x2f signature).
+pub(crate) fn WriteImageData(data: &[u8], output: &mut Vec<u8>) -> Result<(), ImageWriteError> {
     let header = WriteRiffHeader(data.len())?;
     let padding = (data.len() + 1) & 1;
     let size = data

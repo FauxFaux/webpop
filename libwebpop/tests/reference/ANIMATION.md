@@ -1,4 +1,4 @@
-# Animation leaf reference record
+# Animation reference record
 
 Source pin: `1844042d1ca751e62e61df7617dba19c98588339`, unchanged and clean.
 Recorded 2026-10-24 on Ubuntu x86_64 with GCC 15.2.0-16ubuntu1, CMake 4.2.3,
@@ -71,9 +71,91 @@ cargo test --workspace
 cargo fmt --all -- --check
 ```
 
-Each native animation run passes six tests: 81 fixtures, 80,287 live comparisons
-and the four portable checks. No mux-assembly, candidate/cache, timing, or
-single-frame optimization fixtures exist yet. Both single-frame cleanup paths,
-especially decode-dependent reconstruction, remain explicit requirements in
-the [animation plan](../../../docs/ANIMATION_PORT_PLAN.md). Leaf parity alone
-does not establish valid animation output or `WebPAnimEncoder` parity.
+Each native leaf run passes six tests: 81 fixtures, 80,287 live comparisons
+and the four portable checks. The next section records mux assembly and both
+single-frame cleanup paths. Candidate/cache and optimized timing fixtures
+remain open in the [animation plan](../../../docs/ANIMATION_PORT_PLAN.md).
+Leaf and mux parity do not establish `WebPAnimEncoder` parity.
+
+## Prepared-frame mux assembly (milestone 1)
+
+The same pinned source, GCC 15.2.0-16ubuntu1 and CMake 4.2.3 configuration
+recorded above generated `fixtures/animation_mux.txt` (33 cases) and
+`fixtures/animation_single_frame.txt` (one reference-only completion gate).
+The checkout remains clean. Review `target/native-oracle/provenance.txt` before
+regeneration; no source, compiler, SIMD or threading setting changed.
+
+`AnimationMux` wraps public `WebPMuxSetCanvasSize`, `WebPMuxSetAnimationParams`,
+`WebPMuxSetChunk`, `WebPMuxPushFrame` and `WebPMuxAssemble`. The supplied still
+bitstreams come from Rust's existing still API; C does **not** encode the raw
+pixels carried in the request. Comparisons therefore use identical prepared
+codec payloads and isolate assembly from codec parity. Rust's evaluator rebuilds
+the opaque `EncodedFrame` using the same pixels/options and passes it to
+`AnimationContainer`. Independent portable checks compare its nested chunks to
+the original still chunks, using a checked RIFF walker rather than stripping a
+fixed header length.
+
+The word protocol is:
+
+- Header: canvas width, height, background as `0xAARRGGBB` (serialized BGRA),
+  loop count, metadata-presence mask (ICCP=1, EXIF=2, XMP=4).
+- For each present metadata item in ICCP/EXIF/XMP order: byte count, then one
+  word per byte. Present empty chunks retain a non-null borrowed pointer in C;
+  `copy_data=0` preserves their presence, and storage lives through assembly.
+- Frame count, followed by each frame: width, height, codec mode, byte stride,
+  x/y origins, duration, ANMF control bits (dispose=1, replace=2), RGBA byte
+  count, complete still-file byte count, RGBA bytes, still bytes.
+- Codec mode 0 uses default lossless; 1 default lossy; 2 lossy quality 42.5 and
+  alpha quality 50; 3 near-lossless strength 60 with default lossless effort;
+  4 lossy with SharpYUV. RGB and alpha qualities keep their existing meanings.
+- Output: one word per complete muxed file byte, without an extra length word.
+
+The 193 live cases include all five codec modes, opaque/transparent VP8L,
+VP8 and ALPH, all blend/dispose combinations, even nonzero origins, odd/skinny
+rectangles, final-row padding omission, both single-frame mux representations,
+metadata combinations and empty metadata, infinite/65535 loops, explicit BGRA,
+zero/maximum durations, a 32-frame repeated sequence with zero intervals, axes
+through `2^24`, offsets through `2^24-2`, and canvas area `2^32-1` without a raw
+canvas allocation. Every complete output matches pinned WebPMux.
+
+Portable tests independently inspect RIFF lengths, every VP8X flag/reserved
+byte, canvas, metadata order/bytes, ANIM channels/loop, every ANMF rectangle,
+duration and control bit, nested ALPH/VP8/VP8L payloads and zero padding. They
+also check input/options rejection, unchanged builder/output on validation
+failure, repeatable assembly, exact invisible RGB, and synthetic chunk/nested
+ANMF/file size limits without multi-gigabyte allocation.
+
+### Decode-dependent single-frame completion gate
+
+`AnimationSingleFrame` takes the same request as `AnimationMux` and returns
+`before byte count, before bytes, after byte count, after bytes`. It uses the
+original static `OptimizeSingleFrame` through the include-source wrapper,
+with lossless quality 70/method 4 and one output frame. The fixture contains an
+opaque 1x1 rectangle at (2,2) on a transparent 4x4 internal canvas. Mux assembly
+retains its 94-byte single-ANMF file; the optimizer decodes the rectangle,
+re-encodes the canvas and chooses a 44-byte VP8L still.
+
+This is **not** included in the Rust parity evaluator. The portable gate checks
+Rust reproduces only the before file, independently decodes the recorded after
+file with `image`, checks the changed pixel and transparent surrounding canvas,
+and verifies the size improvement/removed animation wrapper. The live fixture
+test compares both recorded C results. Exact production reconstruction remains
+unsupported; there is no ignored mismatch or claim of optimized parity.
+
+Regenerate only these two new fixture files after reviewing provenance:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_mux animation_mux_fixtures_match_pinned_reference -- --nocapture
+```
+
+Validation for this milestone:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation --test animation_mux -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test animation --test animation_mux -- --nocapture
+cargo test -p libwebpop --features native-oracle --test native_oracle public_rgba -- --nocapture
+cargo test -p libwebpop --features native-oracle --test lossy_public --test near_lossless_public --test sharpyuv_encoder -- --nocapture
+cargo test --workspace
+cargo fmt --all -- --check
+```

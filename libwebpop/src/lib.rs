@@ -41,3 +41,8 @@ pub use encode::{
 
 /// Error type returned by the upstream-named simple encoding API.
 pub type WebPEncodingError = LosslessEncodeError;
+
+pub use mux::{
+    AnimationContainer, AnimationContainerOptions, BackgroundColor, ContainerFrameOptions,
+    EncodedFrame, FrameBlend, FrameDispose, MuxError,
+};

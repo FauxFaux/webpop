@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod animation;
+pub mod animation_mux;
 pub mod clustering;
 pub mod cross_color;
 pub mod entropy_coding;
@@ -66,6 +67,7 @@ impl Case {
             "VP8DirectCoeffs" | "VP8DirectResiduals" | "VP8SkipProba" => vp8_direct::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),
+            "AnimationMux" => animation_mux::evaluate(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),
             "AlphaOps" | "VP8AlphaFile" => vp8_alpha::evaluate(self),

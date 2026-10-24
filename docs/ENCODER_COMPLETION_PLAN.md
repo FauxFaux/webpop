@@ -115,15 +115,19 @@ animation can ship using the current codecs before the advanced still-image
 work is complete; optimized lossy blending needs a filter-control integration.
 Isolated animation pixel comparisons, rectangle refinement/even snapping and
 blend-eligibility leaves now have portable fixtures and pinned C comparisons
-under `src/mux/`; container assembly and raw-frame encoding remain unimplemented.
+under `src/mux/`. Checked prepared-frame container assembly now matches pinned
+`WebPMux`; the stateful raw-frame sequence API and optimizer remain open.
 
-- [ ] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
-  chunk sizes/padding and RIFF limits. Current still-image VP8/VP8L and lossy
-  alpha containers are implemented; general metadata muxing is absent.
+- [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
+  chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared
+  VP8L or VP8/ALPH frames and supplied metadata; a single full-canvas frame
+  produces a still image with metadata. Existing still APIs are unchanged.
   Copying metadata out of input files is excluded from this plan.
-- [ ] Assemble animation containers from prepared encoded frames: canvas,
-  background/loop settings, timestamps/durations, frame rectangles, blending,
-  disposal, ANIM/ANMF chunks and validation.
+- [x] Assemble animation containers from prepared encoded frames: canvas,
+  background/loop settings, explicit durations, frame rectangles, blending,
+  disposal, ANIM/ANMF chunks and validation. There are 33 committed mux fixtures
+  and 193 live complete-byte comparisons to pinned `WebPMux`, plus independent
+  field/padding/size checks. Timestamp handling belongs to the sequence API.
 - [ ] Port animation encoding from raw frames (`WebPAnimEncoder`): changed-frame
   rectangles, keyframe/subframe selection, frame caching, minimize-size mode,
   keyframe interval controls, mixed lossy/lossless trials and final assembly.
