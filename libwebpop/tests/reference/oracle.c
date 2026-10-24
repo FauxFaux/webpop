@@ -22,6 +22,9 @@
 #if defined(WEBP_HAVE_SSE2) || defined(WEBP_HAVE_SSE41) || defined(WEBP_HAVE_AVX2) || defined(WEBP_HAVE_NEON) || defined(WEBP_USE_THREAD)
 #error "The native oracle must use the generated scalar, unthreaded configuration"
 #endif
+#if defined(DISABLE_TOKEN_BUFFER)
+#error "The native oracle must retain normal method-dependent token buffering"
+#endif
 
 #define LIMIT (1u << 20)
 #define REQUIRE(x) do { if (!(x)) { fprintf(stderr, "invalid request: %s\n", name); return 1; } } while (0)
@@ -44,6 +47,9 @@ unsigned WebpopModeCost(const uint32_t*, uint32_t*);
 unsigned WebpopScoreOps(const uint32_t*, uint32_t*);
 unsigned WebpopAlphaOps(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopLoopFrame(const uint32_t*, uint32_t*);
+unsigned WebpopMethodLoopFrame(const uint32_t*, uint32_t*);
+unsigned WebpopMethodTools(const uint32_t*, uint32_t*);
+unsigned WebpopLossyMethodEncode(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopFrameSegments(const uint32_t*, uint32_t*);
 unsigned WebpopAdjustFilter(const uint32_t*, uint32_t*);
 unsigned WebpopModeSyntax(const uint32_t*, uint32_t*);
@@ -163,6 +169,20 @@ int main(void) {
       } else {
         REQUIRE(WebpopSharpYuvLeaves(name, in, n, out, &count));
       }
+    } else if (IS(WebPEncodeLossyMethod)) {
+      uint64_t input_size;
+      REQUIRE(n>=7 && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383);
+      REQUIRE(in[2]>=4*in[0] && in[2]<=4*in[0]+64 && in[6]<=1);
+      input_size=(uint64_t)(in[1]-1)*in[2]+4*in[0];
+      REQUIRE(n==7+input_size);
+      for(i=7;i<n;++i) REQUIRE(in[i]<=255);
+      count=WebpopLossyMethodEncode(in,n,out);
+    } else if (IS(VP8MethodTools)) {
+      float quality;
+      REQUIRE(n==6 && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383);
+      memcpy(&quality,in+2,sizeof(quality));REQUIRE(quality>=0.f && quality<=100.f);
+      REQUIRE(in[3]<=6 && in[4]<=1 && in[5]<=3);
+      count=WebpopMethodTools(in,out);
     } else if (IS(WebPEncodeLossyOptions) || IS(YuvaSharpImport)) {
       const unsigned offset=IS(YuvaSharpImport)?4:7;
       uint64_t input_size,output_size;
@@ -217,18 +237,23 @@ int main(void) {
       REQUIRE(n == 3 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] <= 3);
       REQUIRE(((in[0]+15)/16)*((in[1]+15)/16) <= 4096);
       count = WebpopFixedImage(in, out);
-    } else if (IS(VP8LoopFrame)) {
+    } else if (IS(VP8LoopFrame) || IS(VP8MethodLoopFrame)) {
+      const unsigned offset=IS(VP8MethodLoopFrame)?1:0;
+      const uint32_t* frame=in+offset;
       unsigned pixels;
       float quality;
-      REQUIRE(n >= 9 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383);
-      REQUIRE(in[0]*in[1] <= 200000 && in[3] >= 1 && in[3] <= 4 && in[4] <= 65536 && in[5] <= ((524288u-2048u)<<11));
-      memcpy(&quality,in+2,4); REQUIRE(quality >= 0 && quality <= 100);
-      REQUIRE(in[6] <= 1 && in[7] <= 1 && in[8] >= 4*in[0] && in[8] <= 4*in[0]+64);
-      pixels=in[6]?(in[1]-1)*in[8]+4*in[0]:in[0]*in[1]+2*((in[0]+1)/2)*((in[1]+1)/2);
-      REQUIRE(n == 9+pixels);
-      for(i=9;i<n;++i) REQUIRE(in[i] <= 255);
-      if(in[6]) { unsigned x,y; for(y=0;y<in[1];++y) for(x=0;x<in[0];++x) REQUIRE(in[9+y*in[8]+4*x+3] == 255); }
-      count=WebpopLoopFrame(in,out);
+      REQUIRE(n >= offset+9 && frame[0] > 0 && frame[0] <= 16383 && frame[1] > 0 && frame[1] <= 16383);
+      REQUIRE(frame[0]*frame[1] <= 200000 && frame[3] >= 1 && frame[3] <= 4 && frame[4] <= 65536 && frame[5] <= ((524288u-2048u)<<11));
+      memcpy(&quality,frame+2,4); REQUIRE(quality >= 0 && quality <= 100);
+      REQUIRE(frame[6] <= 1 && frame[7] <= 1 && frame[8] >= 4*frame[0] && frame[8] <= 4*frame[0]+64);
+      pixels=frame[6]?(frame[1]-1)*frame[8]+4*frame[0]:frame[0]*frame[1]+2*((frame[0]+1)/2)*((frame[1]+1)/2);
+      REQUIRE(n == offset+9+pixels);
+      for(i=offset+9;i<n;++i) REQUIRE(in[i] <= 255);
+      if(frame[6]) { unsigned x,y; for(y=0;y<frame[1];++y) for(x=0;x<frame[0];++x) REQUIRE(frame[9+y*frame[8]+4*x+3] == 255); }
+      if(offset) {
+        REQUIRE(in[0]<=6 && frame[3]==4 && frame[4]==65536 && frame[5]==((524288u-2048u)<<11) && frame[7]==0);
+        count=WebpopMethodLoopFrame(in,out);
+      } else count=WebpopLoopFrame(in,out);
     } else if (IS(VP8FrameSegments)) {
       REQUIRE(n>=6 && in[0]>=1 && in[0]<=4 && in[1]>=1 && in[1]<=4096 && n==5+in[1]);
       for(i=2;i<5;++i) REQUIRE(in[i]<=255);

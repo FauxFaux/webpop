@@ -71,6 +71,12 @@ portable fixtures and timing/buffer baseline. It reuses this executable and
 transport. Generated scalar configuration headers take precedence over ignored
 headers from an in-source upstream build.
 
+The [remaining lossy methods record](LOSSY.md#remaining-lossy-methods-milestone-0)
+adds configurable C encoding for methods 0–6, setup/tool observations and compact
+direct/token loop traces. These reference-first fixtures independently decode;
+method-4 outputs also compare against the current Rust encoder. Other methods
+remain unimplemented in Rust until the subsequent port milestones land.
+
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been
 removed; its seven synthetic image cases now compare full public Rust output

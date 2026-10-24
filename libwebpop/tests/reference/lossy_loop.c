@@ -24,6 +24,13 @@ static uint64_t header_sum, distortion_sum;
 static uint64_t header_limit;
 static int imported, initialized;
 static VP8ModeScore last_score;
+// Compact method observations deliberately exclude uninitialized candidate
+// fields. Statistics/final scans may use different RD levels and visit counts.
+static int method_observing;
+static unsigned method_pass_count, method_refresh_count, method_emit_count;
+static struct {
+  unsigned level, visited, intra16, intra4, zero, trellis;
+} method_passes[32];
 static void ObserveInit(VP8Encoder*, VP8EncIterator*);
 static void ObserveImport(VP8EncIterator*, uint8_t*);
 static void ObserveCosts(VP8EncProba*);
@@ -71,6 +78,10 @@ static void State(const VP8Encoder* enc) {
 }
 static void ObserveInit(VP8Encoder* enc, VP8EncIterator* it) {
   VP8IteratorInit(enc,it);
+  if(method_observing) {
+    if(method_pass_count >= 32) abort();
+    memset(&method_passes[method_pass_count++],0,sizeof(method_passes[0]));
+  }
   if(initialized) ++loop_pass;
   initialized=1; imported=0; header_sum=distortion_sum=0;
 }
@@ -82,12 +93,22 @@ static VP8Encoder* observed_enc;
 static VP8EncIterator* observed_it;
 static void ObserveCosts(VP8EncProba* p) {
   VP8CalculateLevelCosts(p);
+  if(method_observing && imported) ++method_refresh_count;
   if(trace_enabled && imported) {
     Word(1); Word(loop_pass); Word(observed_it->x+observed_it->y*observed_enc->mb_w); State(observed_enc);
   }
 }
 static int ObserveDecimate(VP8EncIterator* it, VP8ModeScore* rd, VP8RDLevel level) {
   int result=VP8Decimate(it,rd,level);
+  if(method_observing) {
+    const unsigned pass=method_pass_count-1;
+    method_passes[pass].level=level;
+    ++method_passes[pass].visited;
+    method_passes[pass].intra16+=(it->mb->type==1);
+    method_passes[pass].intra4+=(it->mb->type==0);
+    method_passes[pass].zero+=result!=0;
+    method_passes[pass].trellis+=it->do_trellis!=0;
+  }
   imported=0; observed_it=it;
   last_score=*rd;
   header_sum+=rd->H; distortion_sum+=rd->D;
@@ -122,6 +143,7 @@ static void ObserveSave(VP8EncIterator* it) {
   }
 }
 static int ObserveEmit(VP8TBuffer* tokens, VP8BitWriter* bw, const uint8_t* probas, int final_pass) {
+  if(method_observing) ++method_emit_count;
   if(trace_enabled) {
     Word(4); State(observed_enc);
     trace_n+=WebpopLoopTokenWords(tokens,trace_out+trace_n,observed_enc->mb_w*observed_enc->mb_h<=64,(1u<<20)-trace_n);
@@ -129,12 +151,13 @@ static int ObserveEmit(VP8TBuffer* tokens, VP8BitWriter* bw, const uint8_t* prob
   return VP8EmitTokens(tokens,bw,probas,final_pass);
 }
 
-unsigned WebpopLoopFrame(const uint32_t* in,uint32_t* out) {
+static unsigned LoopFrame(const uint32_t* in,uint32_t* out,
+                          unsigned method,int compact) {
   WebPConfig config; WebPPicture pic; WebPMemoryWriter writer; VP8Encoder* enc;
   unsigned x,y,i,n,w=in[0],h=in[1],at=9;
   float quality; memcpy(&quality,in+2,4);
   if(!WebPConfigInit(&config)||!WebPPictureInit(&pic)) abort();
-  config.quality=quality; config.segments=in[3];
+  config.quality=quality; config.segments=in[3];config.method=method;
   pic.width=w; pic.height=h; pic.writer=WebPMemoryWrite;
   WebPMemoryWriterInit(&writer); pic.custom_ptr=&writer;
   if(in[6]) {
@@ -153,8 +176,27 @@ unsigned WebpopLoopFrame(const uint32_t* in,uint32_t* out) {
   enc->max_i4_header_bits=in[4];
   if(!VP8EncAnalyze(enc)) abort();
   trace_out=out; trace_n=loop_pass=0; initialized=imported=0; observed_enc=enc;
-  trace_enabled=in[7]; header_limit=in[5];
-  if(!WebpopObservedTokenLoop(enc)) abort();
+  trace_enabled=compact?0:in[7]; header_limit=in[5];
+  method_observing=compact;
+  method_pass_count=method_refresh_count=method_emit_count=0;
+  if(!(enc->use_tokens?WebpopObservedTokenLoop(enc):WebpopObservedEncLoop(enc))) abort();
+  method_observing=0;
+  if(compact) {
+    uint32_t hash=2166136261u;unsigned p,t,b,c;
+    Word(enc->method);Word(enc->rd_opt_level);Word(enc->use_tokens);Word(enc->num_parts);
+    Word(method_pass_count);
+    for(p=0;p<method_pass_count;++p) {
+      Word(method_passes[p].level);Word(method_passes[p].visited);
+      Word(method_passes[p].intra16);Word(method_passes[p].intra4);
+      Word(method_passes[p].zero);Word(method_passes[p].trellis);
+    }
+    Word(method_refresh_count);Word(method_emit_count);
+    Word(enc->proba.use_skip_proba);Word(enc->proba.skip_proba);Word(enc->proba.nb_skip);
+    for(t=0;t<4;++t) for(b=0;b<8;++b) for(c=0;c<3;++c) for(p=0;p<11;++p)
+      hash=(hash^enc->proba.coeffs[t][b][c][p])*16777619u;
+    Word(hash);Word(enc->filter_hdr.level);
+    Word(VP8BitWriterSize(&enc->parts[0]));
+  }
   if(trace_enabled) {
     Word(5); State(enc);
     n=enc->preds_w*(4*enc->mb_h+1); Word(n);
@@ -167,12 +209,37 @@ unsigned WebpopLoopFrame(const uint32_t* in,uint32_t* out) {
     for(i=0;i<VP8BitWriterSize(&enc->parts[0]);++i) Word(enc->parts[0].buf[i]);
   }
   if(!VP8EncWrite(enc)) abort();
-  if(trace_enabled) Word(writer.size);
+  if(trace_enabled || compact) Word(writer.size);
   for(i=0;i<writer.size;++i) Word(writer.mem[i]);
   n=trace_n;
   if(!DeleteVP8Encoder(enc)) abort();
   WebPPictureFree(&pic);WebPMemoryWriterClear(&writer);
   return n;
+}
+
+unsigned WebpopLoopFrame(const uint32_t* in,uint32_t* out) {
+  return LoopFrame(in,out,4,0);
+}
+
+unsigned WebpopMethodLoopFrame(const uint32_t* in,uint32_t* out) {
+  return LoopFrame(in+1,out,in[0],1);
+}
+
+unsigned WebpopMethodTools(const uint32_t* in,uint32_t* out) {
+  WebPConfig config;WebPPicture pic;VP8Encoder* enc;float quality;unsigned n=0;
+  memcpy(&quality,in+2,sizeof(quality));
+  if(!WebPConfigPreset(&config,WEBP_PRESET_DEFAULT,quality) || !WebPPictureInit(&pic)) abort();
+  config.method=in[3];config.low_memory=in[4];config.partitions=in[5];
+  if(!WebPValidateConfig(&config)) abort();
+  pic.width=in[0];pic.height=in[1];
+  enc=InitVP8Encoder(&config,&pic);if(!enc) abort();
+  out[n++]=enc->method;out[n++]=enc->rd_opt_level;
+  out[n++]=enc->use_tokens;out[n++]=enc->num_parts;out[n++]=enc->do_search;
+  out[n++]=enc->max_i4_header_bits;
+  out[n++]=(uint32_t)enc->mb_header_limit;out[n++]=(uint64_t)enc->mb_header_limit>>32;
+  out[n++]=enc->top_derr!=NULL;out[n++]=enc->profile;
+  if(!DeleteVP8Encoder(enc)) abort();
+  WebPPictureFree(&pic);return n;
 }
 
 unsigned WebpopFrameSegments(const uint32_t* in,uint32_t* out) {

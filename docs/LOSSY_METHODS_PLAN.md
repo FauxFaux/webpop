@@ -16,6 +16,11 @@ with token buffering enabled and SIMD/threading disabled, remains the exact
 oracle under a recorded toolchain. The older Wasm artifact is not the algorithm
 reference for these methods.
 
+Implementation started at `faefdbc` on 2026-10-24. That revision also adds the
+public `LossyOptions`/`encode_lossy_rgba` API and SharpYUV selection for method
+4. Extend that existing API with method selection and retain `use_sharp_yuv`;
+the initial audit below describes the earlier source snapshot.
+
 The target is complete-file RGBA encoding with caller-selected color quality,
 method and alpha quality, using the default preset's remaining settings:
 
@@ -52,7 +57,7 @@ needed. Preserve their behavior and reference fixtures.
 
 | Rust location | Existing behavior | Additional work |
 | --- | --- | --- |
-| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Private `LossyConfig` carries color/alpha quality; low-level `VP8EncoderConfig` has a method field | Checked public lossy options and propagation of the selected method through all jobs |
+| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` carries qualities; low-level `VP8EncoderConfig` has a method field | Add checked method selection to existing options and propagate it through all jobs |
 | [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Default encoder construction and unconditional method-4 token loop; all four `VP8RDLevel` variants already exist | Tool mapping, selected RD level and direct/token routing |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram-based luma/UV probes, segmentation and synchronous source-border traversal | `FastMBAnalyze` for methods 0/1; retain analysis when these methods need prediction initialization |
 | [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, candidate reconstruction, diffusion and basic RD searches | Distortion refinement, selected-mode requantization, trellis, and complete `VP8Decimate` dispatch |
@@ -112,13 +117,14 @@ Important details to preserve:
 
 ## Public API and configuration boundary
 
-Add a method-selecting API alongside the existing convenience functions:
+Extend the existing configurable API alongside the convenience functions:
 
 ```rust
 pub struct LossyOptions {
     pub quality: f32,
     pub method: u32,
     pub alpha_quality: i32,
+    pub use_sharp_yuv: bool,
 }
 
 pub fn encode_lossy_rgba(
@@ -128,8 +134,9 @@ pub fn encode_lossy_rgba(
 ) -> Result<(), WebPEncodingError>;
 ```
 
-Use defaults `quality=75.0`, `method=4`, `alpha_quality=100`, matching the
-default preset and current CLI. Export the options and function consistently
+Use defaults `quality=75.0`, `method=4`, `alpha_quality=100`, and
+`use_sharp_yuv=false`, matching the default preset and current CLI. Retain the
+existing options/function exports consistently
 from `encode` and the crate root. Keep `LosslessOptions` separate: lossy color
 quality is fractional fidelity, whereas its lossless field is integer effort.
 
@@ -210,12 +217,14 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-All milestones below are pending. Integrate callers after their dependencies
-pass, retaining the original plan's method-4 coverage at every stage.
+Milestone 0 is complete; milestones 1–8 remain pending. Integrate callers after
+their dependencies pass, retaining the original plan's method-4 coverage at
+every stage. Leaf-specific oracle requests are added before the corresponding
+Rust ports in subsequent milestones, using the reference foundation below.
 
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
-| 0 | Extend the existing oracle with configurable full files, tool mapping and new branch traces; record pre-change method-4 baseline | Existing oracle/pin | Portable C cases cover all methods; normal C library supplies complete-file reference bytes; wrapper/toolchain provenance recorded |
+| 0 (complete) | Extend the existing oracle with configurable full files, tool mapping and new branch traces; record pre-change method-4 baseline | Existing oracle/pin | 70 portable fixtures, 3,556 independently decoded C files, 672 tool mappings and 336 compact loop traces; method-4 Rust comparisons and wrapper/toolchain provenance recorded |
 | 1 | Validated internal method configuration, tool mapping and propagation; retain public method-4 entry points | 0 | All 7 method/RD/loop mappings match C; default bytes unchanged; unsupported values rejected |
 | 2 | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | Fast decisions, selected modes, reconstruction, levels, nonzero masks and mutated context/diffusion state match C for methods 0–2 |
 | 3 | Direct coefficient coding/statistics and skip-probability leaves | 0 | Exact residual bytes, boolean state, statistics, skip costs/thresholds and post-skip contexts; independent coefficient decoding |
@@ -226,6 +235,24 @@ pass, retaining the original plan's method-4 coverage at every stage.
 | 8 | Public `LossyOptions`/`encode_lossy_rgba`, CLI routing, full regression and baseline record | 4, 6, 7 | Checked API and CLI support methods 0–6; portable/live full-file parity, independent decode, validation and benchmark record pass |
 
 ### 0. Oracle and baseline
+
+Completed 2026-10-24. [`lossy_methods.rs`](../libwebpop/tests/lossy_methods.rs)
+and its shared evaluator/cases extend the existing scalar harness with
+`WebPEncodeLossyMethod`, `VP8MethodTools` and `VP8MethodLoopFrame`. Full files
+call the normally built C library; setup and compact loop observations reuse
+the included-source wrapper. The 70 committed fixtures cover every method,
+opaque and transparent files, tool mapping and both frame routes. Other methods
+are reference-only until their Rust ports land; method-4 files and loops compare
+exact Rust bytes. No new method is exposed publicly yet.
+
+The native sweep independently decodes 3,556 files, checks 672 setup mappings
+and 336 frame traces, and compares 14 observed opaque frame encodes with normal
+public C output. Each method reaches both macroblock families; each direct
+method reaches skip enabled and disabled. Counts cover method-0 partial probes,
+token refresh boundaries and post-decimation trellis flags. Candidate-level
+trellis invocation and new leaf traces remain with their port milestones.
+See the [reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-0)
+for layouts, provenance, method-4 baseline hashes and regeneration.
 
 Extend the existing word protocol, shared evaluators and wrappers documented in
 [`tests/reference/README.md`](../libwebpop/tests/reference/README.md) and
@@ -240,8 +267,9 @@ ordinary YUVA path and calls the normally built `WebPEncode`. Keep the copied
 custom alpha-quality wrapper unchanged for its existing method-4 provenance.
 Do not route full-file reference tests through instrumented replacement loops.
 
-Add logical requests for fast analysis, non-RD refinement, trellis, direct
-residual writing, skip fitting and direct frame traces. Version/extend layouts
+As the corresponding leaves are ported, add logical requests for fast analysis,
+non-RD refinement, trellis, direct residual writing and skip fitting, supplementing
+the compact direct/token frame observations. Version/extend layouts
 without reinterpreting old fixtures. Serialize f32 bits, signed values and
 wide scores using existing conventions, not pointers, padding or undefined C
 scratch fields. Some fast-path score/mode fields stay initialized or unused;
@@ -362,8 +390,9 @@ new methods publicly; opaque-only method support is incomplete.
 
 ### 8. Public and CLI integration
 
-Expose the checked API after the algorithms compose. Delegate both existing
-lossy convenience functions through it, with method 4. Connect
+Extend the checked API with method selection after the algorithms compose.
+Keep both existing lossy convenience functions delegated through it, with
+method 4, and preserve the SharpYUV option. Connect
 `cwebpop --lossy -m 0..6`, update help/errors and carry method through
 `EncoderOptions::Lossy`. Retain fractional `-q`, `--alpha_q`, files,
 stdin/stdout, `--noalpha`, and the current lossless default.

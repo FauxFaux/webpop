@@ -1686,3 +1686,109 @@ The [initial lossy baseline](../../../docs/benchmarks/2026-10-24-lossy.md) recor
 28 size/PSNR/time/process-memory observations with reproduction instructions.
 All scalar lossy milestones 0–9 are complete; deferred advanced configurations
 and performance work remain outside this scope.
+
+## Remaining lossy methods: milestone 0
+
+The [methods extension](../../../docs/LOSSY_METHODS_PLAN.md) starts from
+repository revision `faefdbc` on 2026-10-24. The upstream pin is unchanged and
+clean. The existing `LossyOptions`/`encode_lossy_rgba` and SharpYUV routing are
+preserved. This batch adds reference coverage before porting additional Rust
+algorithms; public Rust encoding still selects method 4.
+
+New requests share the existing u32-word transport:
+
+- `WebPEncodeLossyMethod`: `(width, height, byte_stride, quality_f32_bits,
+  alpha_quality_i32, method_i32, use_sharp_yuv)`, followed by RGBA bytes through
+  the minimum reachable last pixel (no final-row padding). Returns complete
+  file bytes, or an empty response for invalid quality/alpha/method settings.
+  `lossy_methods.c` uses `WebPConfigPreset(WEBP_PRESET_DEFAULT, quality)`, applies
+  those fields, validates config and calls the normally linked `WebPEncode`.
+  Ordinary conversion occurs during YUVA import; sharp conversion retains ARGB
+  until encoding. The input allocation begins at an unaligned offset and is
+  checked unchanged. The copied custom alpha-quality wrapper is unchanged.
+- `VP8MethodTools`: `(width, height, quality_f32_bits, method, low_memory,
+  partitions_log2)`. Returns `(method, RD_level, use_tokens, num_parts,
+  do_search, max_i4_header_bits, mb_header_limit_low, mb_header_limit_high,
+  has_diffusion_storage, profile)`. `lossy_loop.c` calls the original static
+  `InitVP8Encoder`/`MapConfigToTools`, then destroys the encoder. This request
+  inspects low-memory/partition routing only; it adds no public support for
+  those settings and emits no multi-partition files.
+- `VP8MethodLoopFrame`: selected method followed by the **unchanged**
+  `VP8LoopFrame` request. It requires default segments/header budgets and no
+  old-style detailed trace; planar YUV and opaque RGBA inputs are supported.
+  The included original frame loop is selected through `enc->use_tokens`.
+  No retry bias is injected. Returns `(method, RD_level, use_tokens, num_parts,
+  scan_count)`, then six words per scan: `(RD_level, visited_macroblocks,
+  Intra16_count, Intra4_count, zero_residual_count, do_trellis_count)`. The tail
+  is `(midframe_cost_refreshes, token_emissions, use_skip_proba, skip_proba,
+  nb_skip, coefficient_probability_hash, final_filter_level,
+  coefficient_partition_bytes, file_bytes)`, followed by the complete opaque
+  WebP file. The probability hash uses the existing FNV-1a word fold over
+  type/band/context/node order. `do_trellis_count` observes the flag **after
+  decimation**, so both method 5's final requantization and method 6's full
+  search count; candidate-level invocation traces belong to the trellis port.
+
+The compact observations avoid inspecting unused coefficient/mode fields from
+the non-RD route. Direct methods run statistics then final coding; method 0's
+probe may visit only part of the frame. Token methods retain one coding scan
+and no skip syntax. Existing detailed method-4 fixtures and request layouts
+remain unchanged. The oracle now rejects builds with `DISABLE_TOKEN_BUFFER`
+as well as SIMD/threading configuration macros.
+
+There are 70 portable fixtures in `fixtures/lossy_methods.txt`: 21 setup
+snapshots, 35 complete files and 14 compact loop traces. Portable tests validate
+their generated inputs, setup rules, visit/skip/trellis/refresh invariants,
+containers, independent decodes and exact source alpha at alpha quality 100.
+Method-4 files and frame outputs compare exact Rust bytes. Other methods are
+C reference artifacts until their ports are implemented, not Rust parity claims.
+
+Live validation adds:
+
+- 3,556 normal-library C files independently decoded, including all methods,
+  fractional color quality, alpha qualities 0/99/100, SharpYUV fallback and
+  active conversion, and the committed real-image sample. It observes 52,696
+  changed alpha samples, 1,393 raw and 1,568 compressed ALPH chunks.
+- 672 tool mappings over methods, quality/diffusion boundaries, skinny geometry,
+  low-memory selection and requested partition counts. Buffered paths force
+  one partition; direct setup retains the requested count.
+- 336 compact traces over both macroblock families for every method, skip on
+  and off for each direct method, method-0 probe boundaries at 49/50/51 and
+  199/200/201/204 macroblocks, and token refresh boundaries/interval growth.
+  Fourteen observed opaque RGBA encodes match the normally built public C
+  library, checking that instrumentation preserves output.
+- Invalid finite/non-finite color qualities, signed alpha qualities and method
+  extremes; standard-simple method-4 identity; opaque alpha-quality invariance.
+
+Pre-port method-4 fixture baselines (ordinary import; synthetic patterns from
+`support::lossy::image`, seed `6d2b79f5`):
+
+| Input | Color/alpha quality | Bytes | SHA-256 |
+| --- | --- | --- | --- |
+| 1×1 opaque ramp, pattern 0 | 75 / 100 | 44 | `1fbd6706e78d8b65bbfc2799c913b1f8cc303f56932305e05d5bfe5d3886316c` |
+| 3×5 binary alpha, pattern 2 | 98.5 / 100 | 172 | `72509043fa9064aac818376f2d68f4e85de9ad403f3ea8db0a55a745442894b6` |
+| 5×7 noisy RGBA, pattern 4 | 75 / 100 | 202 | `d8ee83d257f8f8d64228bc7c0ceb6e2214d22f2c04e401d12a3aa6dc613a6e93` |
+| 5×7 noisy RGBA, pattern 4 | 98.5 / 71 | 272 | `ec448deab1b93da8593357753897aedb66cbfbb5a6334c7233124a904d88d47a` |
+| 17×19 smooth alpha, pattern 3 | 100 / 0 | 590 | `ed202a8d66d2040666801e9143b5625f6024e510f1c8478f3b80e2f7f17b8768` |
+
+Source/toolchain review before generating new fixtures: clean pin
+`1844042d1ca751e62e61df7617dba19c98588339`, x86_64 Linux,
+GCC 15.2.0-16ubuntu1 (`/usr/bin/cc`), CMake 4.2.3, Release `-O3 -DNDEBUG`,
+SIMD/threading off, token buffering enabled, and Rust 1.101.0-nightly
+(`7189d39d9`, 2026-10-22). The normal harness retains full build commands and
+provenance in `target/native-oracle/`. No old fixtures, pin or upstream sources
+were changed. Regenerate only after reviewing provenance:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_methods method_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_methods
+cargo test -p libwebpop --features native-oracle --test lossy_methods -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test lossy_methods -- --nocapture
+```
+
+Validation passed: full workspace `cargo test`, full
+`cargo test --features native-oracle`, the new native suite in release,
+`cargo build -p libwebpop --lib`, `cargo fmt --all -- --check`, and
+`git diff --check`. All inherited method-4 fixture comparisons remain unchanged.
+The remaining-method algorithms and public method selection are subsequent
+milestones, not implemented by this reference batch.

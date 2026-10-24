@@ -5,6 +5,7 @@ pub mod clustering;
 pub mod cross_color;
 pub mod entropy_coding;
 pub mod lossy;
+pub mod lossy_methods;
 pub mod main_images;
 pub mod matches;
 pub mod palette;
