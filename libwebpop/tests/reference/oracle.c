@@ -19,6 +19,10 @@
 #include "src/utils/palette.h"
 #include "src/webp/encode.h"
 
+#if defined(WEBP_HAVE_SSE2) || defined(WEBP_HAVE_SSE41) || defined(WEBP_HAVE_AVX2) || defined(WEBP_HAVE_NEON) || defined(WEBP_USE_THREAD)
+#error "The native oracle must use the generated scalar, unthreaded configuration"
+#endif
+
 #define LIMIT (1u << 20)
 #define REQUIRE(x) do { if (!(x)) { fprintf(stderr, "invalid request: %s\n", name); return 1; } } while (0)
 #define IS(x) (strcmp(name, #x) == 0)
@@ -105,6 +109,9 @@ unsigned WebpopSegmentAlphas(const uint32_t*, uint32_t*);
 unsigned WebpopAssignSegments(const uint32_t*, uint32_t*);
 unsigned WebpopAnalysisProbe(const uint32_t*, uint32_t*);
 unsigned WebpopAnalysisFrame(const uint32_t*, uint32_t*);
+int WebpopSharpYuvLeaves(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
+int WebpopSharpYuvDsp(const uint32_t*, unsigned, uint32_t*, unsigned*);
+int WebpopSharpYuvPublic(const char*, const uint32_t*, unsigned, uint32_t*, unsigned*);
 
 static unsigned InspectWriter(const VP8LBitWriter* bw, uint32_t* out) {
   VP8LBitWriter copy;
@@ -147,7 +154,15 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(VP8SearchFrame)) {
+    if (!strncmp(name, "SharpYuv", 8)) {
+      if (IS(SharpYuvConvert) || IS(SharpYuvPublicInfo) || IS(SharpYuvTrace) || IS(SharpYuvImport) || IS(SharpYuvTimedConvert)) {
+        REQUIRE(WebpopSharpYuvPublic(name, in, n, out, &count));
+      } else if (IS(SharpYuvDsp)) {
+        REQUIRE(WebpopSharpYuvDsp(in, n, out, &count));
+      } else {
+        REQUIRE(WebpopSharpYuvLeaves(name, in, n, out, &count));
+      }
+    } else if (IS(VP8SearchFrame)) {
       uint64_t pixels, mbw, mbh, output_size; float quality;
       REQUIRE(n >= 5 && in[0]>=1 && in[0]<=16383 && in[1]>=1 && in[1]<=16383 && in[2]>=1 && in[2]<=4 && in[4]<=65536);
       memcpy(&quality,in+3,sizeof(quality));REQUIRE(quality>=0.f && quality<=100.f);

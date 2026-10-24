@@ -14,6 +14,7 @@
 
 pub mod dsp;
 pub mod enc;
+pub mod sharpyuv;
 pub mod utils;
 pub mod webp;
 

@@ -65,6 +65,12 @@ the public suites also cover checked geometry, layout, invalid settings,
 default/custom-100 identity and opaque invariance. This extends the same
 scalar backend and word protocol.
 
+The [SharpYUV reference record](SHARPYUV.md) documents the isolated scalar
+conversion module, its transfer/matrix/DSP/image wrappers, iteration snapshots,
+portable fixtures and timing/buffer baseline. It reuses this executable and
+transport. Generated scalar configuration headers take precedence over ignored
+headers from an in-source upstream build.
+
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been
 removed; its seven synthetic image cases now compare full public Rust output

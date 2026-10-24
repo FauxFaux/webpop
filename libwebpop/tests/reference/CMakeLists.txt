@@ -13,8 +13,18 @@ set(WEBP_NEAR_LOSSLESS ON CACHE BOOL "" FORCE)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 get_filename_component(UPSTREAM "${CMAKE_CURRENT_SOURCE_DIR}/../../../upstream" ABSOLUTE)
 add_subdirectory("${UPSTREAM}" upstream EXCLUDE_FROM_ALL)
+# Ignored headers from an in-source Autotools build may exist in upstream.
+# Its SharpYUV target puts the source include root first; prefer the CMake
+# configuration for every native target without modifying the pinned checkout.
+get_property(upstream_targets DIRECTORY "${UPSTREAM}" PROPERTY BUILDSYSTEM_TARGETS)
+foreach(target IN LISTS upstream_targets)
+  get_target_property(target_type ${target} TYPE)
+  if(NOT target_type STREQUAL "UTILITY" AND NOT target_type STREQUAL "INTERFACE_LIBRARY")
+    target_include_directories(${target} BEFORE PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/upstream")
+  endif()
+endforeach()
 add_executable(webpop_oracle oracle.c huffman.c references.c histogram.c)
-target_include_directories(webpop_oracle PRIVATE "${UPSTREAM}" "${CMAKE_CURRENT_BINARY_DIR}/upstream")
+target_include_directories(webpop_oracle PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/upstream" "${UPSTREAM}")
 target_compile_definitions(webpop_oracle PRIVATE HAVE_CONFIG_H)
 target_link_libraries(webpop_oracle PRIVATE webp)
 set_target_properties(webpop_oracle PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)
@@ -33,6 +43,7 @@ target_sources(webpop_oracle PRIVATE lossy_loop.c)
 target_sources(webpop_oracle PRIVATE lossy_alpha.c)
 
 target_sources(webpop_oracle PRIVATE predictor.c)
+target_sources(webpop_oracle PRIVATE sharpyuv.c sharpyuv_gamma.c sharpyuv_dsp.c sharpyuv_trace.c)
 
 # Explicit manual corpus target; normal logical-oracle tests do not build it.
 add_executable(webpop_near_lossless_file near_lossless_file.c near_lossless_wrapper.c)

@@ -12,6 +12,7 @@ pub mod parallel;
 pub mod predictors;
 pub mod public_images;
 pub mod references;
+pub mod sharpyuv;
 pub mod streams;
 pub mod token_streams;
 pub mod vp8_alpha;
@@ -53,6 +54,7 @@ impl Case {
     pub fn rust(&self) -> Vec<u32> {
         let a = &self.input;
         match self.function.as_str() {
+            name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),
             "AlphaOps" | "VP8AlphaFile" => vp8_alpha::evaluate(self),
             "VP8LoopFrame" | "VP8FrameSegments" | "VP8AdjustFilter" => vp8_loop::evaluate(self),
             "VP8ModeSyntax" | "VP8Syntax" | "VP8FixedImage" => vp8_syntax::evaluate(self),

@@ -32,20 +32,31 @@ current WebP defaults.
 
 ## Current repository and Rust boundary
 
-No SharpYUV Rust module is implemented yet. The existing scalar lossy encoder
-uses its own ordinary YUVA importer. Its gamma tables are not SharpYUV's tables.
-The [native oracle infrastructure](../libwebpop/tests/reference/README.md)
-provides the pin checks, CMake configuration, logical-value protocol and
-fixture/provenance conventions to reuse.
+**Milestones 0–4 are complete (2026-10-24).**
+[`libwebpop::sharpyuv`](../libwebpop/src/sharpyuv/mod.rs) implements all scalar
+conversion functions below, with its own types/errors and no encoder
+dependencies. The existing lossy encoder retains its ordinary YUVA importer;
+SharpYUV selection is subsequent integration work. The
+[reference record](../libwebpop/tests/reference/SHARPYUV.md) documents 153
+portable C fixtures, exact debug/release comparisons and the first scalar
+timing/buffer baseline.
 
-Create this layout when implementation begins; this document does not add
-a placeholder API:
+Acceptance includes 3,317 leaf requests (over 6.6 million gamma/inverse
+values), 976 DSP requests, 2,304 imported-row/iteration traces and 6,772 public
+requests. All three iteration exits are observed. Independent tests cover
+rounding, signed filtering, edge replication, layouts, clamping, alpha
+independence, errors and repeatable concurrent calls. Workspace and existing
+native encoder regressions pass. The oracle now prefers CMake's generated
+scalar configuration over ignored in-source Autotools headers and rejects
+SIMD/threading macros at compile time.
+
+Implemented layout:
 
 ```text
 libwebpop/
   src/sharpyuv/
     mod.rs                         # exports, safe views/results/errors
-    sharpyuv.rs                     # sharpyuv.c / sharpyuv.h
+    sharpyuv.rs                    # sharpyuv.c / sharpyuv.h
     sharpyuv_csp.rs                 # sharpyuv_csp.c / .h
     sharpyuv_gamma.rs               # sharpyuv_gamma.c / .h
     sharpyuv_dsp.rs                 # scalar sharpyuv_dsp.c / .h
@@ -132,17 +143,16 @@ SharpYuvGetConversionMatrix → five fixed matrices      sharpyuv_csp.c
 
 ## Implementation order and acceptance gates
 
-All milestones are pending. Five batches, including the test foundation, are
-sufficient; keep function-level comparisons inside each batch rather than
-creating a separate milestone for every helper.
+All five milestones are complete. The function-level order below records the
+port boundaries and acceptance requirements for future changes.
 
 | ID | Work | Depends on | Acceptance gate |
 | --- | --- | --- | --- |
-| 0 | Self-contained module, checked types/errors, existing oracle extension and initial fixtures | Existing pin/oracle conventions | Rust library build needs no C; portable fixtures and live C smoke requests agree |
-| 1 | Fixed-point leaves, matrices and gamma/transfer functions | 0 | Exact helper/table/transfer comparisons, independent rounding and boundary checks |
-| 2 | All scalar DSP kernels, including sRGB paths | 1 | Exact output/state comparisons; signed arithmetic, clipping, row boundaries and guards checked |
-| 3 | Row helpers, final matrix conversion and iterative image conversion | 2 | Exact intermediate planes and iteration traces, then complete Y/U/V output |
-| 4 | Public conversion/options/version functions and acceptance corpus | 3 | Exact public C parity across depths/transfers/layouts; validation, portable regressions and baseline recorded |
+| 0 (complete) | Self-contained module, checked types/errors, existing oracle extension and initial fixtures | Existing pin/oracle conventions | Rust library builds without C; 153 portable fixtures and live C checks |
+| 1 (complete) | Fixed-point leaves, matrices and gamma/transfer functions | 0 | 3,317 exact requests, full tables and over 6.6 million gamma/inverse samples; independent rounding/interpolation checks |
+| 2 (complete) | All scalar DSP kernels, including sRGB paths | 1 | 976 exact requests; signed arithmetic, clipping, row boundaries and guards checked |
+| 3 (complete) | Row helpers, final matrix conversion and iterative image conversion | 2 | 2,304 exact imported-row/iteration requests; all three loop exits observed |
+| 4 (complete) | Public conversion/options/version functions and acceptance corpus | 3 | 6,772 public requests, portable regressions, real/skinny images, validation and recorded scalar timing/buffer baseline |
 
 ### 0. Module and scalar reference
 
@@ -265,8 +275,8 @@ one-time gamma initialization and direct scalar calls. The only unported C
 functions should be the explicitly deferred CPU/SIMD implementations.
 
 Compare public output samples exactly across all 12 RGB/YUV depth pairs,
-all supported transfer enums, predefined and computed matrices appropriate
-to input depth, and representative valid custom matrices. Cover planar and
+all supported transfer enums, predefined and computed matrices for the
+requested conversion, and representative valid custom matrices. Cover planar and
 interleaved layouts, unrelated padding, minimum slices, unaligned u8 starts,
 RGBA alpha independence, saturated colors, deterministic random images and
 a recorded real-image sample. Require unchanged input, default/options
@@ -280,7 +290,7 @@ Do not require a WebP encoder/decoder or image-quality threshold to accept a
 sample-exact RGB-to-YUV port.
 
 Use `sharpyuv` in test names so focused runs cover the module. Run from the
-repository root once implementation begins:
+repository root:
 
 ```sh
 cargo build -p libwebpop --lib

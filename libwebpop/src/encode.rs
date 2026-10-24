@@ -18,6 +18,20 @@ use crate::enc::webp_enc::{WebPEncode, WebPEncodeLossy};
 /// Dimensions must be in 1..=16383 and stride at least width * 4. The buffer
 /// must contain (height - 1) * stride + width * 4 bytes; final-row padding is
 /// optional. Inputs are validated before allocation and never modified.
+///
+/// Upstream simple API (`upstream/doc/api.md`):
+/// ```c
+/// size_t WebPEncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
+///                       float quality_factor, uint8_t** output);
+/// ```
+/// Rust returns the encoded bytes in an owned vector:
+/// ```
+/// use libwebpop::WebPEncodeRGBA;
+///
+/// let rgba = [255, 0, 0, 255]; // One opaque red pixel; stride is in bytes.
+/// let webp = WebPEncodeRGBA(&rgba, 1, 1, 4, 75.0)?;
+/// # Ok::<(), libwebpop::WebPEncodingError>(())
+/// ```
 pub fn WebPEncodeRGBA(
     rgba: &[u8],
     width: u32,
@@ -51,6 +65,20 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
 /// the pinned libwebp simple API's defaults (quality 70, method 4, exact false).
 /// Dimensions must be in 1..=16383. Final-row padding is optional; the source
 /// is never modified. RGB beneath alpha zero may change.
+///
+/// Upstream lossless API (`upstream/doc/api.md`):
+/// ```c
+/// size_t WebPEncodeLosslessRGBA(const uint8_t* rgba, int width, int height,
+///                               int stride, uint8_t** output);
+/// ```
+/// Rust:
+/// ```
+/// use libwebpop::WebPEncodeLosslessRGBA;
+///
+/// let rgba = [255, 0, 0, 255];
+/// let webp = WebPEncodeLosslessRGBA(&rgba, 1, 1, 4)?;
+/// # Ok::<(), libwebpop::WebPEncodingError>(())
+/// ```
 pub fn WebPEncodeLosslessRGBA(
     rgba: &[u8],
     width: u32,
@@ -68,6 +96,18 @@ pub fn WebPEncodeLosslessRGBA(
 /// Uses the pinned encoder's entropy analysis and configuration trial loop.
 /// Default options match [`WebPEncodeLosslessRGBA`]; other options retain
 /// near_lossless=100, the default image hint and synchronous execution.
+///
+/// `upstream/doc/api.md` recommends `WebPEncode()` with
+/// `WebPConfig::exact = 1` to preserve RGB beneath fully transparent pixels.
+/// The equivalent Rust configuration is:
+/// ```
+/// use libwebpop::{LosslessOptions, encode_lossless_rgba};
+///
+/// let rgba = [255, 0, 0, 0]; // Preserve this invisible red pixel too.
+/// let options = LosslessOptions { exact: true, ..Default::default() };
+/// let webp = encode_lossless_rgba(&rgba, 1, 1, 4, &options)?;
+/// # Ok::<(), libwebpop::WebPEncodingError>(())
+/// ```
 pub fn encode_lossless_rgba(
     rgba: &[u8],
     width: u32,
