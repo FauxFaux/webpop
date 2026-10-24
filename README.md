@@ -22,6 +22,9 @@ As of lossless and near-lossless' completion:
  * Typically one concurrent agent, maybe up to 3.
  * Costs include research, debugging, profiling, test tools, computing costs, etc.
 
+Default lossy mode, and some of advanced lossy and animation, adds another $28.47,
+over three sessions.
+
 
 ### Accuracy
 
