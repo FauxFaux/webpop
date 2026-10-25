@@ -3,9 +3,15 @@ name = "cwebpop"
 version = "0.1.0"
 edition = "2024"
 
+description = "A cli for libwebpop, a port of libwebp"
+repository = "https://github.com/FauxFaux/webpop"
+categories = ["multimedia::encoding", "multimedia::images", "command-line-utilities"]
+
+license = "BSD-3-Clause"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-libwebpop = { path = "../libwebpop" }
+libwebpop = { path = "../libwebpop", version = "0.1.0" }
 
 [dependencies.image]
 version = "0.25.1"
