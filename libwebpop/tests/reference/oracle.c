@@ -39,6 +39,8 @@ unsigned WebpopExpandMatrix(const uint32_t*, uint32_t*);
 unsigned WebpopQuantSetup(const uint32_t*, uint32_t*);
 unsigned WebpopAnalysisQuant(const uint32_t*, uint32_t*);
 unsigned WebpopQuantizeSingle(const uint32_t*, uint32_t*);
+unsigned WebpopTrellisScore(const uint32_t*, uint32_t*);
+unsigned WebpopTrellisBlock(const uint32_t*, uint32_t*);
 unsigned WebpopDCError(const uint32_t*, uint32_t*);
 unsigned WebpopReconstruct(const uint32_t*, uint32_t*);
 unsigned WebpopFastAnalyze(const uint32_t*, uint32_t*);
@@ -318,6 +320,25 @@ int main(void) {
         }
       }
       count = WebpopScoreOps(in, out);
+    } else if (IS(VP8TrellisScore)) {
+      int64_t rate, distortion;
+      REQUIRE(n==5 && in[0]<=1000000);
+      rate=(int64_t)Read64(in+1); distortion=(int64_t)Read64(in+3);
+      REQUIRE(rate>=-((int64_t)1<<40) && rate<=((int64_t)1<<40));
+      REQUIRE(distortion>=-((int64_t)1<<40) && distortion<=((int64_t)1<<40));
+      count=WebpopTrellisScore(in,out);
+    } else if (IS(VP8TrellisBlock)) {
+      REQUIRE(n==380 && in[0]<4 && in[1]<3 && in[2]<=1000000 && in[3]<=1);
+      for(i=0;i<16;++i) {
+        const int32_t v=(int32_t)in[348+i];
+        REQUIRE(in[4+i]>=4 && in[4+i]<=440 && in[20+i]==131072/in[4+i]);
+        REQUIRE(in[68+i]<=512);
+        REQUIRE(v>=-32768 && v<=32767);
+        if(i!=0 || in[0]!=0) REQUIRE((v<0?-v:v)+(int32_t)in[68+i]<=8191);
+        REQUIRE((int32_t)in[364+i]>=-32768 && (int32_t)in[364+i]<=32767);
+      }
+      for(i=84;i<348;++i) REQUIRE(in[i]<=255);
+      count=WebpopTrellisBlock(in,out);
     } else if (IS(VP8QuantizeSingle)) {
       REQUIRE(n == 2 && in[0] >= 4 && in[0] <= 132 && (int32_t)in[1] >= -32768 && (int32_t)in[1] <= 32767);
       count = WebpopQuantizeSingle(in, out);

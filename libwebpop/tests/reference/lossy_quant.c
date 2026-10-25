@@ -1,5 +1,8 @@
 // Access pinned static helpers; normal VP8SetSegmentParams still comes from
 // the linked library. No quantization algorithms are copied into this wrapper.
+#include "src/enc/cost_enc.h"
+static int ObserveTrellisLevelCost(const uint16_t*, int);
+#define VP8LevelCost ObserveTrellisLevelCost
 #define VP8SetSegmentParams WebpopIncludedSetSegmentParams
 #define VP8MakeLuma16Preds WebpopQuantMakeLuma16Preds
 #define VP8MakeChroma8Preds WebpopQuantMakeChroma8Preds
@@ -8,8 +11,60 @@
 #define VP8UVModeOffsets WebpopQuantUVModeOffsets
 #define VP8Scan WebpopQuantScan
 #include "src/enc/quant_enc.c"
+#undef VP8LevelCost
 #undef VP8SetSegmentParams
 void VP8SetSegmentParams(VP8Encoder*, float);
+
+static const VP8Encoder* trellis_enc;
+static unsigned trellis_type, trellis_count;
+static uint32_t trellis_costs[64 * 4];
+static int ObserveTrellisLevelCost(const uint16_t* costs, int level) {
+  const int result = VP8LevelCost(costs, level);
+  if (trellis_enc) {
+    unsigned b, c, found = 0;
+    if (trellis_count >= 64) abort();
+    for (b=0;b<NUM_BANDS;++b) for(c=0;c<NUM_CTX;++c) {
+      if (costs == trellis_enc->proba.level_cost[trellis_type][b][c]) {
+        uint32_t* record = trellis_costs + 4 * trellis_count++;
+        record[0]=level; record[1]=b; record[2]=c; record[3]=result;
+        found=1;
+      }
+    }
+    if (!found) abort();
+  }
+  return result;
+}
+
+unsigned WebpopTrellisScore(const uint32_t* in, uint32_t* out) {
+  const int64_t rate = (int64_t)((uint64_t)in[1] | ((uint64_t)in[2]<<32));
+  const int64_t distortion = (int64_t)((uint64_t)in[3] | ((uint64_t)in[4]<<32));
+  const int64_t score = RDScoreTrellis(in[0], rate, distortion);
+  out[0]=(uint32_t)score; out[1]=(uint32_t)((uint64_t)score>>32);
+  return 2;
+}
+
+unsigned WebpopTrellisBlock(const uint32_t* in, uint32_t* out) {
+  VP8Encoder enc={0}; VP8Matrix m;
+  int16_t coeffs[16], levels[16]; unsigned i, at=4, n=0;
+  for(i=0;i<16;++i) m.q[i]=in[at++];
+  for(i=0;i<16;++i) m.iq[i]=in[at++];
+  for(i=0;i<16;++i) m.bias[i]=in[at++];
+  for(i=0;i<16;++i) m.zthresh[i]=in[at++];
+  for(i=0;i<16;++i) m.sharpen[i]=in[at++];
+  for(i=0;i<NUM_BANDS*NUM_CTX*NUM_PROBAS;++i)
+    ((uint8_t*)enc.proba.coeffs[in[0]])[i]=in[at++];
+  for(i=0;i<16;++i) coeffs[i]=(int16_t)in[at++];
+  for(i=0;i<16;++i) levels[i]=(int16_t)in[at++];
+  enc.proba.dirty=1; VP8CalculateLevelCosts(&enc.proba);
+  trellis_count=0; trellis_type=in[0]; trellis_enc=in[3]?&enc:NULL;
+  out[n++]=TrellisQuantizeBlock(&enc,coeffs,levels,in[1],in[0],&m,in[2]);
+  trellis_enc=NULL;
+  for(i=0;i<16;++i) out[n++]=(uint32_t)(int32_t)coeffs[i];
+  for(i=0;i<16;++i) out[n++]=(uint32_t)(int32_t)levels[i];
+  out[n++]=trellis_count;
+  memcpy(out+n,trellis_costs,4*trellis_count*sizeof(*out));
+  return n+4*trellis_count;
+}
 
 static unsigned Matrix(const VP8Matrix* m, uint32_t* out) {
   unsigned i, n = 0;

@@ -10,6 +10,182 @@ use crate::dsp::{dec::TransformWHT_C, enc::*};
 
 pub const kWeightY: [u16; 16] = [38, 32, 20, 9, 32, 28, 17, 7, 20, 17, 10, 4, 9, 7, 4, 2];
 
+// Pinned USE_TDISTO=1 weights, indexed in transform order.
+pub const kWeightTrellis: [u16; 16] = [30, 27, 19, 11, 27, 24, 17, 10, 19, 17, 12, 8, 11, 10, 8, 6];
+
+#[derive(Clone, Copy, Default)]
+struct Node {
+    prev: usize,
+    sign: bool,
+    level: i16,
+}
+
+#[derive(Clone, Copy)]
+struct ScoreState {
+    score: i64,
+    // An explicit position/context replaces the C pointer into remapped costs.
+    // Position 16 is a terminal sentinel and is never read as a predecessor.
+    cost_pos: usize,
+    ctx: usize,
+}
+
+#[inline]
+pub fn RDScoreTrellis(lambda: i32, rate: i64, distortion: i64) -> i64 {
+    rate * i64::from(lambda) + 256 * distortion
+}
+
+/// Quantize a transform block through the pin's two-candidate trellis. Levels
+/// are in zigzag order; dequantized coefficients retain transform order.
+/// Type 0 is Intra16 AC and preserves coefficient zero in both arrays.
+pub fn TrellisQuantizeBlock(
+    enc: &VP8Encoder,
+    input: &mut [i16; 16],
+    output: &mut [i16; 16],
+    ctx0: usize,
+    coeff_type: usize,
+    mtx: &VP8Matrix,
+    lambda: i32,
+) -> bool {
+    TrellisQuantizeBlockWithObserver(
+        enc,
+        input,
+        output,
+        ctx0,
+        coeff_type,
+        mtx,
+        lambda,
+        |_, _, _, _| {},
+    )
+}
+
+/// Observe each predecessor's level-cost lookup as (level, band, context, cost).
+/// Production encoding uses a no-op observer, with no allocations or trace state.
+#[doc(hidden)]
+pub fn TrellisQuantizeBlockWithObserver(
+    enc: &VP8Encoder,
+    input: &mut [i16; 16],
+    output: &mut [i16; 16],
+    ctx0: usize,
+    coeff_type: usize,
+    mtx: &VP8Matrix,
+    lambda: i32,
+    mut observe: impl FnMut(usize, usize, usize, i32),
+) -> bool {
+    assert!(ctx0 < NUM_CTX && coeff_type < NUM_TYPES && lambda >= 0);
+    let probas = &enc.proba.coeffs[coeff_type];
+    let first = usize::from(coeff_type == 0);
+    let threshold = i32::from(mtx.q[1]).pow(2) / 4;
+    // With no interesting coefficients C still visits the first position.
+    let last = (first..16)
+        .rev()
+        .find(|&n| i32::from(input[kZigzag[n]]).pow(2) > threshold)
+        .map_or(first, |n| (n + 1).min(15));
+    let last_proba = probas[crate::dsp::cost::VP8EncBands[first]][ctx0][0];
+    let mut best_score = RDScoreTrellis(lambda, i64::from(VP8BitCost(0, last_proba)), 0);
+    let source = ScoreState {
+        score: RDScoreTrellis(
+            lambda,
+            if ctx0 == 0 {
+                i64::from(VP8BitCost(1, last_proba))
+            } else {
+                0
+            },
+            0,
+        ),
+        cost_pos: first,
+        ctx: ctx0,
+    };
+    let mut ss_cur = [source; 2];
+    let mut ss_prev = [source; 2];
+    let mut nodes = [[Node::default(); 2]; 16];
+    let mut best_path = None;
+    for n in first..=last {
+        let j = kZigzag[n];
+        let q = i32::from(mtx.q[j]);
+        let iq = u32::from(mtx.iq[j]);
+        let sign = input[j] < 0;
+        let coeff0 = i32::from(input[j]).abs() + i32::from(mtx.sharpen[j]);
+        let level0 = QUANTDIV(coeff0 as u32, iq, BIAS(0)).min(MAX_LEVEL);
+        let thresh_level = QUANTDIV(coeff0 as u32, iq, BIAS(0x80)).min(MAX_LEVEL);
+        std::mem::swap(&mut ss_cur, &mut ss_prev);
+        for m in 0..2 {
+            let level = level0 + m as i32;
+            let ctx = level.min(2) as usize;
+            ss_cur[m].cost_pos = n + 1;
+            ss_cur[m].ctx = ctx;
+            if level > thresh_level {
+                ss_cur[m].score = MAX_COST;
+                continue;
+            }
+            // Widen before squaring/subtraction. This preserves every defined
+            // C input while avoiding signed intermediate overflow in Rust.
+            let new_error = i64::from(coeff0 - level * q);
+            let coeff0 = i64::from(coeff0);
+            let delta_error =
+                i64::from(kWeightTrellis[j]) * (new_error * new_error - coeff0 * coeff0);
+            let base_score = RDScoreTrellis(lambda, 0, delta_error);
+            let mut level_cost = |state: ScoreState| {
+                let cost = VP8LevelCost(
+                    enc.proba
+                        .remapped_costs(coeff_type, state.cost_pos, state.ctx),
+                    level as usize,
+                );
+                observe(
+                    level as usize,
+                    crate::dsp::cost::VP8EncBands[state.cost_pos],
+                    state.ctx,
+                    cost,
+                );
+                i64::from(cost)
+            };
+            let mut best_cur_score =
+                ss_prev[0].score + RDScoreTrellis(lambda, level_cost(ss_prev[0]), 0);
+            let mut best_prev = 0;
+            for p in 1..2 {
+                let score = ss_prev[p].score + RDScoreTrellis(lambda, level_cost(ss_prev[p]), 0);
+                if score < best_cur_score {
+                    best_cur_score = score;
+                    best_prev = p;
+                }
+            }
+            best_cur_score += base_score;
+            nodes[n][m] = Node {
+                prev: best_prev,
+                sign,
+                level: level as i16,
+            };
+            ss_cur[m].score = best_cur_score;
+            if level != 0 && best_cur_score < best_score {
+                let last_pos_cost = if n < 15 {
+                    VP8BitCost(0, probas[crate::dsp::cost::VP8EncBands[n + 1]][ctx][0])
+                } else {
+                    0
+                };
+                let score = best_cur_score + RDScoreTrellis(lambda, i64::from(last_pos_cost), 0);
+                if score < best_score {
+                    best_score = score;
+                    best_path = Some((n, m, best_prev));
+                }
+            }
+        }
+    }
+    input[first..].fill(0);
+    output[first..].fill(0);
+    let Some((last, mut best_node, best_prev)) = best_path else {
+        return false;
+    };
+    nodes[last][best_node].prev = best_prev;
+    let mut nz = 0;
+    for n in (first..=last).rev() {
+        let node = nodes[n][best_node];
+        output[n] = if node.sign { -node.level } else { node.level };
+        nz |= node.level;
+        input[kZigzag[n]] = (i32::from(output[n]) * i32::from(mtx.q[kZigzag[n]])) as i16;
+        best_node = node.prev;
+    }
+    nz != 0
+}
+
 pub fn InitScore(rd: &mut VP8ModeScore) {
     rd.D = 0;
     rd.SD = 0;

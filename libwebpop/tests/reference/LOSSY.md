@@ -2085,3 +2085,109 @@ scan checks observed 10,255 statistics macroblocks, 13,059 coded macroblocks,
 93 omitted blocks, 3,016 I4 decisions, 20 retries and 159 row transitions.
 All inherited method-4, lossless, near-lossless, alpha, animation and SharpYUV
 fixtures remain byte-identical. The upstream checkout is unchanged and clean.
+
+## Remaining lossy methods: milestone 5
+
+Completed 2026-10-25 from `936db43`. Rust ports `kWeightTrellis`, `Node`,
+`ScoreState`, inline `RDScoreTrellis` and standalone `TrellisQuantizeBlock` in
+`quant_enc.rs`. Fixed arrays and explicit coefficient-position/context indices
+replace C's cost pointers; the terminal position-16 sentinel is never read.
+The port preserves the pin's neutral-bias candidates, nearest-level ceiling,
+2,047 cap, sharpening, raw-coefficient pruning, strict predecessor/EOB/skip
+ties, sign choice, and zigzag/transform traceback. Intra16 AC preserves both
+coefficient-zero inputs. Signed distortion arithmetic is widened before
+squaring; it agrees with all defined C inputs tested here.
+
+Reconstruction still rejects trellis and token dispatch remains methods 3/4.
+`SimpleQuantize`, candidate-level trellis and composed methods 5/6 are milestone
+6. UV and WHT/DC reconstruction remain scalar: standalone leaf requests for
+all four types do not enable trellis at those call sites.
+
+New requests extend the existing word transport without changing old layouts:
+
+- `VP8TrellisScore`: `(lambda, rate_low, rate_high, distortion_low,
+  distortion_high)`. Returns signed score low/high. Lambda is 0–1,000,000;
+  signed rate/distortion are bounded by +/-2^40 so all C products/sums fit i64.
+- `VP8TrellisBlock`: 380 input words: `(coefficient_type, context, lambda,
+  trace_enabled)`, the existing 80-word matrix layout (`q[16]`, `iq[16]`,
+  `bias[16]`, `zthresh[16]`, `sharpen[16]`), 264 probabilities for the selected
+  type in band/context/node order, 16 signed transform coefficients and 16
+  seeded signed zigzag levels. Type is 0–3, context 0–2, lambda 0–1,000,000 and
+  trace flag 0/1. Returns nonzero boolean, 16 dequantized transform coefficients,
+  16 zigzag levels, trace-record count and four words per record
+  `(level, band, context, level_cost)`. There are at most 64 records: two
+  predecessors for each live candidate at each position. Records follow the
+  original candidate/predecessor traversal order, including dead predecessors;
+  dead candidates do not make lookups. Trace disabled returns count zero.
+
+The adapter in `lossy_quant.c` calls the original static trellis function.
+A renamed `VP8LevelCost` call-through records its pointer's logical band/context
+and actual cost, then returns the unmodified result. Other included-source
+requests leave observation disabled; normal-public-C encodes still use the
+normally built library. No quantization/search algorithms are copied into C
+wrappers or changed under `upstream/`.
+
+To exclude undefined C arithmetic, block requests require matrix steps 4–440,
+reciprocal `iq = 131072 / q`, sharpening <=512 and
+`abs(coefficient) + sharpen <=8191`. The last bound keeps weighted int32 delta
+errors within range, including saturated levels. Type-0 coefficient zero is
+untouched and may use the full i16 domain; seeded output levels also span i16.
+Scalar bias/zero-threshold fields are intentionally varied and ignored by
+trellis. Arbitrary overflowing i16-domain oracle inputs are not used.
+
+The live corpus contains 294 wide score requests and 19,352 blocks. Production
+matrices/lambdas cover quantizer indices 0–127, all four types, all contexts and
+eight coefficient patterns: zeros, rounding thresholds, signed dense/sparse
+coefficients, last-position impulses, actual forward transforms, short paths
+and saturation. Nineteen probability sets include defaults, uniform 0/255
+extremes and seeded independent probabilities. Additional trials vary lambda
+through 0/1/16/128/4096/1,000,000, use 128 nonuniform per-coefficient matrices,
+exercise disabled observation, and straddle strict raw-pruning thresholds at
+positions 3/7/14/15 with both signs. A sharpened late coefficient remains pruned
+when its raw square equals the threshold. Above it, the search visits that
+position and one extra coefficient (capped at 15).
+
+`fixtures/lossy_trellis.txt` contains 72 cases. The first 61 were captured
+before the Rust port; eleven supplementary cases extend matrix/pruning
+coverage. Existing fixture files are unchanged. Explicit lambda-zero cases
+check equal skip scores, equal predecessors and equal terminal scores with
+nonzero winning paths. Independent exhaustive enumeration visits every path
+in bounded graphs (at most six positions), using i128 distortion/quantization
+and independent coefficient syntax-event costs rather than the production
+cost-table accessor or recurrence. Numeric path ordering checks the selected
+traceback under strict ties. Full-block tests also verify coefficient-zero
+preservation, signs, saturation, last/first EOB winners, sharpening of zero
+inputs, upward candidate winners, nonzero return values, dequantization,
+probability-state immutability and independence from scalar biases/thresholds.
+Coverage counts are printed by `short_graphs_match_exhaustive_path_enumeration`
+and `score_arithmetic_and_full_block_invariants`.
+
+Source/toolchain review before fixture capture: unchanged clean pin
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, scalar dispatch, threading off, token buffering enabled,
+Rust 1.101.0-nightly `7189d39d9` (2026-10-22). Review provenance before
+regeneration:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_trellis trellis_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_trellis
+cargo test -p libwebpop --features native-oracle --test lossy_trellis -- --nocapture
+cargo test -p libwebpop --release --features native-oracle \
+  --test lossy_trellis --test lossy_reconstruct --test lossy_quant \
+  --test lossy_methods --test lossy_method_loop -- --nocapture
+```
+
+Validation passed: full workspace `cargo test` and
+`cargo test --features native-oracle -- --nocapture`; release native suites
+`lossy_trellis` (7 tests), `lossy_reconstruct` (8), `lossy_quant` (9),
+`lossy_methods` (6) and `lossy_method_loop` (6); the production library build;
+`cargo fmt --all -- --check`; and `git diff --check`.
+Exhaustive enumeration checked 7,472 short graphs, 25,026 nonzero terminal
+paths, 74,468 dead paths and 28 equal-best scores; 4,087 graphs permitted an
+upper candidate. The full-block suite observed 4,388 skipped and 14,964 nonzero
+blocks, 73,337 negative levels, 141 saturated levels, 9,295 final-position EOB
+and 593 first-position EOB winners, 611 nonzero winners from sharpened-zero
+inputs and 67,226 upward-candidate winners. Every inherited fixture remains
+unchanged, including method-4 complete files and the methods-0–3 drivers.
+The upstream checkout remains clean.

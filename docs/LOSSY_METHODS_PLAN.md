@@ -60,7 +60,7 @@ needed. Preserve their behavior and reference fixtures.
 | [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` now validates and carries method too | Expose method in existing public options after the algorithms compose; finish method propagation into alpha effort |
 | [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches direct/token frames from the mapped tools | Trellis methods remain guarded until their algorithms land |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
-| [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD and distortion refinement; non-RD `VP8Decimate` | Selected-mode requantization, trellis and remaining RD dispatch |
+| [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD/distortion refinement and standalone trellis block quantization | Trellis reconstruction, selected-mode requantization and remaining RD dispatch |
 | [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct residual coding/statistics, skip fitting/reset, token recording, refresh/retry loop and deterministic filter finalization | Statistics/direct drivers and method-3 tokens complete; integrate trellis RD levels |
 | [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, filters, VP8L and raw fallback | Replace fixed effort 4/q32 throughout with method-dependent effort and quality |
 | [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including composed direct residuals and fitted skip state | No additional syntax for this scope |
@@ -218,7 +218,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–4 are complete; milestones 5–8 remain pending. Integrate callers after
+Milestones 0–5 are complete; milestones 6–8 remain pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -230,7 +230,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | 2 (complete) | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | 61 portable fixtures and 5,973 live C requests match fast decisions, selected modes, reconstruction, levels, nonzero masks and context/diffusion state for methods 0–2 |
 | 3 (complete) | Direct coefficient coding/statistics and skip-probability leaves | 0 | 37 portable fixtures and 4,811 live C requests; exact bytes, writer/counter/statistics state, skip costs and post-skip contexts; independent coefficient decoding and geometric context checks |
 | 4 (complete) | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | 27 portable fixtures, 1,335 exact C driver traces and 1,384 normal-public-C opaque files; probe boundaries, skip on/off, retries, borders, probabilities and final filter state match |
-| 5 | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | Exact levels/dequantized coefficients/masks and traceback; independent bounded path enumeration including terminal/tie cases |
+| 5 (complete) | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | 72 portable fixtures and 19,646 live C requests match scores, levels, dequantized coefficients, nonzero returns and candidate cost traces; independent exhaustive short-path checks cover terminal/predecessor/skip ties |
 | 6 | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | Methods 5/6 opaque files match normal C; traces distinguish selected-mode versus candidate trellis; method 4 remains identical |
 | 7 | Method-dependent alpha effort, quality and filter trials | 1, existing ALPH/VP8L; 4 and 6 for complete files | Exact headerless streams, filter maps, winning payloads and complete transparent files across all methods/alpha qualities |
 | 8 | Public `LossyOptions`/`encode_lossy_rgba`, CLI routing, full regression and baseline record | 4, 6, 7 | Checked API and CLI support methods 0–6; portable/live full-file parity, independent decode, validation and benchmark record pass |
@@ -412,7 +412,26 @@ Do not implement target-quality convergence, multiple partitions, autofilter
 statistics, reconstruction export or public reports merely because the C loop
 contains their hooks. Retain the pinned behavior for the fixed settings above.
 
-### 5–6. Trellis and methods 5/6
+### 5. Trellis quantization leaves
+
+Completed 2026-10-25, continuing from `936db43`. `kWeightTrellis`, `Node`,
+`ScoreState`, inline `RDScoreTrellis` and `TrellisQuantizeBlock` now match the
+pinned two-candidate trellis. Safe fixed arrays and explicit cost-position/
+context indices replace C's score-state pointers. Wide signed arithmetic
+preserves defined C inputs, and traceback preserves Intra16 AC coefficient
+zero in both arrays. This milestone leaves reconstruction and method-5/6
+frame dispatch guarded until milestone 6.
+
+The new suite stores 72 portable fixtures and compares 19,646 live C requests,
+including every production quantizer index, all incoming contexts, all four
+standalone coefficient types, probability extremes, signs, capped levels,
+sharpening, raw pruning boundaries, EOB at coefficient 15 and strict tie cases.
+The included-source wrapper observes original `VP8LevelCost` lookups without
+copying the trellis. Independent exhaustive short-path enumeration verifies
+winning levels/traceback and tie order across 7,472 short graphs using wider
+arithmetic and syntax-event costs rather than the production recurrence. See the
+[reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-5).
+
 
 Port `kWeightTrellis`, `Node`, `ScoreState`, `RDScoreTrellis` and
 `TrellisQuantizeBlock`. Use safe arrays and explicit indices instead of cost
@@ -427,6 +446,8 @@ Use independent enumeration of the same bounded candidate graph for short
 blocks to verify minimum score, EOB selection and tie order. Compare production
 inputs and defined arithmetic boundaries with C; do not feed the oracle values
 that cause undefined signed overflow just to exhaust an i16 domain.
+
+### 6. Trellis reconstruction and methods 5/6
 
 Connect trellis to `ReconstructIntra16` and `ReconstructIntra4`, carrying
 `it.do_trellis` and incoming nonzero contexts explicitly. Intra16 AC visits
