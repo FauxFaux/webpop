@@ -101,6 +101,9 @@ pub fn encode(case: &Case) -> (Vec<u32>, Vec<u8>) {
 }
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
+    if case.input[2] & 8 != 0 {
+        return super::animation_keyframes::evaluate(case);
+    }
     if case.input[2] & 4 != 0 {
         return super::animation_codec_cache::evaluate(case);
     }

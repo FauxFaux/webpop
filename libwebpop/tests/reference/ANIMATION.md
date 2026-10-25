@@ -1321,3 +1321,176 @@ The portable workspace run passed 323 tests (two manual baselines ignored); the
 native workspace run passed 459 tests (four manual baselines ignored). Warnings
 about an unused shared native-test helper in unrelated targets remain. Final
 `git diff --check` passed and the upstream checkout remained clean.
+
+## 4b acceptance contract (2026-10-25)
+
+Before deferred selection, port option normalization and replace single-payload
+slots with owned subframe/keyframe alternatives. The shared owner retains an
+explicit selected index, signed penalty sentinel, undecided flag and flush
+boundary. Existing keyframe-disabled APIs and fixtures remain valid. Typed
+controls map to signed upstream intervals; enabled encoding stays gated.
+
+Named cases: minimize-size ordering; all-frame early return; nonpositive kmax;
+kmin above/equal/below kmax; half-window edges; kmax=2 with negative kmin;
+30-frame window versus 31-slot allocation; signed extremes; checked typed
+conversion. Compare effective options and initial state to original C. Storage
+checks cover both alternatives, independent durations/controls, selection,
+moves, loser release and fallible allocation. Extend cache observations with
+both alternatives and state before/after operations. Record all original codec
+calls/losers with an eight-trial bound for a mixed CacheFrame evaluating both
+alternatives. Enabled traces are reference-only protocol evidence, not Rust
+selection parity. Disabled traces compare states and pre-reconstruction files;
+retain independent playback and all existing codec suites.
+
+## 4b keyframe normalization and candidate storage (2026-10-25)
+
+`anim_encode/keyframes.rs` implements the option/storage foundation shared by
+the existing cache. It does not implement deferred keyframe selection. Public
+RGBA Optimized remains rejected and `AnimationCacheOptions` still has no enabled
+keyframe setting; both established caches encode with disabled insertion.
+The new low-level leaves/views allow the mapping and storage protocol to be
+reviewed independently, without advertising an enabled encoder route.
+
+### Mapping and ownership
+
+`KeyframePolicy` distinguishes Disabled, AllFrames and Bounded unsigned intervals.
+Disabled maps to upstream `(0,0)`, AllFrames to `(0,1)`, and Bounded passes its
+checked signed-i32 min/max. Bounded max must be at least two; values outside i32
+are rejected even with minimize-size. These are low-level controls; their final
+public RGBA option shape remains 4e. `SanitizeEncoderOptions` additionally accepts
+raw signed intervals for direct upstream correspondence and edge-case testing.
+
+The port preserves the pin's ordering, silently: minimize-size disables first;
+kmax=1 then selects effective `(0,0)`; nonpositive kmax disables; kmin>=kmax is
+reduced; otherwise the conditional half-window adjustment applies; finally the
+window difference is capped at 30. Disabled effective values are
+`(i32::MAX-1,i32::MAX)`. The kmax=2 exception can retain negative kmin: raw
+`(i32::MIN,2)` normalizes to `(-28,2)`. Widened subtraction computes capacity as
+`max(2,kmax-kmin+1)`, including the extra preceding-frame slot. A difference of
+30 therefore reserves 31 slots. Raw `(0,60)` reserves 30 slots after the
+half-window adjustment, while `(0,100)` reserves 31.
+
+`CandidateWindow` reserves fallibly and checks logical capacity on every push;
+excess pushes return CacheCapacityExceeded without growing the vector. It owns
+`CachedFrame` slots with separate optional subframe/keyframe payloads, separate
+controls/durations and an is-key-frame flag. State contains an explicit optional
+selected index, signed i64 best penalty initialized to 2^32, undecided flag and
+flush boundary. Frames-since-keyframe and previous rectangle remain in the
+shared cache status; neither is duplicated. Rust retains rebased slots directly,
+so its start index is always zero. Moving the selected payload out drops its
+unselected alternative through Rust ownership.
+
+Disabled CacheFrame now populates the keyframe alternative for the first input,
+and subframe alternatives thereafter. Ordinary duration updates affect both
+control records, including an absent alternative, just as the C struct does.
+A newly inserted overflow hold initially has only its subframe duration set.
+The existing candidate generators, original/carryover canvases, codec dispatch,
+timing order and fixed payload bytes are reused. No deferred choice, penalty
+calculation, keyframe policy or keyframe-overflow transition was added.
+
+Unit checks exercise checked typed mappings, all-frame/minimize ordering, both
+owned alternatives with distinct controls and decoded colors, moves, selecting
+either payload, duration updates, signed negative penalty storage, explicit
+selection/undecided/flush fields, reservation failure and capacity exhaustion.
+
+### Oracle protocol and corpus
+
+`AnimationKeyframeOptions` accepts `(raw signed kmin bits, raw signed kmax bits,
+minimize_size)`. It invokes the original C constructor, which calls the original
+SanitizeEncoderOptions. Its eleven outputs are effective kmin/kmax, allocated
+slot count, start/count/flush, low/high best-penalty words, selected keyframe
+index (-1 as all-one bits), frames-since-keyframe and undecided flag. Verbose is
+zero. The **722 committed/live cases** cross 19 signed edge values (including
+both i32 extremes) for each interval with minimize-size off/on. Every effective
+value and initial-state word matches Rust. No old fixtures were regenerated.
+
+The existing `AnimationCache` protocol gains version 2 via global flags bit 3,
+with bit 2 still selecting the extended codec headers. V2 inserts raw kmin/kmax
+at global words 8/9; old requests remain unchanged. For each add it emits:
+
+```text
+before snapshot
+trial count; ordered original WebPEncode records and complete trial files
+after snapshot
+```
+
+Final timing/assembly emits before/after snapshots and the complete output file.
+Snapshots retain the ten-word counter prefix, then effective kmin/kmax, capacity,
+start, flush boundary, penalty low/high, selected index and undecided flag. Each
+valid slot adds 17 words: chosen flag, then eight words for each alternative
+`(duration,x,y,dispose,blend,width,height,complete_still_size)`. Absent alternatives
+retain their control fields but have zero dimensions/size. Snapshot and trial
+writers check available output capacity before writing. The codec observer now
+reserves eight records instead of four for CacheFrame's two SetFrame evaluations;
+all actual codec calls and losers remain in their original order.
+
+`fixtures/animation_keyframe_cache.txt` contains **eight deterministic traces**
+(52 submitted inputs): three repeat/threshold/overflow histories; a disposal/mask
+history with disabled policy; AllFrames overridden by minimize-size; and three
+reference-only enabled histories (all-frame and bounded intervals). The five
+disabled traces compare both alternative records, effective state, ordered trial
+configs/bytes and complete pre-reconstruction files to Rust. Trial generation
+reuses the existing independent isolated mixed-trial evaluator. Enabled traces
+record original C decisions and both alternatives for 4c; portable checks parse
+their invariants and independently decode every trial file, without claiming
+Rust selection parity. All-frame and bounded encoders remain gated in Rust.
+
+Full-file comparisons use mode 0, before OptimizeSingleFrame. Existing 4a tests
+still compare all saved configs, both raw canvases and complete bytes; their
+independent exact compositing/native all-frame checks remain the playback gate.
+Both old VP8L cache fixtures and all 52 mixed/VP8 timestamp fixtures remain
+unchanged, as do candidate, near-lossless and still-encoder fixtures.
+
+### Provenance, growth and validation
+
+Reviewed clean upstream `1844042d1ca751e62e61df7617dba19c98588339`, wrapper changes,
+rustc `1.101.0-nightly (7189d39d9 2026-10-22)`, GCC 15.2.0 and CMake 4.2.3 before
+creating the new fixtures. Actual scalar/unthreaded build flags remain recorded
+in `target/native-oracle/provenance.txt`. Regenerate only the two new files:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_keyframes animation_keyframe_foundation_fixtures_match_pinned_reference -- --nocapture
+```
+
+Growth: production +334/-36 lines (including 259 non-test lines in keyframes.rs);
+test/evaluator/oracle +694/-10 lines (including 144 unit-test lines and 445 new
+integration/evaluator lines); fixtures 730 records / 634,324 bytes including
+requests. Documentation is separate. Implementation/review was approximately
+12 minutes of interactive work (wall estimate excluding command waits); build
+and test commands are measured separately below.
+
+Focused validation passed:
+
+```sh
+cargo test -p libwebpop --test animation_codec_cache --test animation_cache --test animation_near_lossless
+cargo test -p libwebpop --lib animation_keyframe
+cargo test -p libwebpop --features native-oracle --lib --test animation_keyframes --test animation_cache --test animation_codec_cache --test animation_near_lossless --test animation_mixed -- --nocapture
+```
+
+The focused native command initially took 10.20 s (4.19 s Rust build, 6.01 s
+post-build tests/oracle/launches); the final observer-bound-check rerun took
+6.74 s. All 722 mappings, eight observer traces, 1,680 VP8L caches, 1,396 shared
+codec caches, 4,893 near-lossless cases and 4,237 mixed candidate/history cases
+passed. The unchanged C reconstruction-only cases remain explicitly separate.
+
+Final integration gate, all passed:
+
+| Command | Cargo build | Post-build wall (tests/oracle/launches) | Total wall |
+| --- | ---: | ---: | ---: |
+| `cargo build -p libwebpop --lib` | 0.43 s | — | 0.44 s |
+| `cargo test -p libwebpop --release --features native-oracle animation -- --nocapture` | 0.03 s | 9.11 s | 9.14 s |
+| `cargo test -p cwebpop` | 2.53 s | 0.84 s | 3.37 s |
+| `cargo test --workspace` | 32.49 s | 15.01 s | 47.50 s |
+| `cargo test --workspace --features native-oracle -- --nocapture` | 38.92 s | 52.51 s | 91.43 s |
+| `cargo fmt --all -- --check` | — | passed | — |
+
+The release comparison was first built/run before the final oracle output-bound
+checks (39.49 s total); the table records its final rerun. There were 84 passing
+release animation tests, 327 portable workspace tests (two manual baselines
+ignored), and 465 native workspace tests (four manual baselines ignored).
+Existing unused native-helper warnings in unrelated test targets remain.
+These timings describe validation, not the resource baseline deferred to 5b.
+Final diff/format checks passed; upstream remained clean. 4b is complete at its
+normalization/storage/protocol boundary. Deferred selection (4c), keyframes with
+duration overflow (4d), public RGBA Optimized (4e) and single-frame reconstruction
+remain open.

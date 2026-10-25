@@ -21,12 +21,12 @@ static int AnimationObservedEncode(const WebPConfig*, WebPPicture*);
 // selection/eligibility algorithm is duplicated in this test instrumentation.
 static int animation_observe;
 static unsigned animation_trial_count;
-static uint32_t animation_trials[4][12];
-static WebPData animation_trial_data[4];
+static uint32_t animation_trials[8][12];
+static WebPData animation_trial_data[8];
 
 static void AnimationObserveBegin(int enabled) {
   unsigned i;
-  for (i = 0; i < 4; ++i) WebPDataClear(&animation_trial_data[i]);
+  for (i = 0; i < 8; ++i) WebPDataClear(&animation_trial_data[i]);
   animation_trial_count = 0; animation_observe = enabled;
 }
 
@@ -44,7 +44,7 @@ static int AnimationObservedEncode(const WebPConfig* config, WebPPicture* pic) {
   if (animation_observe) {
     uint32_t* out;
     const WebPMemoryWriter* writer = (const WebPMemoryWriter*)pic->custom_ptr;
-    if (!ok || animation_trial_count >= 4 || writer->size > (1u << 19)) abort();
+    if (!ok || animation_trial_count >= 8 || writer->size > (1u << 19)) abort();
     {
       const WebPData data = {writer->mem, writer->size};
       if (!WebPDataCopy(&data, &animation_trial_data[animation_trial_count])) abort();
@@ -660,6 +660,72 @@ static unsigned AnimationCacheExtended(const WebPAnimEncoder* enc, uint32_t* out
   return at;
 }
 
+// Effective policy and initial storage from the original constructor. Signed
+// inputs are copied bit-for-bit, including INT_MIN/INT_MAX; verbose stays off.
+unsigned WebpopAnimationKeyframeOptions(const uint32_t* in, unsigned n, uint32_t* out) {
+  WebPAnimEncoderOptions options;
+  WebPAnimEncoder* enc;
+  uint64_t penalty;
+  if (n != 3 || in[2] > 1 || !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
+  memcpy(&options.kmin, in, sizeof(options.kmin));
+  memcpy(&options.kmax, in + 1, sizeof(options.kmax));
+  options.minimize_size = in[2];
+  enc = WebpopIncludedAnimNew(1, 1, &options, WEBP_MUX_ABI_VERSION);
+  if (!enc) abort();
+  out[0] = enc->options.kmin; out[1] = enc->options.kmax;
+  out[2] = enc->size; out[3] = enc->start; out[4] = enc->count;
+  out[5] = enc->flush_count;
+  penalty = (uint64_t)enc->best_delta;
+  out[6] = (uint32_t)penalty; out[7] = (uint32_t)(penalty >> 32);
+  out[8] = enc->keyframe; out[9] = enc->count_since_key_frame;
+  out[10] = enc->prev_candidate_undecided;
+  WebpopIncludedAnimDelete(enc);
+  return 11;
+}
+
+static unsigned AnimationAlternativeStatus(const WebPMuxFrameInfo* info, uint32_t* out) {
+  int width = 0, height = 0;
+  if (info->bitstream.size && !WebPGetInfo(info->bitstream.bytes, info->bitstream.size, &width, &height)) abort();
+  out[0] = info->duration; out[1] = info->x_offset; out[2] = info->y_offset;
+  out[3] = info->dispose_method; out[4] = info->blend_method;
+  out[5] = width; out[6] = height; out[7] = info->bitstream.size;
+  return 8;
+}
+
+// V2 shows both owned alternatives even if one has no encoded payload. Their
+// duration fields can still differ (notably immediately after inserting a hold).
+static unsigned AnimationCacheWindow(const WebPAnimEncoder* enc, uint32_t* out, unsigned available) {
+  unsigned at, i;
+  if (19 + 17 * enc->count > available) abort();
+  at = AnimationCacheStatus(enc, out);
+  const uint64_t penalty = (uint64_t)enc->best_delta;
+  out[at++] = enc->options.kmin; out[at++] = enc->options.kmax;
+  out[at++] = enc->size; out[at++] = enc->start; out[at++] = enc->flush_count;
+  out[at++] = (uint32_t)penalty; out[at++] = (uint32_t)(penalty >> 32);
+  out[at++] = enc->keyframe; out[at++] = enc->prev_candidate_undecided;
+  for (i = 0; i < enc->count; ++i) {
+    const EncodedFrame* frame = GetFrame(enc, i);
+    out[at++] = frame->is_key_frame;
+    at += AnimationAlternativeStatus(&frame->sub_frame, out + at);
+    at += AnimationAlternativeStatus(&frame->key_frame, out + at);
+  }
+  return at;
+}
+
+static unsigned AnimationCacheTrials(uint32_t* out, unsigned available) {
+  unsigned at = 0, i, j;
+  uint64_t needed = 1;
+  for (i = 0; i < animation_trial_count; ++i) needed += 12 + animation_trial_data[i].size;
+  if (needed > available) abort();
+  out[at++] = animation_trial_count;
+  for (i = 0; i < animation_trial_count; ++i) {
+    for (j = 0; j < 12; ++j) out[at++] = animation_trials[i][j];
+    for (j = 0; j < animation_trial_data[i].size; ++j) out[at++] = animation_trial_data[i].bytes[j];
+    WebPDataClear(&animation_trial_data[i]);
+  }
+  return at;
+}
+
 static unsigned AnimationFileOutput(const WebPData* data, uint32_t* out) {
   unsigned i;
   if (data->size > (1u << 19)) abort();
@@ -679,11 +745,17 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
   uint32_t timestamp;
   unsigned frame, duration = 0, at = 8, written = 0;
   const int extended = n >= 8 && (in[2] & 4);
+  const int window = n >= 8 && (in[2] & 8);
   if (n < 8 || !in[0] || !in[1] || in[0] > 96 || in[1] > 32 ||
-      in[2] > 7 || (!extended && in[2] > 1) || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
+      in[2] > 15 || (!extended && in[2] > 1) || (window && n < 10) || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
       !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
   options.minimize_size = in[2] & 1;
   options.allow_mixed = extended && (in[2] & 2);
+  if (window) {
+    memcpy(&options.kmin, in + 8, sizeof(options.kmin));
+    memcpy(&options.kmax, in + 9, sizeof(options.kmax));
+    at = 10;
+  }
   if (in[5]) { options.anim_params.bgcolor = 0x4e0c2238; options.anim_params.loop_count = 65535; }
   enc = WebpopIncludedAnimNew(in[0], in[1], &options, WEBP_MUX_ABI_VERSION);
   if (!enc) abort();
@@ -722,12 +794,23 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
     if (size > n - at) abort();
     current.argb = (uint32_t*)(in + at); at += size;
     memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
+    if (window) {
+      written += AnimationCacheWindow(enc, out + written, (1u << 20) - written);
+      AnimationObserveBegin(1);
+    }
     if (!WebpopIncludedAnimAdd(enc, &current, signed_timestamp, &config)) abort();
-    written += AnimationCacheStatus(enc, out + written);
-    if (extended) written += AnimationCacheExtended(enc, out + written);
+    animation_observe = 0;
+    if (window) {
+      written += AnimationCacheTrials(out + written, (1u << 20) - written);
+      written += AnimationCacheWindow(enc, out + written, (1u << 20) - written);
+    } else {
+      written += AnimationCacheStatus(enc, out + written);
+      if (extended) written += AnimationCacheExtended(enc, out + written);
+    }
     timestamp += duration;
   }
   if (at != n) abort();
+  if (window) written += AnimationCacheWindow(enc, out + written, (1u << 20) - written);
   {
     int signed_timestamp;
     memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
@@ -741,8 +824,12 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
         WebPMuxSetAnimationParams(enc->mux, &enc->options.anim_params) != WEBP_MUX_OK ||
         WebPMuxAssemble(enc->mux, &data) != WEBP_MUX_OK) abort();
   } else if (!WebpopIncludedAnimAssemble(enc, &data)) abort();
-  written += AnimationCacheStatus(enc, out + written);
-  if (extended) written += AnimationCacheExtended(enc, out + written);
+  if (window) written += AnimationCacheWindow(enc, out + written, (1u << 20) - written);
+  else {
+    written += AnimationCacheStatus(enc, out + written);
+    if (extended) written += AnimationCacheExtended(enc, out + written);
+  }
+  if (window && data.size + 1 > (1u << 20) - written) abort();
   written += AnimationFileOutput(&data, out + written);
   WebPDataClear(&data);
   if (in[3] == 2) {

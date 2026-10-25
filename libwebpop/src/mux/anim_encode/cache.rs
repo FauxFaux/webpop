@@ -13,6 +13,8 @@ use crate::mux::{
 };
 use crate::{LosslessOptions, LossyOptions};
 
+use super::keyframes::{CachedFrame, CandidateWindow};
+
 const MAX_DURATION: u32 = 1 << 24;
 
 #[derive(Debug, Default)]
@@ -161,7 +163,7 @@ pub struct AnimationCacheOptions {
 #[derive(Debug)]
 pub struct AnimationCache {
     container: AnimationContainer,
-    cached: Vec<(EncodedFrame, ContainerFrameOptions)>,
+    window: CandidateWindow,
     previous: Vec<u32>,
     carryover: Vec<u32>,
     minimize_size: bool,
@@ -200,15 +202,11 @@ impl AnimationCache {
             canvas.resize(area, 0);
             Ok(canvas)
         };
-        let mut cached = Vec::new();
-        // Disabled keyframes allocate exactly two slots in the pin. A split
-        // must flush one slot before CacheFrame can append another candidate.
-        cached
-            .try_reserve_exact(2)
-            .map_err(|source| candidate_error(0, source.into()))?;
+        let window = CandidateWindow::new(SanitizeEncoderOptions(0, 0, options.minimize_size))
+            .map_err(|source| candidate_error(0, source))?;
         Ok(Self {
             container,
-            cached,
+            window,
             previous: allocate()?,
             carryover: allocate()?,
             minimize_size: options.minimize_size,
@@ -223,6 +221,17 @@ impl AnimationCache {
 
     pub fn status(&self) -> LosslessCacheStatus {
         self.status
+    }
+
+    /// Effective disabled policy and deferred-selection state. Enabled policies
+    /// remain gated; this observation does not enable keyframe insertion.
+    pub fn window_status(&self) -> CacheWindowStatus {
+        self.window.state
+    }
+
+    /// Borrowed observations of both owned alternatives in each pending slot.
+    pub fn cached_candidates(&self) -> impl ExactSizeIterator<Item = CachedFrameStatus> + '_ {
+        self.window.frames.iter().map(CachedFrame::status)
     }
 
     fn check_active(&self) -> Result<(), AnimationError> {
@@ -280,7 +289,7 @@ impl AnimationCache {
 
     /// Pending frame controls. Payloads and timing remain owned by this cache.
     pub fn pending_control(&self) -> Option<ContainerFrameOptions> {
-        self.cached.last().map(|(_, c)| *c)
+        self.window.frames.last().map(|f| f.selected().control)
     }
 
     /// Validate all participating settings, dimensions and timing before mutation,
@@ -310,7 +319,7 @@ impl AnimationCache {
             // Use the preceding submitted config for a hold, before saving the
             // incoming config (even when the incoming candidate will skip).
             self.IncreasePreviousDuration(duration)?;
-            self.FlushFrames(self.cached.len() - 1)?;
+            self.FlushFrames(self.window.frames.len() - 1)?;
         }
         self.CacheFrame(current, codec)?;
         self.status.submitted_frames = submitted_frames;
@@ -320,12 +329,16 @@ impl AnimationCache {
     }
 
     fn IncreasePreviousDuration(&mut self, duration: u32) -> Result<(), AnimationError> {
-        let previous = &mut self.cached.last_mut().expect("previous frame is cached").1;
-        let new_duration = previous.duration_ms + duration;
+        let previous = self
+            .window
+            .frames
+            .last_mut()
+            .expect("previous frame is cached");
+        let new_duration = previous.sub_frame.control.duration_ms + duration;
         if new_duration < MAX_DURATION {
-            previous.duration_ms = new_duration;
+            previous.set_duration(new_duration);
         } else {
-            debug_assert_eq!(self.cached.len(), 1);
+            debug_assert_eq!(self.window.frames.len(), 1);
             // Typed payloads copied from the pin's fixed stills. These are
             // nested payload bytes, not stripped headers or a fresh encode.
             const VP8L: &[u8] = &[0x2f, 0, 0, 0, 0x10, 0x88, 0x88, 0x08];
@@ -356,19 +369,24 @@ impl AnimationCache {
                     alpha: Some(copy(&[0, 0])?),
                 }
             };
-            self.cached.push((
-                EncodedFrame {
-                    width: 1,
-                    height: 1,
-                    has_alpha: true,
-                    payload,
-                },
-                ContainerFrameOptions {
-                    duration_ms: duration,
-                    blend: FrameBlend::Blend,
-                    ..Default::default()
-                },
-            ));
+            self.window
+                .push(CachedFrame::new(
+                    EncodedFrame {
+                        width: 1,
+                        height: 1,
+                        has_alpha: true,
+                        payload,
+                    },
+                    ContainerFrameOptions {
+                        duration_ms: duration,
+                        blend: FrameBlend::Blend,
+                        ..Default::default()
+                    },
+                    false,
+                ))
+                .map_err(|source| {
+                    candidate_error(self.status.submitted_frames.saturating_sub(1), source)
+                })?;
             self.status.previous_rect = FrameRectangle {
                 width: 1,
                 height: 1,
@@ -385,7 +403,7 @@ impl AnimationCache {
         current: ArgbView<'_>,
         codec: &MixedEncodingConfig,
     ) -> Result<(), AnimationError> {
-        debug_assert!(self.cached.len() < 2);
+        debug_assert!(self.window.frames.len() < self.window.state.effective.capacity);
         let frame_index = self.status.submitted_frames;
         let first = frame_index == 0;
         let (w, h, stride) = (current.width, current.height, current.width as usize);
@@ -452,25 +470,35 @@ impl AnimationCache {
                     &mut ArgbViewMut::new(&mut self.carryover, w, h, stride)?,
                 )?;
                 if let Some(dispose) = candidate.previous_dispose {
-                    self.cached
+                    self.window
+                        .frames
                         .last_mut()
                         .expect("previous frame is cached")
-                        .1
+                        .selected_mut()
+                        .control
                         .dispose = dispose;
                 }
                 self.status.previous_rect = candidate.rect;
                 self.status.count_since_key_frame += usize::from(!first);
-                self.cached.push((candidate.frame, candidate.control));
+                self.window
+                    .push(CachedFrame::new(candidate.frame, candidate.control, first))?;
             }
             Ok(())
         })();
         result.map_err(|source| candidate_error(frame_index, source))?;
-        self.FlushFrames(self.cached.len() - 1)
+        self.FlushFrames(self.window.frames.len() - 1)
     }
 
     fn FlushFrames(&mut self, count: usize) -> Result<(), AnimationError> {
+        self.window.state.flush_count = count;
         for _ in 0..count {
-            let (frame, control) = self.cached.remove(0);
+            let (frame, control) = self.window.frames.remove(0).into_selected();
+            self.window.state.flush_count -= 1;
+            self.window.state.selected_keyframe = self
+                .window
+                .state
+                .selected_keyframe
+                .and_then(|i| i.checked_sub(1));
             self.container
                 .push_frame(frame, control)
                 .map_err(|source| AnimationError::Container {
@@ -484,8 +512,12 @@ impl AnimationCache {
     }
 
     fn refresh_pending_status(&mut self) {
-        self.status.cached_frames = self.cached.len();
-        self.status.pending_duration_ms = self.cached.last().map(|(_, c)| c.duration_ms);
+        self.status.cached_frames = self.window.frames.len();
+        self.status.pending_duration_ms = self
+            .window
+            .frames
+            .last()
+            .map(|f| f.sub_frame.control.duration_ms);
     }
 
     /// Supply final timing, flush the remaining frame and assemble. Every error
@@ -503,7 +535,7 @@ impl AnimationCache {
         let frame_index = self.status.submitted_frames - 1;
         self.active = false;
         self.IncreasePreviousDuration(duration)?;
-        self.FlushFrames(self.cached.len())?;
+        self.FlushFrames(self.window.frames.len())?;
         self.container
             .assemble(output)
             .map_err(|source| AnimationError::Container {

@@ -5,6 +5,7 @@ pub mod animation;
 pub mod animation_cache;
 pub mod animation_carryover;
 pub mod animation_codec_cache;
+pub mod animation_keyframes;
 pub mod animation_lossless;
 pub mod animation_lossy;
 pub mod animation_lossy_carryover;
@@ -84,6 +85,7 @@ impl Case {
             "VP8TrellisScore" | "VP8TrellisBlock" => vp8_trellis::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),
+            "AnimationKeyframeOptions" => animation_keyframes::options(self),
             "AnimationCache" => animation_cache::evaluate(self),
             "AnimationNearLossless" | "AnimationNearLosslessCache" => {
                 animation_near_lossless::evaluate(self)

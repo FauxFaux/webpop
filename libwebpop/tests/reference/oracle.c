@@ -143,6 +143,7 @@ unsigned WebpopAnimationLossyCarryoverSequence(const uint32_t*, unsigned, uint32
 unsigned WebpopAnimationNearLossless(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationCarryover(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationCarryoverSequence(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationKeyframeOptions(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationCache(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationNearLosslessCache(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationDecode(const uint32_t*, unsigned, uint32_t*);
@@ -190,7 +191,9 @@ int main(void) {
     unsigned n, count = 0, i;
     REQUIRE(scanf("%u", &n) == 1 && n <= LIMIT);
     for (i = 0; i < n; ++i) REQUIRE(scanf("%" SCNx32, &in[i]) == 1);
-    if (IS(AnimationMux)) {
+    if (IS(AnimationKeyframeOptions)) {
+      count = WebpopAnimationKeyframeOptions(in, n, out);
+    } else if (IS(AnimationMux)) {
       count = WebpopAnimationMux(in, n, out);
     } else if (IS(AnimationSingleFrame)) {
       count = WebpopAnimationSingleFrame(in, n, out);

@@ -12,12 +12,17 @@
 //! alpha and weights RGB differences by that alpha.
 
 mod cache;
+mod keyframes;
 mod lossless;
 mod lossy;
 mod mixed;
 pub use cache::{
     AnimationCache, AnimationCacheOptions, LosslessAnimationCache, LosslessAnimationCacheOptions,
     LosslessCacheStatus,
+};
+pub use keyframes::{
+    CacheWindowStatus, CachedAlternativeStatus, CachedFrameStatus, EffectiveKeyframeOptions,
+    InvalidKeyframeIntervals, KeyframePolicy, SanitizeEncoderOptions,
 };
 pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,

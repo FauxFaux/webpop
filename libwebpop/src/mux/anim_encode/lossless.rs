@@ -24,6 +24,8 @@ pub enum AnimationCandidateError {
     Allocation(#[from] TryReserveError),
     #[error("the first animation frame must be evaluated as a keyframe")]
     InvalidFirstFrame,
+    #[error("animation candidate cache capacity exceeded")]
+    CacheCapacityExceeded,
 }
 
 /// VP8L candidate controls without mixed/lossy trials. The lossless functions
