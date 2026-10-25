@@ -16,9 +16,8 @@ still-image WebP file containing VP8, with a separate alpha stream when needed.
 
 The algorithm reference remains the pinned [`upstream/`](../upstream) revision
 `1844042d1ca751e62e61df7617dba19c98588339`. Keep that pin throughout this port.
-The Wasm artifact supplies the historical feature inventory and an optional
-public-API regression backend; its older libwebp version does not replace the pinned
-source as the byte-exact oracle. [`ALGORITHM.md`](ALGORITHM.md) describes an
+The historically inspected Wasm artifact supplies the feature inventory; its
+older libwebp version does not replace the pinned source as the byte-exact oracle. [`ALGORITHM.md`](ALGORITHM.md) describes an
 older checkout and a different Rust encoder; it is useful background, not the
 implementation baseline here.
 
@@ -334,10 +333,6 @@ public Rust APIs. The CLI exposes these through `--lossy`, fractional `-q` and
   adapters now extend the existing logical protocol. The independent `image`
   decoder exercises VP8/ALPH as well as VP8L; the existing
   [real-image sample](../libwebpop/tests/fixtures/corpus/README.md) participates.
-  The retained older full Wasm has opt-in near-lossless wrapper regression;
-  [artifact/host provenance](../libwebpop/tests/reference/full-wasm/README.md)
-  records its setup. Extending that backend to lossy remains optional, outside
-  the acceptance gates.
 
 ## Inspected Wasm build and feature boundary
 
@@ -753,13 +748,9 @@ leaves use included/renamed translation units. Fractional color quality travels
 in the u32-word protocol using its f32 bit pattern, preserving NaN/infinity
 validation. See the [lossy reference record](../libwebpop/tests/reference/LOSSY.md).
 
-Full-Wasm export/ABI and semantic regression for lossy remains optional. The
-historically inspected full artifact is retained for near-lossless regression,
-with its hash, provenance, SIMD host and initialization sequence recorded in
-test support. The old lossless-only artifact is no longer bundled. Do not
-require a sibling checkout at test time or identical bytes across the old SIMD
-build and the newer scalar pin. The native oracle and portable C fixtures
-remain sufficient for required lossy regression coverage.
+The duplicate full-Wasm regression and bundled artifacts have been removed.
+The native oracle and portable C fixtures provide lossy regression coverage
+without requiring a sibling checkout at test time.
 
 Compare logical outputs in layers:
 
@@ -772,8 +763,7 @@ Compare logical outputs in layers:
    partition bytes, filter strengths, and ALPH filter trials/payloads.
 3. **Public APIs:** exact complete bytes against the pinned scalar reference,
    independent decoding with the existing Rust decoder, and semantic checks
-   against decoded C output; optional wrapper regressions through the older
-   full Wasm backend. A decoder accepting the output alone does not establish
+   against decoded C output. A decoder accepting the output alone does not establish
    encoder parity. Milestone 0 adds independently decoded C VP8/ALPH files;
    extend these to Rust lossy output as the public encoder becomes available.
 

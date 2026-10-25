@@ -46,8 +46,8 @@ The [near-lossless reference record](NEAR_LOSSLESS.md) describes standalone
 preprocessing, predictor quantization leaves, the copied custom public C
 wrapper, integrated feedback/search and per-candidate routing, their request
 layouts and fixture regeneration commands. The Rust near-lossless public
-encoder matches pinned C. An independent older-full-Wasm regression is opt-in
-through `wasm-oracle`; see [artifact and host provenance](full-wasm/README.md).
+encoder matches pinned C. The duplicate older-full-Wasm regression has been
+removed; native comparisons and portable fixtures provide regression coverage.
 
 The [lossy reference record](LOSSY.md) describes scalar VP8 DSP, YUVA import,
 iterator borders/contexts, susceptibility analysis/segment assignment,

@@ -271,5 +271,5 @@ Profile the same optimized executables separately to explain bottlenecks;
 instruction counts, cache events, and allocation measurements supplement elapsed
 time. Shared CI can run correctness and smoke measurements, but small wall-time
 regression gates need a stable host and an observed noise baseline. Native and
-Wasm results need separate target/runtime records; the bundled older C Wasm
-regression is not a matched performance reference for the current pin.
+Wasm results need separate target/runtime records; the historically inspected older C Wasm
+build is not a matched performance reference for the current pin.

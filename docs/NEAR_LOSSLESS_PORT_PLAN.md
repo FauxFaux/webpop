@@ -21,8 +21,7 @@ unreachable branches of
 
 Keep the upstream pin at `1844042d1ca751e62e61df7617dba19c98588339`. The pinned
 scalar C implementation, with near-lossless support enabled, is the byte-exact
-oracle under the recorded build/toolchain. The older full Wasm is an additional
-wrapper/export regression backend, not the source of algorithm truth.
+oracle under the recorded build/toolchain.
 
 ## Current repository (2026-10-23)
 
@@ -64,10 +63,6 @@ wrapper/export regression backend, not the source of algorithm truth.
   the simple lossless API; input stays
   unchanged at every setting. Validation includes signed strength, geometry,
   overflow, minimum buffers, padding, unaligned input and skinny limit sizes.
-- The retained full Wasm has a separate opt-in `wasm-oracle` regression:
-  196 files independently decode, lower strengths change RGB/intermediate
-  alpha, endpoints are preserved, and 100 matches its own simple lossless API.
-  See its [artifact/host record](../libwebpop/tests/reference/full-wasm/README.md).
 - CLI integration is complete. `--near_lossless 0..100` selects fidelity
   independently of `-q`, `-m` and `--exact`, keeping CLI defaults 75/4.
   `encode_near_lossless_rgba` accepts strength plus the existing effort/cleanup
@@ -321,15 +316,8 @@ Track evaluated candidates as well as the selected one. If ordinary public
 fixtures do not reach a branch, add direct subgraph tests with valid synthetic
 state; do not replace production selection with a forced path.
 
-The full Wasm artifact identified in the
-[lossy plan's inspection record](LOSSY_PORT_PLAN.md#inspected-wasm-build-and-feature-boundary)
-exports this wrapper. Its durable regression and separate retained artifact
-are documented in `tests/reference/full-wasm/README.md`, with SHA-256
-`f6317d0cce217547b165a768f82647c2e923c489b5ab75b8dd0310722cffa477`.
-The Node host uses SIMD and the recorded initialization sequence. The new
-regression checks lower strengths and near-lossless-100/lossless identity; the
-earlier inspection established only the latter for 12 pairs. Old-Wasm/new-pin
-byte identity is not required.
+The duplicate full-Wasm regression has been removed; native comparisons and
+portable fixtures provide the near-lossless regression coverage.
 
 ## Implementation order and acceptance gates
 
@@ -344,7 +332,7 @@ near-lossless milestones; no lossy VP8 milestone is required.
 | 2 (complete) | Predictor neighborhood and component quantization leaves, modulo boundaries and subtract-green compensation | Predictor leaf adapters (complete) | 645,384 exact native comparisons and 120 portable fixtures; independent restored-color error bounds, alpha endpoints and strided neighborhood checks |
 | 3 (complete) | `GetResidual`, plane masks, candidate predictor search and final residual generation with reconstruction feedback | 2 | 19,422 native comparisons and 30 portable fixtures: exact histograms, mode maps, sampling bits, scratch/context updates and residual images on active/bypass branches |
 | 4 (complete) | Per-candidate preprocessing/palette/predictor routing, config propagation, buffer state and inherited stream integration | 1, 3 | 132 portable/live C fixtures: exact candidate transform data, stream selection and internal VP8L bytes; no changes at 100 |
-| 5 (complete) | Public Rust wrapper, portable fixtures, native and full-Wasm regression coverage | 4 (complete) | 2,133 native public comparisons, 26 portable files, full-size real corpus, debug/release validation and 196 full-Wasm semantic regressions; decoded-reference RGBA agreement, valid errors, unchanged input and 100 identity |
+| 5 (complete) | Public Rust wrapper, portable fixtures, native regression coverage | 4 (complete) | 2,133 native public comparisons, 26 portable files, full-size real corpus, debug/release validation; decoded-reference RGBA agreement, valid errors, unchanged input and 100 identity |
 
 Completed integration batch:
 
@@ -404,15 +392,15 @@ logical intermediate. Record maximum per-channel decoded deviations, sizes,
 encode time and memory; quality measurements supplement exact parity.
 
 Verified formatting, the workspace portable suite, the full opt-in native
-suite, debug/release public validation, feedback checks, the Wasm regression and
+suite, debug/release public validation, feedback checks and
 a normal library build. Reproduce the full checks with:
 
 ```sh
 cargo fmt --all -- --check
 cargo test
-cargo test -p libwebpop --features native-oracle,wasm-oracle -- --nocapture
-cargo test -p libwebpop --release --features native-oracle,wasm-oracle \
-  --test near_lossless_public --test near_lossless_feedback --test near_lossless_wasm
+cargo test -p libwebpop --features native-oracle -- --nocapture
+cargo test -p libwebpop --release --features native-oracle \
+  --test near_lossless_public --test near_lossless_feedback
 cargo build -p libwebpop --lib
 # Optional full-size samples plus sizes/error/timing/process-memory record:
 cargo test -p libwebpop --release --features native-oracle \

@@ -8,11 +8,11 @@ description = "A direct port of parts of the WebP encoder, with identical output
 repository = "https://github.com/FauxFaux/webpop"
 categories = ["multimedia::encoding", "multimedia::images"]
 
+exclude=["/tests/fixtures"]
+
 [features]
 # Build and run the pinned scalar C implementation only in the oracle tests.
 native-oracle = []
-# Test-only retained full encoder regression; requires Node with Wasm SIMD.
-wasm-oracle = []
 
 [dependencies]
 thiserror = "2"
@@ -30,8 +30,3 @@ required-features = ["native-oracle"]
 name = "near_lossless_streams"
 path = "tests/near_lossless_streams.rs"
 required-features = ["native-oracle"]
-
-[[test]]
-name = "near_lossless_wasm"
-path = "tests/near_lossless_wasm.rs"
-required-features = ["wasm-oracle"]

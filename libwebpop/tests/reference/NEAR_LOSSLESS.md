@@ -249,7 +249,7 @@ were generated. Existing leaf/strength-100 fixtures and upstream are unchanged.
 Native requests/results, compiler/configuration provenance and minimized
 subgraph mismatch replays stay under `target/native-oracle/`.
 
-## Public API, validation and retained full Wasm (milestone 5)
+## Public API and validation (milestone 5)
 
 `WebPEncodeRGBAWithNearLossless` fixes quality 70, method 4 and exact false;
 its signed strength is validated before conversion. `LosslessOptions` retains
@@ -279,19 +279,18 @@ cargo test -p libwebpop --features native-oracle --test near_lossless_public \
   near_lossless_options_match_pinned_reference -- --nocapture
 ```
 
-The [separate full-Wasm artifact and host](full-wasm/README.md) provide 196
-independently decoded semantic/export regressions. They require Node only with
-`wasm-oracle`. Production library builds remain pure safe Rust, with no new
-runtime crate, C/Wasm dependency, or build script.
+The duplicate full-Wasm regression has been removed. Native comparisons and
+portable fixtures provide regression coverage. Production library builds remain
+pure safe Rust, with no C/Wasm dependency or build script.
 
 Verified commands:
 
 ```sh
 cargo fmt --all -- --check
 cargo test
-cargo test -p libwebpop --features native-oracle,wasm-oracle -- --nocapture
-cargo test -p libwebpop --release --features native-oracle,wasm-oracle \
-  --test near_lossless_public --test near_lossless_feedback --test near_lossless_wasm
+cargo test -p libwebpop --features native-oracle -- --nocapture
+cargo test -p libwebpop --release --features native-oracle \
+  --test near_lossless_public --test near_lossless_feedback
 cargo build -p libwebpop --lib
 ```
 
