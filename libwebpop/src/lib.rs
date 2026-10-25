@@ -1,23 +1,24 @@
 //! Scalar Rust port of the pinned libwebp still-image encoders.
 //!
-//! [`WebPEncodeRGBA`] encodes lossy VP8 with exact alpha;
-//! [`WebPEncodeRGBAWithAlphaQuality`] also permits alpha quantization.
+//! [`encode()`] accepts borrowed pixels and an [`OpConfig`] and returns an
+//! owned WebP file. [`OpQuality`] selects lossless, near-lossless, or lossy
+//! encoding, including alpha quality and SharpYUV conversion for lossy images.
 //!
-//! [`WebPEncodeLosslessRGBA`] produces complete WebP images using libwebp's
-//! simple API defaults. [`WebPEncodeRGBAWithNearLossless`] permits bounded
-//! pixel changes with the same simple API effort settings. All use the pinned
-//! encoder's configuration trials.
+//! [`WebPEncodeRGBA`] and [`WebPEncodeLosslessRGBA`] follow libwebp's simple
+//! API defaults for lossy and lossless encoding and write into a caller-owned
+//! buffer. All entry points use the pinned encoder's configuration trials.
 //!
 //! During the 0.1.x release series, compatibility is guaranteed only for the
-//! four crate-root `WebPEncode*` functions and [`WebPEncodingError`] as an error
-//! implementing [`std::error::Error`]. Error variants and their payloads are
+//! crate-root [`encode()`], [`OpImage`], [`OpConfig`], [`OpQuality`],
+//! [`WebPEncodeRGBA`], [`WebPEncodeLosslessRGBA`], and [`WebPEncodingError`] as
+//! an error implementing [`std::error::Error`]. Error variants and their payloads are
 //! implementation details and may change in patch releases.
 //!
 //! Everything under [`internal`] is exposed for testing and integration, is
 //! unsupported, and may change or disappear in any release, including patch
-//! releases. This includes configurable encoders, animation, and codec helpers.
+//! releases. This includes custom C-style wrappers, animation, and codec helpers.
 //!
-//! The still RGBA entry points take a final `output: &mut Vec<u8>` and return
+//! The two C-style entry points take a final `output: &mut Vec<u8>` and return
 //! `Result<(), _>`. Success replaces the output with a complete WebP file,
 //! reusing its capacity; errors leave its contents unchanged.
 //!
@@ -37,12 +38,12 @@ pub mod internal;
 use internal::{dsp, enc, mux, sharpyuv, utils, webp};
 
 mod encode;
-pub use encode::{
-    WebPEncodeLosslessRGBA, WebPEncodeRGBA, WebPEncodeRGBAWithAlphaQuality,
-    WebPEncodeRGBAWithNearLossless,
-};
+pub use encode::{WebPEncodeLosslessRGBA, WebPEncodeRGBA};
 
-/// Error type returned by the upstream-named simple encoding API.
+mod api;
+pub use api::{OpConfig, OpImage, OpQuality, encode};
+
+/// Error type returned by the supported encoding APIs.
 ///
 /// Compatibility during 0.1.x covers using this type as a [`std::error::Error`],
 /// including its [`std::fmt::Display`] implementation. Variants, payloads and

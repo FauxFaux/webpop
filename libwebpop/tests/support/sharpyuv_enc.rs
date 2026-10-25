@@ -1,5 +1,5 @@
 use super::{Case, ImageCase, lossy};
-use libwebpop::internal::{LossyOptions, encode_lossy_rgba};
+use libwebpop::{OpConfig, OpImage, OpQuality, encode};
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;
@@ -29,19 +29,18 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
         );
         out
     } else {
-        let mut encoded = Vec::new();
-        encode_lossy_rgba(
-            &storage[1..],
-            a[0],
-            a[1],
-            a[2] as usize,
-            &LossyOptions {
-                quality: f32::from_bits(a[3]),
-                method: 4,
-                alpha_quality: a[4] as i32,
-                use_sharp_yuv: a[5] != 0 || a[6] & 4 != 0,
+        let encoded = encode(
+            OpImage::Rgba {
+                pixels: &storage[1..],
+                width: a[0],
+                height: a[1],
+                stride: a[2] as usize,
             },
-            &mut encoded,
+            &OpConfig::new(OpQuality::Lossy {
+                quality: f32::from_bits(a[3]),
+                alpha_quality: a[4].try_into().unwrap(),
+                sharp_yuv: a[5] != 0 || a[6] & 4 != 0,
+            }),
         )
         .unwrap();
         encoded.into_iter().map(u32::from).collect()

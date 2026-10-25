@@ -46,22 +46,42 @@ port well: we've kept the original C (for now).
  * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 -m 6 input.png -o output.webp`
 
 During the 0.1.x release series, compatibility is guaranteed only for the
-crate-root `WebPEncodeLosslessRGBA`, `WebPEncodeRGBA`,
-`WebPEncodeRGBAWithAlphaQuality`, and `WebPEncodeRGBAWithNearLossless` functions,
+crate-root `encode`, `OpImage`, `OpConfig`, `OpQuality`,
+`WebPEncodeLosslessRGBA`, and `WebPEncodeRGBA` APIs,
 and `WebPEncodingError` as a `std::error::Error` with `Display`. Error variants,
 payloads, and exact messages are implementation details. Everything under
 `libwebpop::internal` is exposed for testing and integration, is unsupported,
 and may change or disappear in any release, including patch releases.
 
-The Rust library exposes `WebPEncodeRGBA(..., quality: f32, &mut output)` for
-lossy color with exact alpha and
-`WebPEncodeRGBAWithAlphaQuality(..., quality, alpha_quality, &mut output)` for
-independent alpha fidelity. Both use the pinned default preset and method 4.
-`internal::encode_lossy_rgba` accepts `internal::LossyOptions { quality, method, alpha_quality,
-use_sharp_yuv }` with methods 0–6 and method 4 as the default. The RGBA
-entry points take a final `&mut Vec<u8>` and return `Result<(), _>`. Success
-replaces the buffer with a complete WebP file, reusing its capacity; errors
-leave its contents unchanged. The CLI defaults to lossless.
+The Rust `encode(image, &config)` API returns an owned WebP file. `OpConfig`
+selects method 0–6 and either `OpQuality::Lossless { near_lossless, effort,
+exact }` or `OpQuality::Lossy { quality, alpha_quality, sharp_yuv }`.
+The default is lossless, with near-lossless strength 100, effort 70, method 4,
+and transparent RGB cleanup. The CLI also defaults to lossless, with effort 75.
+
+```rust
+use libwebpop::{OpConfig, OpImage, OpQuality, encode};
+
+let rgba = [12, 34, 56, 255];
+let mut config = OpConfig::new(OpQuality::Lossy {
+    quality: 98.5,
+    alpha_quality: 70,
+    sharp_yuv: true,
+});
+config.method = 6;
+let output = encode(
+    OpImage::Rgba { pixels: &rgba, width: 1, height: 1, stride: 4 },
+    &config,
+)?;
+```
+
+`WebPEncodeRGBA(..., quality: f32, &mut output)` and
+`WebPEncodeLosslessRGBA(..., &mut output)` retain the pinned upstream simple
+API defaults and method 4. Both take a final `&mut Vec<u8>` and return
+`Result<(), _>`. Success replaces the buffer with a complete WebP file,
+reusing its capacity; errors leave its contents unchanged. Custom wrappers
+`WebPEncodeRGBAWithAlphaQuality` and `WebPEncodeRGBAWithNearLossless` remain
+available under `internal`; use `OpQuality` for their supported equivalents.
 
 ```rust
 let rgba = [12, 34, 56, 255];

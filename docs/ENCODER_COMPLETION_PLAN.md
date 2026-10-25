@@ -1,9 +1,12 @@
 # Encoder completion plan
 
-For the initial 0.1.x release series, only the four crate-root `WebPEncode*`
-functions and `WebPEncodingError` as an `Error`/`Display` type carry compatibility
-guarantees. Configurable encoders, animation APIs, and codec helpers are exposed
-under `libwebpop::internal` for testing and integration and may change in patch
+For the initial 0.1.x release series, the crate-root `encode`, `OpImage`,
+`OpConfig`, `OpQuality`, `WebPEncodeRGBA`, `WebPEncodeLosslessRGBA`, and
+`WebPEncodingError` as an `Error`/`Display` type carry compatibility guarantees.
+The Rust API covers lossless and near-lossless fidelity, lossless effort/exact
+handling, lossy color/alpha quality and SharpYUV, and methods 0–6. Custom
+C-style wrappers, lower-level configurable encoders, animation APIs, and codec
+helpers are exposed under `libwebpop::internal` and may change in patch
 releases. References below to implemented or public APIs describe availability,
 not additional stability guarantees.
 

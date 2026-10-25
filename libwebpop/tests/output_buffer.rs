@@ -1,6 +1,7 @@
 use libwebpop::{
-    WebPEncodeLosslessRGBA, WebPEncodeRGBA, WebPEncodeRGBAWithAlphaQuality,
-    WebPEncodeRGBAWithNearLossless, WebPEncodingError,
+    WebPEncodeLosslessRGBA, WebPEncodeRGBA, WebPEncodingError,
+    internal::WebPEncodeRGBAWithAlphaQuality,
+    internal::WebPEncodeRGBAWithNearLossless,
     internal::{LosslessOptions, encode_lossless_rgba, encode_near_lossless_rgba},
 };
 

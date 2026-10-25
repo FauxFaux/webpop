@@ -9,9 +9,7 @@ use std::{
 };
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
-use libwebpop::internal::{
-    LosslessOptions, LossyOptions, encode_lossy_rgba, encode_near_lossless_rgba,
-};
+use libwebpop::{OpConfig, OpImage, OpQuality, encode};
 
 /// WebP encoder, based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]
@@ -230,13 +228,7 @@ fn main() -> ExitCode {
 
 type Error = Box<dyn std::error::Error>;
 
-#[derive(Debug, PartialEq)]
-enum EncoderOptions {
-    Lossless(LosslessOptions),
-    Lossy(LossyOptions),
-}
-
-fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, Error> {
+fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<OpConfig, Error> {
     // Keep the existing option inventory, but reject unimplemented operations
     // before opening files instead of silently ignoring requested behavior.
     const SUPPORTED: &[&str] = &[
@@ -287,19 +279,20 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, 
         return Err("method must be in 0..=6".into());
     }
     if args.lossy {
-        let alpha_quality = i32::from(args.alpha_q.unwrap_or(100));
+        let alpha_quality = args.alpha_q.unwrap_or(100);
         if alpha_quality > 100 {
             return Err("alpha quality must be in 0..=100".into());
         }
         if args.pre.is_some_and(|pre| !matches!(pre, 0 | 4)) {
             return Err("--pre currently supports only 0 or 4 (SharpYUV)".into());
         }
-        return Ok(EncoderOptions::Lossy(LossyOptions {
+        let mut config = OpConfig::new(OpQuality::Lossy {
             quality,
-            method: u32::from(method),
             alpha_quality,
-            use_sharp_yuv: args.sharp_yuv || args.pre == Some(4),
-        }));
+            sharp_yuv: args.sharp_yuv || args.pre == Some(4),
+        });
+        config.method = method;
+        return Ok(config);
     }
     if args.alpha_q.is_some() {
         return Err("--alpha_q requires --lossy".into());
@@ -307,11 +300,13 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, 
     if args.sharp_yuv || args.pre.is_some() {
         return Err("--sharp_yuv and --pre require --lossy".into());
     }
-    Ok(EncoderOptions::Lossless(LosslessOptions {
-        quality: quality as u32,
-        method: u32::from(method),
+    let mut config = OpConfig::new(OpQuality::Lossless {
+        near_lossless: args.near_lossless.unwrap_or(100),
+        effort: quality as u8,
         exact: args.exact,
-    }))
+    });
+    config.method = method;
+    Ok(config)
 }
 
 fn run(matches: &ArgMatches) -> Result<(), Error> {
@@ -344,26 +339,15 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
     }
     let (width, height) = rgba.dimensions();
     let near_lossless = args.near_lossless.unwrap_or(100);
-    let mut encoded = Vec::new();
-    match &options {
-        EncoderOptions::Lossless(options) => encode_near_lossless_rgba(
-            rgba.as_raw(),
+    let encoded = encode(
+        OpImage::Rgba {
+            pixels: rgba.as_raw(),
             width,
             height,
-            width as usize * 4,
-            i32::from(near_lossless),
-            options,
-            &mut encoded,
-        )?,
-        EncoderOptions::Lossy(options) => encode_lossy_rgba(
-            rgba.as_raw(),
-            width,
-            height,
-            width as usize * 4,
-            options,
-            &mut encoded,
-        )?,
-    };
+            stride: width as usize * 4,
+        },
+        &options,
+    )?;
     if output.as_os_str() == "-" {
         let mut stdout = io::stdout().lock();
         stdout.write_all(&encoded)?;
@@ -409,9 +393,9 @@ mod tests {
         let args = Args::from_arg_matches(&matches).unwrap();
         assert_eq!(
             encoder_options(&args, &matches).unwrap(),
-            EncoderOptions::Lossless(LosslessOptions {
-                quality: 75,
-                method: 4,
+            OpConfig::new(OpQuality::Lossless {
+                near_lossless: 100,
+                effort: 75,
                 exact: false,
             })
         );

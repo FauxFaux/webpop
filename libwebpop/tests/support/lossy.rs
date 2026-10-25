@@ -15,7 +15,7 @@ pub fn encode(case: &Case) -> Result<Vec<u8>, libwebpop::WebPEncodingError> {
     let q = f32::from_bits(a[3]);
     let mut output = Vec::new();
     let result = if custom {
-        libwebpop::WebPEncodeRGBAWithAlphaQuality(
+        libwebpop::internal::WebPEncodeRGBAWithAlphaQuality(
             &rgba[1..],
             a[0],
             a[1],

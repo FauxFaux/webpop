@@ -1,9 +1,8 @@
 //! Unsupported APIs exposed for testing and integration.
 //!
 //! All items in this module may change or disappear in any release, including
-//! 0.1.x patch releases. Only the crate-root `WebPEncode*` functions and
-//! `WebPEncodingError` have the compatibility guarantees documented at the
-//! crate root.
+//! 0.1.x patch releases. The supported encoding APIs and their compatibility
+//! guarantees are documented at the crate root.
 
 // Explicit paths preserve the source layout matching the upstream port.
 #[path = "dsp/mod.rs"]
@@ -20,7 +19,8 @@ pub mod utils;
 pub mod webp;
 
 pub use crate::encode::{
-    LosslessEncodeError, LosslessOptions, LossyOptions, encode_lossless_rgba, encode_lossy_rgba,
+    LosslessEncodeError, LosslessOptions, LossyOptions, WebPEncodeRGBAWithAlphaQuality,
+    WebPEncodeRGBAWithNearLossless, encode_lossless_rgba, encode_lossy_rgba,
     encode_near_lossless_rgba,
 };
 pub use mux::{

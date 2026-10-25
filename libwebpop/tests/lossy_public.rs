@@ -1,4 +1,6 @@
-use libwebpop::{WebPEncodeRGBA as encode, WebPEncodeRGBAWithAlphaQuality as encode_alpha};
+use libwebpop::{
+    WebPEncodeRGBA as encode, internal::WebPEncodeRGBAWithAlphaQuality as encode_alpha,
+};
 
 #[cfg(feature = "native-oracle")]
 #[path = "support/native.rs"]

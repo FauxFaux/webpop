@@ -1,8 +1,5 @@
 use super::{Case, ImageCase, SEED, random};
-use libwebpop::{
-    WebPEncodeLosslessRGBA,
-    internal::{LosslessOptions, encode_lossless_rgba},
-};
+use libwebpop::{WebPEncodeLosslessRGBA, internal::LosslessOptions};
 
 pub fn unpack(case: &Case) -> (ImageCase, LosslessOptions) {
     let a = &case.input;
@@ -47,14 +44,22 @@ pub fn encode(case: &Case) -> Vec<u8> {
             &mut result,
         )
     } else {
-        encode_lossless_rgba(
-            &allocation[1..],
-            image.width,
-            image.height,
-            image.stride,
-            &options,
-            &mut result,
+        let mut config = libwebpop::OpConfig::new(libwebpop::OpQuality::Lossless {
+            near_lossless: 100,
+            effort: options.quality.try_into().unwrap(),
+            exact: options.exact,
+        });
+        config.method = options.method.try_into().unwrap();
+        libwebpop::encode(
+            libwebpop::OpImage::Rgba {
+                pixels: &allocation[1..],
+                width: image.width,
+                height: image.height,
+                stride: image.stride,
+            },
+            &config,
         )
+        .map(|bytes| result = bytes)
     }
     .unwrap();
     assert_eq!(allocation, original);

@@ -517,7 +517,7 @@ fn lossy_files_and_streams_preserve_fractional_quality_and_alpha_settings() {
             }
         }
         let mut expected = Vec::new();
-        libwebpop::WebPEncodeRGBAWithAlphaQuality(
+        libwebpop::internal::WebPEncodeRGBAWithAlphaQuality(
             pixels.as_raw(),
             17,
             19,
@@ -569,7 +569,7 @@ fn lossy_files_and_streams_preserve_fractional_quality_and_alpha_settings() {
     assert!(result.stderr.is_empty());
     assert_eq!(result.stdout, {
         let mut output = Vec::new();
-        libwebpop::WebPEncodeRGBAWithAlphaQuality(
+        libwebpop::internal::WebPEncodeRGBAWithAlphaQuality(
             image.as_raw(),
             17,
             19,
@@ -636,7 +636,7 @@ fn sharp_yuv_files_and_streams_match_library_and_preprocessing_alias() {
     let source = source();
     source.save(&input).unwrap();
     let mut ordinary = Vec::new();
-    libwebpop::WebPEncodeRGBAWithAlphaQuality(
+    libwebpop::internal::WebPEncodeRGBAWithAlphaQuality(
         source.as_raw(),
         17,
         19,

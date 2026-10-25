@@ -228,29 +228,30 @@ It preserves the CLI's quality 75/method 4 defaults and honors explicit `-q`,
 so combining them retains the requested strength. Strength 100 produces the
 same bytes as ordinary lossless encoding at the same effort/exact settings.
 
-The public `encode_near_lossless_rgba(..., near_lossless, &options, &mut output)`
-entry point shares `LosslessOptions` for compression effort and cleanup, with strength
-supplied independently. `encode_lossless_rgba` always selects strength 100.
-`WebPEncodeRGBAWithNearLossless(..., near_lossless, &mut output)` is the custom
-wrapper API, with fixed quality 70/method 4/exact false. Match it in the CLI
-with `--near_lossless N -q 70 -m 4` and no `--exact`.
+The supported Rust `encode(image, &config)` API selects VP8L through
+`OpQuality::Lossless { near_lossless, effort, exact }`, with independent
+`config.method`. Effort maps to libwebp's lossless quality in `0..=100`;
+near-lossless strength 100 selects lossless encoding. The custom
+`internal::WebPEncodeRGBAWithNearLossless(..., near_lossless, &mut output)`
+wrapper fixes effort 70/method 4/exact false. Match it in the CLI with
+`--near_lossless N -q 70 -m 4` and no `--exact`.
 
 Below 100, RGB and intermediate alpha may change; `--exact` disables cleanup
 and predictor quantization, while standalone preprocessing may still change
 pixels. It does not promise exact alpha.
 
 `WebPEncodeRGBA(..., quality: f32, &mut output)` exposes default-preset lossy
-color with exact alpha. `WebPEncodeRGBAWithAlphaQuality(..., quality: f32, alpha_quality: i32, &mut output)`
-also controls alpha fidelity. Color quality must be finite and in `0..=100`;
+color with exact alpha. `OpQuality::Lossy { quality, alpha_quality, sharp_yuv }`
+also controls alpha fidelity and color conversion. Color quality must be finite and in `0..=100`;
 fractional values reach VP8 unchanged. Alpha quality must be in `0..=100`.
-The standard function equals the custom wrapper at alpha quality 100;
+The standard function equals `encode` with method 4, SharpYUV off, and alpha quality 100;
 alpha quality does not affect opaque output. Quality 100 still changes RGB.
-These controls are separate from `LosslessOptions`.
+These controls are separate from lossless effort.
 
 `cwebpop --lossy -q 98.5 --alpha_q 70 input.png -o output.webp` selects VP8
 with color quality 98.5 and alpha quality 70. Its defaults are color quality
 75, alpha quality 100 and method 4. Lossy `-m 0..6` selects color and alpha
-encoding effort, also exposed as `LossyOptions::method` in `encode_lossy_rgba`.
+encoding effort, also exposed as `OpConfig::method`.
 `--lossy` conflicts with `--lossless`, `--near_lossless` and `--exact`.
 `--alpha_q` requires `--lossy`. `-z` and other unimplemented settings remain
 rejected even where parsing recognizes their names.

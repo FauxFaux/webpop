@@ -422,7 +422,7 @@ fn public_defaults_preserve_both_method4_convenience_apis() {
             libwebpop::WebPEncodeRGBA(&image.rgba, 17, 19, image.stride, quality, &mut standard)
                 .unwrap();
             let mut custom = Vec::new();
-            libwebpop::WebPEncodeRGBAWithAlphaQuality(
+            libwebpop::internal::WebPEncodeRGBAWithAlphaQuality(
                 &image.rgba,
                 17,
                 19,

@@ -21,22 +21,25 @@ pub fn public_output(case: &Case) -> Vec<u32> {
     let a = &case.input;
     assert_eq!(case.function, "WebPEncodeLossyMethod");
     let pixels: Vec<_> = a[7..].iter().map(|&v| v as u8).collect();
-    let mut output = Vec::new();
-    libwebpop::internal::encode_lossy_rgba(
-        &pixels,
-        a[0],
-        a[1],
-        a[2] as usize,
-        &libwebpop::internal::LossyOptions {
-            quality: f32::from_bits(a[3]),
-            method: a[5],
-            alpha_quality: a[4] as i32,
-            use_sharp_yuv: a[6] != 0,
+    let mut config = libwebpop::OpConfig::new(libwebpop::OpQuality::Lossy {
+        quality: f32::from_bits(a[3]),
+        alpha_quality: a[4].try_into().unwrap(),
+        sharp_yuv: a[6] != 0,
+    });
+    config.method = a[5].try_into().unwrap();
+    libwebpop::encode(
+        libwebpop::OpImage::Rgba {
+            pixels: &pixels,
+            width: a[0],
+            height: a[1],
+            stride: a[2] as usize,
         },
-        &mut output,
+        &config,
     )
-    .unwrap();
-    output.into_iter().map(u32::from).collect()
+    .unwrap()
+    .into_iter()
+    .map(u32::from)
+    .collect()
 }
 
 pub fn check_decoded(case: &Case, output: &[u32]) -> [usize; 3] {

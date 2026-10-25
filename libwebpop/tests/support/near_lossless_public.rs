@@ -119,14 +119,18 @@ pub fn check_reference(case: &Case, words: &[u32]) -> (usize, usize) {
     let mut allocation = vec![0xa5];
     allocation.extend(&image.rgba);
     let original = allocation.clone();
-    let mut actual = Vec::new();
-    libwebpop::WebPEncodeRGBAWithNearLossless(
-        &allocation[1..],
-        image.width,
-        image.height,
-        image.stride,
-        case.input[3] as i32,
-        &mut actual,
+    let actual = libwebpop::encode(
+        libwebpop::OpImage::Rgba {
+            pixels: &allocation[1..],
+            width: image.width,
+            height: image.height,
+            stride: image.stride,
+        },
+        &libwebpop::OpConfig::new(libwebpop::OpQuality::Lossless {
+            near_lossless: case.input[3].try_into().unwrap(),
+            effort: 70,
+            exact: false,
+        }),
     )
     .unwrap();
     assert_eq!(allocation, original);

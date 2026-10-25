@@ -111,7 +111,9 @@ fn near_lossless_public_fixtures_match_pinned_reference() {
 #[test]
 fn public_strength_and_geometry_validation() {
     use libwebpop::internal::enc::picture_csp_enc::RgbaInputError;
-    use libwebpop::{WebPEncodeRGBAWithNearLossless as encode, internal::LosslessEncodeError};
+    use libwebpop::{
+        internal::LosslessEncodeError, internal::WebPEncodeRGBAWithNearLossless as encode,
+    };
     for strength in [i32::MIN, -1, 101, i32::MAX] {
         assert!(matches!(
             encode(&[1, 2, 3, 255], 1, 1, 4, strength, &mut Vec::new()),
@@ -158,7 +160,7 @@ fn public_strength_and_geometry_validation() {
 
 #[test]
 fn strengths_share_buckets_and_ignore_padding_without_mutating_input() {
-    use libwebpop::WebPEncodeRGBAWithNearLossless as encode;
+    use libwebpop::internal::WebPEncodeRGBAWithNearLossless as encode;
     for pattern in [2, 9, 12, 24] {
         let image = support::public_images::image(19, 17, pattern);
         let mut packed = Vec::new();
@@ -283,7 +285,7 @@ fn real_image_corpus_parity_and_metrics() {
             );
             let start = Instant::now();
             let mut actual = Vec::new();
-            libwebpop::WebPEncodeRGBAWithNearLossless(
+            libwebpop::internal::WebPEncodeRGBAWithNearLossless(
                 source.as_raw(),
                 w,
                 h,
@@ -443,7 +445,7 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
                 },
                 {
                     let mut output = Vec::new();
-                    libwebpop::WebPEncodeRGBAWithNearLossless(
+                    libwebpop::internal::WebPEncodeRGBAWithNearLossless(
                         &image.rgba,
                         image.width,
                         image.height,
