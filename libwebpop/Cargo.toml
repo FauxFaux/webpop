@@ -8,7 +8,7 @@ description = "A direct port of parts of the WebP encoder, with identical output
 repository = "https://github.com/FauxFaux/webpop"
 categories = ["multimedia::encoding", "multimedia::images"]
 
-exclude=["/tests/fixtures"]
+exclude=["/tests"]
 
 [features]
 # Build and run the pinned scalar C implementation only in the oracle tests.
