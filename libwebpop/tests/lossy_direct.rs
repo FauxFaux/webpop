@@ -133,7 +133,7 @@ fn direct_leaves_match_pinned_c() {
     );
 }
 
-use libwebpop::{dsp::cost::VP8EncBands, enc::frame_enc::*, utils::bit_writer_utils::*};
+use libwebpop::internal::{dsp::cost::VP8EncBands, enc::frame_enc::*, utils::bit_writer_utils::*};
 use support::{
     Case,
     vp8_boolean::{self, Decoder},
@@ -509,7 +509,7 @@ fn fitting_changes_only_skip_probability_fields() {
 
 #[test]
 fn direct_coefficient_coding_propagates_allocation_failure() {
-    use libwebpop::enc::{cost_enc::VP8InitResidual, vp8i_enc::VP8EncProba};
+    use libwebpop::internal::enc::{cost_enc::VP8InitResidual, vp8i_enc::VP8EncProba};
     let mut bw = VP8BitWriterInit(0).unwrap();
     // Force a flush whose pending run cannot fit a Vec allocation on any host.
     // The caller abandons the writer after the error, as for other VP8 writes.

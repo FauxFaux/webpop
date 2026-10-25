@@ -1,5 +1,5 @@
 use super::{Case, SEED, random, vp8_tokens::hash};
-use libwebpop::{
+use libwebpop::internal::{
     enc::{
         analysis_enc::*, filter_enc::*, frame_enc::*, picture_csp_enc::import_rgba_to_yuva,
         picture_enc::WebPYUVAPicture, picture_tools_enc::WebPCleanupTransparentArea,

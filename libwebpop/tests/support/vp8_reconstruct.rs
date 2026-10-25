@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::{iterator_enc::*, quant_enc::*, vp8i_enc::*};
+use libwebpop::internal::enc::{iterator_enc::*, quant_enc::*, vp8i_enc::*};
 
 pub const SCORE_WORDS: usize = 435;
 pub const PIXELS: usize = 1 + SCORE_WORDS;
@@ -379,7 +379,7 @@ pub fn evaluate_with_method(a: &[u32], method: i32) -> Vec<u32> {
     let mut calls = Vec::new();
     if method >= 5 {
         it.do_trellis = true;
-        libwebpop::enc::cost_enc::VP8CalculateLevelCosts(&mut enc.proba);
+        libwebpop::internal::enc::cost_enc::VP8CalculateLevelCosts(&mut enc.proba);
     }
     let mask = run_with_observer(a, &mut enc, &mut it, &mut rd, &mut dst, &mut |_, r| {
         calls.extend([

@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::sharpyuv::{sharpyuv_dsp::*, sharpyuv_gamma::*, *};
+use libwebpop::internal::sharpyuv::{sharpyuv_dsp::*, sharpyuv_gamma::*, *};
 
 pub fn matrix_words(m: &SharpYuvConversionMatrix) -> Vec<u32> {
     m.rgb_to_y
@@ -49,7 +49,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             out
         }
         "SharpYuvImport" => {
-            use libwebpop::sharpyuv::sharpyuv::*;
+            use libwebpop::internal::sharpyuv::sharpyuv::*;
             with_input(case, |input| {
                 let w = ((a[0] + 1) & !1) as usize;
                 let mut rows = vec![0; 6 * w];
@@ -423,7 +423,7 @@ pub fn dsp_cases() -> Vec<Case> {
 
 pub fn convert_case(
     case: &Case,
-    observe: impl FnMut(libwebpop::sharpyuv::sharpyuv::SharpYuvIteration<'_>),
+    observe: impl FnMut(libwebpop::internal::sharpyuv::sharpyuv::SharpYuvIteration<'_>),
 ) -> (Vec<u16>, SharpYuvOutput) {
     let a = &case.input;
     let matrix = SharpYuvConversionMatrix {
@@ -453,7 +453,7 @@ pub fn convert_case(
         if a[7] != 0 {
             SharpYuvConvert(input, a[4], a[5], &matrix)
         } else {
-            libwebpop::sharpyuv::sharpyuv::convert_with_observer(
+            libwebpop::internal::sharpyuv::sharpyuv::convert_with_observer(
                 input, a[4], a[5], &options, observe,
             )
         }
@@ -470,7 +470,7 @@ pub fn convert_case(
         if a[7] != 0 {
             SharpYuvConvert(input, a[4], a[5], &matrix)
         } else {
-            libwebpop::sharpyuv::sharpyuv::convert_with_observer(
+            libwebpop::internal::sharpyuv::sharpyuv::convert_with_observer(
                 input, a[4], a[5], &options, observe,
             )
         }

@@ -1,7 +1,7 @@
 mod support;
 
-use libwebpop::enc::vp8l_enc::{WriteImage, WriteImageSize, WriteRealAlphaAndVersion};
-use libwebpop::utils::bit_writer_utils::*;
+use libwebpop::internal::enc::vp8l_enc::{WriteImage, WriteImageSize, WriteRealAlphaAndVersion};
+use libwebpop::internal::utils::bit_writer_utils::*;
 
 #[test]
 fn committed_encoder_streams_match_scalar_c() {

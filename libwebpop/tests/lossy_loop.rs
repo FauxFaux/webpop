@@ -67,7 +67,7 @@ fn frame_loop_fixtures_match_pinned_reference() {
     }
 }
 
-use libwebpop::{
+use libwebpop::internal::{
     enc::{
         analysis_enc::VP8EncAnalyze, filter_enc::VP8FilterStrengthFromDelta, frame_enc::*,
         vp8i_enc::*,
@@ -163,7 +163,12 @@ fn final_filter_adjustment_uses_largest_segment_edge_and_never_weakens() {
         assert_eq!(out[0], max);
     }
 }
-fn initialized(a: &[u32]) -> (VP8Encoder, libwebpop::enc::picture_enc::WebPYUVAPicture) {
+fn initialized(
+    a: &[u32],
+) -> (
+    VP8Encoder,
+    libwebpop::internal::enc::picture_enc::WebPYUVAPicture,
+) {
     let pic = frames::picture(a);
     let mut enc = VP8Encoder::new(a[0], a[1], f32::from_bits(a[2]) <= 98.).unwrap();
     enc.segment_hdr.num_segments = a[3] as usize;
@@ -212,7 +217,7 @@ fn refresh_countdown_and_retry_boundaries_preserve_pass_state() {
                     assert!(!enc.proba.use_skip_proba);
                     if let Some(p) = previous_coeffs.take() {
                         assert_eq!(enc.proba.coeffs, p);
-                        if p != libwebpop::enc::tree_enc::VP8CoeffsProba0 {
+                        if p != libwebpop::internal::enc::tree_enc::VP8CoeffsProba0 {
                             retained += 1;
                         }
                     }

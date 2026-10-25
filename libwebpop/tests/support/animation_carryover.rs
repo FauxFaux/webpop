@@ -1,6 +1,6 @@
 use super::{Case, SEED, animation_lossless::candidate_words, random};
-use libwebpop::LosslessOptions;
-use libwebpop::mux::anim_encode::*;
+use libwebpop::internal::LosslessOptions;
+use libwebpop::internal::mux::anim_encode::*;
 
 pub struct Step {
     pub candidate: Option<LosslessCandidate>,

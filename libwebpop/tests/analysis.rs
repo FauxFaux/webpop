@@ -1,7 +1,7 @@
 mod support;
 
-use libwebpop::enc::vp8l_enc::*;
-use libwebpop::utils::palette::PaletteSorting;
+use libwebpop::internal::enc::vp8l_enc::*;
+use libwebpop::internal::utils::palette::PaletteSorting;
 
 #[test]
 fn committed_analysis_fixtures_match_scalar_c() {

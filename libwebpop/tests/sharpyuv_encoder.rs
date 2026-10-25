@@ -5,8 +5,11 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::enc::picture_csp_enc::{import_rgba_to_yuva, import_rgba_to_yuva_sharp};
-use libwebpop::{LossyOptions, WebPEncodeRGBAWithAlphaQuality, encode_lossy_rgba};
+use libwebpop::internal::enc::picture_csp_enc::{import_rgba_to_yuva, import_rgba_to_yuva_sharp};
+use libwebpop::{
+    WebPEncodeRGBAWithAlphaQuality,
+    internal::{LossyOptions, encode_lossy_rgba},
+};
 use support::sharpyuv_enc as sharp;
 
 #[test]

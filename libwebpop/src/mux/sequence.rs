@@ -120,13 +120,13 @@ enum State {
 /// loses playback timing and loop settings, following WebPMux cleanup.
 ///
 /// ```
-/// use libwebpop::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
+/// use libwebpop::internal::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
 /// let mut encoder = AnimationEncoder::new(1, 1, AnimationOptions::default())?;
 /// encoder.add_rgba(&[255, 0, 0, 255], 4, 500, &AnimationFrameOptions::default())?;
 /// encoder.add_rgba(&[0, 0, 255, 128], 4, 600, &AnimationFrameOptions::default())?;
 /// let mut webp = Vec::new();
 /// encoder.finish(640, &mut webp)?; // Stored durations: 100 ms and 40 ms.
-/// # Ok::<(), libwebpop::AnimationError>(())
+/// # Ok::<(), libwebpop::internal::AnimationError>(())
 /// ```
 #[derive(Debug)]
 pub struct AnimationEncoder {

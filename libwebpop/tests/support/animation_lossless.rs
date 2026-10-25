@@ -1,6 +1,6 @@
 use super::{Case, SEED, random};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub fn rectangle(a: &[u32]) -> FrameRectangle {
     FrameRectangle {

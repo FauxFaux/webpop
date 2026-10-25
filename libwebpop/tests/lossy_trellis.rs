@@ -84,7 +84,7 @@ fn trellis_leaves_match_pinned_c() {
     eprintln!("{} exact trellis leaf requests", cases.len());
 }
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::{
         cost::{VP8EncBands, VP8LevelFixedCosts},
         enc::kZigzag,

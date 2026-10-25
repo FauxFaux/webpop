@@ -71,12 +71,12 @@ fn default_cli_matches_upstream_cli_effort() {
         String::from_utf8_lossy(&result.stderr)
     );
     let mut expected = Vec::new();
-    libwebpop::encode_lossless_rgba(
+    libwebpop::internal::encode_lossless_rgba(
         image.as_raw(),
         image.width(),
         image.height(),
         image.width() as usize * 4,
-        &libwebpop::LosslessOptions {
+        &libwebpop::internal::LosslessOptions {
             quality: 75,
             ..Default::default()
         },
@@ -329,7 +329,7 @@ fn near_lossless_honors_strength_effort_exact_and_alpha_options() {
                     p.0[3] = 255;
                 }
             }
-            let options = libwebpop::LosslessOptions {
+            let options = libwebpop::internal::LosslessOptions {
                 quality: effort
                     .map(|q| q.parse::<f32>().unwrap() as u32)
                     .unwrap_or(75),
@@ -337,7 +337,7 @@ fn near_lossless_honors_strength_effort_exact_and_alpha_options() {
                 exact,
             };
             let mut expected = Vec::new();
-            libwebpop::encode_near_lossless_rgba(
+            libwebpop::internal::encode_near_lossless_rgba(
                 pixels.as_raw(),
                 65,
                 5,
@@ -364,7 +364,7 @@ fn near_lossless_honors_strength_effort_exact_and_alpha_options() {
             if strength == 100 {
                 assert_eq!(actual, {
                     let mut output = Vec::new();
-                    libwebpop::encode_lossless_rgba(
+                    libwebpop::internal::encode_lossless_rgba(
                         pixels.as_raw(),
                         65,
                         5,
@@ -449,13 +449,13 @@ fn near_lossless_streams_and_invalid_strengths_preserve_output_contracts() {
     assert!(result.stderr.is_empty());
     assert_eq!(result.stdout, {
         let mut output = Vec::new();
-        libwebpop::encode_near_lossless_rgba(
+        libwebpop::internal::encode_near_lossless_rgba(
             source().as_raw(),
             17,
             19,
             17 * 4,
             60,
-            &libwebpop::LosslessOptions {
+            &libwebpop::internal::LosslessOptions {
                 quality: 90,
                 method: 6,
                 exact: false,
@@ -673,12 +673,12 @@ fn sharp_yuv_files_and_streams_match_library_and_preprocessing_alias() {
             }
         }
         let mut expected = Vec::new();
-        libwebpop::encode_lossy_rgba(
+        libwebpop::internal::encode_lossy_rgba(
             pixels.as_raw(),
             17,
             19,
             17 * 4,
-            &libwebpop::LossyOptions {
+            &libwebpop::internal::LossyOptions {
                 quality: 98.5,
                 method: 4,
                 alpha_quality: 30,
@@ -715,12 +715,12 @@ fn sharp_yuv_files_and_streams_match_library_and_preprocessing_alias() {
     );
     assert!(result.stderr.is_empty());
     let mut expected = Vec::new();
-    libwebpop::encode_lossy_rgba(
+    libwebpop::internal::encode_lossy_rgba(
         source.as_raw(),
         17,
         19,
         17 * 4,
-        &libwebpop::LossyOptions {
+        &libwebpop::internal::LossyOptions {
             use_sharp_yuv: true,
             ..Default::default()
         },
@@ -768,12 +768,12 @@ fn all_lossy_methods_match_library_for_files_streams_and_noalpha() {
                 }
             }
             let mut expected = Vec::new();
-            libwebpop::encode_lossy_rgba(
+            libwebpop::internal::encode_lossy_rgba(
                 pixels.as_raw(),
                 17,
                 19,
                 17 * 4,
-                &libwebpop::LossyOptions {
+                &libwebpop::internal::LossyOptions {
                     quality: 98.5,
                     method,
                     alpha_quality: 71,
@@ -819,12 +819,12 @@ fn all_lossy_methods_match_library_for_files_streams_and_noalpha() {
         );
         assert!(result.stderr.is_empty());
         let mut expected = Vec::new();
-        libwebpop::encode_lossy_rgba(
+        libwebpop::internal::encode_lossy_rgba(
             image.as_raw(),
             17,
             19,
             17 * 4,
-            &libwebpop::LossyOptions {
+            &libwebpop::internal::LossyOptions {
                 quality: 30.25,
                 method,
                 ..Default::default()

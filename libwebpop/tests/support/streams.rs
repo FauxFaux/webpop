@@ -1,6 +1,6 @@
 use super::Case;
-use libwebpop::enc::vp8l_enc::*;
-use libwebpop::utils::bit_writer_utils::*;
+use libwebpop::internal::enc::vp8l_enc::*;
+use libwebpop::internal::utils::bit_writer_utils::*;
 
 pub fn encode(case: &Case, bw: &mut VP8LBitWriter) -> LosslessStreamStats {
     let a = &case.input;

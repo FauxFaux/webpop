@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{
+use libwebpop::internal::{
     LosslessEncodeError,
     dsp::yuv::*,
     enc::{picture_csp_enc::*, picture_enc::WebPYUVAPicture, picture_tools_enc::*},

@@ -1,7 +1,7 @@
 //! Encode-only measurements on prepared packed RGBA; see scripts/benchmark-lossy.py.
 #![forbid(unsafe_code)]
 
-use libwebpop::{LossyOptions, encode_lossy_rgba};
+use libwebpop::internal::{LossyOptions, encode_lossy_rgba};
 use std::{env, fs, time::Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

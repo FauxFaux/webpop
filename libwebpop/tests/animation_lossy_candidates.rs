@@ -6,8 +6,8 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 use support::animation_lossy as corpus;
 
 fn file(output: &[u32]) -> Vec<u8> {

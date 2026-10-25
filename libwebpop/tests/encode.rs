@@ -1,6 +1,6 @@
 use libwebpop::WebPEncodeLosslessRGBA;
-use libwebpop::enc::picture_csp_enc::RgbaInputError;
-use libwebpop::{LosslessEncodeError, LosslessOptions, encode_lossless_rgba};
+use libwebpop::internal::enc::picture_csp_enc::RgbaInputError;
+use libwebpop::internal::{LosslessEncodeError, LosslessOptions, encode_lossless_rgba};
 
 mod support;
 

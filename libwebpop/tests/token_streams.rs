@@ -22,10 +22,10 @@ fn committed_token_streams_match_scalar_c() {
 
 #[test]
 fn group_selection_uses_token_start_after_crossing_rows() {
-    use libwebpop::enc::backward_references_enc::*;
-    use libwebpop::enc::vp8l_enc::StoreImageToBitMask;
-    use libwebpop::utils::bit_writer_utils::*;
-    use libwebpop::utils::huffman_encode_utils::HuffmanTreeCode;
+    use libwebpop::internal::enc::backward_references_enc::*;
+    use libwebpop::internal::enc::vp8l_enc::StoreImageToBitMask;
+    use libwebpop::internal::utils::bit_writer_utils::*;
+    use libwebpop::internal::utils::huffman_encode_utils::HuffmanTreeCode;
     // Deliberately supplied codes make group selection visible independently
     // of histogram construction. Cache index zero encodes as 0 in group zero,
     // 1 in group one. Copy length 7 crosses two rows of width 3.

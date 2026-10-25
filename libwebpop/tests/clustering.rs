@@ -1,6 +1,6 @@
 mod support;
 
-use libwebpop::enc::{backward_references_enc::*, histogram_enc::*, predictor_enc::*};
+use libwebpop::internal::enc::{backward_references_enc::*, histogram_enc::*, predictor_enc::*};
 
 #[test]
 fn committed_clustering_and_sampling_match_scalar_c() {

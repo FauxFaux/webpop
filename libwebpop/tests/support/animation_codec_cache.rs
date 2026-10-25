@@ -1,8 +1,8 @@
 //! Version 1 of the existing AnimationCache request: flags bit 2 selects the
 //! extended header/observations; bits 0/1 select minimize-size/allow-mixed.
 use super::{Case, animation_cache, animation_mixed};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub struct Frame<'a> {
     pub duration: u32,

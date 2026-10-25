@@ -9,7 +9,7 @@ use super::*;
 use crate::enc::config_enc::{LossyConfig, WebPValidateConfig};
 use crate::enc::picture_csp_enc::RgbaInputError;
 use crate::mux::{ContainerFrameOptions, EncodedFrame, FrameDispose};
-use crate::{LosslessOptions, LossyOptions, WebPEncodingError};
+use crate::{WebPEncodingError, internal::LosslessOptions, internal::LossyOptions};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AnimationCandidateCodec {

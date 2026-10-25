@@ -1,6 +1,6 @@
 use super::{Case, SEED, random, words64};
-use libwebpop::enc::{backward_references_enc::*, histogram_enc::*};
-use libwebpop::webp::format_constants::LZ77_WINDOW_SIZE;
+use libwebpop::internal::enc::{backward_references_enc::*, histogram_enc::*};
+use libwebpop::internal::webp::format_constants::LZ77_WINDOW_SIZE;
 
 fn token(op: &[u32]) -> PixOrCopy {
     match op[0] {

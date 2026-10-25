@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::predictor_enc::*;
+use libwebpop::internal::enc::predictor_enc::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;
@@ -256,8 +256,8 @@ pub fn fixture_cases() -> Vec<Case> {
 }
 
 pub fn transform_evaluate(case: &Case) -> Vec<u32> {
-    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::internal::utils::bit_writer_utils::*;
     let a = &case.input;
     if case.function == "ClampBits" {
         return vec![ClampBits(

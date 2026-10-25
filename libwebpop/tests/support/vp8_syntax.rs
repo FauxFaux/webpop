@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::cost::SetResidualCoeffs_C,
     enc::{cost_enc::*, syntax_enc::*, token_enc::*, tree_enc::*, vp8i_enc::*},
     utils::bit_writer_utils::*,

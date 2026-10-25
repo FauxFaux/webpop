@@ -1,8 +1,8 @@
 mod support;
 
-use libwebpop::dsp::lossless_common::*;
-use libwebpop::enc::picture_csp_enc::{RgbaInputError::*, checked_rgba_geometry};
-use libwebpop::utils::color_cache_utils::VP8LColorCacheInit;
+use libwebpop::internal::dsp::lossless_common::*;
+use libwebpop::internal::enc::picture_csp_enc::{RgbaInputError::*, checked_rgba_geometry};
+use libwebpop::internal::utils::color_cache_utils::VP8LColorCacheInit;
 
 #[test]
 fn committed_scalar_fixtures() {
@@ -108,7 +108,7 @@ fn checked_geometry_boundaries() {
 
 #[test]
 fn palette_bundles_recover_indices() {
-    use libwebpop::dsp::lossless_enc::VP8LBundleColorMap_C;
+    use libwebpop::internal::dsp::lossless_enc::VP8LBundleColorMap_C;
     for xbits in 0..=3 {
         let bits_per_index = 8 >> xbits;
         let mask = (1 << bits_per_index) - 1;
@@ -137,8 +137,8 @@ fn palette_bundles_recover_indices() {
 
 #[test]
 fn entropy_streaks_track_run_starts_and_reset() {
-    use libwebpop::dsp::lossless::{VP8LBitEntropy, VP8LStreaks};
-    use libwebpop::dsp::lossless_enc::{GetEntropyUnrefined_C, VP8LBitsEntropyUnrefined};
+    use libwebpop::internal::dsp::lossless::{VP8LBitEntropy, VP8LStreaks};
+    use libwebpop::internal::dsp::lossless_enc::{GetEntropyUnrefined_C, VP8LBitsEntropyUnrefined};
     let population = [0, 0, 0, 7, 7, 7, 7, 0, 0, 0, 0, 1, 1, 1];
     let mut e = VP8LBitEntropy::default();
     let mut stats = VP8LStreaks::default();

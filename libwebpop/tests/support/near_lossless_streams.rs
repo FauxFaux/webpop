@@ -14,9 +14,10 @@ pub fn fixture_cases() -> Vec<Case> {
     ] {
         let stride = w + 3;
         let pixels = crate::support::analysis::pixels(w, h, stride, pattern);
-        let analysis =
-            libwebpop::enc::vp8l_enc::EncoderAnalyze(&pixels, w, h, stride, method, quality)
-                .unwrap();
+        let analysis = libwebpop::internal::enc::vp8l_enc::EncoderAnalyze(
+            &pixels, w, h, stride, method, quality,
+        )
+        .unwrap();
         for strength in [0, 60, 100] {
             for index in (0..analysis.crunch_configs.len() as u32).chain([u32::MAX]) {
                 let mut a = vec![

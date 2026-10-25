@@ -1,6 +1,6 @@
 mod support;
 
-use libwebpop::enc::predictor_enc::*;
+use libwebpop::internal::enc::predictor_enc::*;
 
 fn delta(coefficient: u8, channel: u8) -> i32 {
     (i32::from(coefficient as i8) * i32::from(channel as i8)).div_euclid(32)
@@ -85,7 +85,7 @@ fn costs_match_independent_byte_histograms_and_neighbor_biases() {
             (u64::from(actual[0]) | (u64::from(actual[1]) << 32)) as i64
         );
     }
-    let zero = libwebpop::dsp::lossless::VP8LMultipliers::default();
+    let zero = libwebpop::internal::dsp::lossless::VP8LMultipliers::default();
     let empty = [0; 256];
     assert_eq!(PredictionCostCrossColor(&empty, &empty), 0);
     // Byte wrapping matches neighbors, but the zero-coefficient bias uses the
@@ -217,8 +217,8 @@ fn uniform_zero_coefficients_compact_to_the_largest_tile_size() {
 
 #[test]
 fn complete_files_decode_with_all_transform_combinations() {
-    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::internal::utils::bit_writer_utils::*;
     let mut count = 0;
     for case in support::cross_color::transform_cases()
         .into_iter()

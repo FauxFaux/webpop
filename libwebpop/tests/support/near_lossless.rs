@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::support::{Case, SEED, random};
-use libwebpop::enc::near_lossless_enc::*;
+use libwebpop::internal::enc::near_lossless_enc::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;

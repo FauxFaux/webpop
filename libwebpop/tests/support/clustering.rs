@@ -1,6 +1,6 @@
 //! Staged histogram clustering transcripts and complete sampling-buffer checks.
 use super::{Case, SEED, random, words64};
-use libwebpop::enc::{backward_references_enc::*, histogram_enc::*, predictor_enc::*};
+use libwebpop::internal::enc::{backward_references_enc::*, histogram_enc::*, predictor_enc::*};
 
 pub fn inspect_set(set: &VP8LHistogramSet, out: &mut Vec<u32>, raw: bool) {
     out.push(set.size as u32);
@@ -82,9 +82,10 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
     inspect_set(&image, &mut out, false);
     let mut greedy = false;
     if !low || !combine {
-        let threshold =
-            1 + libwebpop::dsp::lossless_common::DivRound(i64::from(q).pow(3) * 99, 1000000)
-                as usize;
+        let threshold = 1 + libwebpop::internal::dsp::lossless_common::DivRound(
+            i64::from(q).pow(3) * 99,
+            1000000,
+        ) as usize;
         greedy = HistogramCombineStochastic(&mut image, threshold).unwrap();
     }
     out.push(u32::from(greedy));

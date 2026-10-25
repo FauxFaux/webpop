@@ -1,5 +1,5 @@
 use super::{Case, animation_cache as cache, animation_lossless as lossless};
-use libwebpop::mux::anim_encode::*;
+use libwebpop::internal::mux::anim_encode::*;
 
 pub fn base(case: &Case) -> Case {
     Case::new("AnimationLossless", case.input[1..].to_vec())

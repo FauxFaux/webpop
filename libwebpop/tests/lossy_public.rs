@@ -65,7 +65,9 @@ fn real_public_fixtures_match_pinned_c() {
 
 #[test]
 fn public_quality_and_geometry_validation() {
-    use libwebpop::{WebPEncodingError as Error, enc::picture_csp_enc::RgbaInputError as Input};
+    use libwebpop::{
+        WebPEncodingError as Error, internal::enc::picture_csp_enc::RgbaInputError as Input,
+    };
     for q in [
         -1.,
         -f32::MIN_POSITIVE,

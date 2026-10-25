@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::*;
+use libwebpop::internal::*;
 
 #[derive(Debug)]
 pub struct Frame {

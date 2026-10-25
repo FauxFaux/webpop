@@ -1,5 +1,7 @@
 use super::{Case, SEED, random, vp8_cost as cost};
-use libwebpop::enc::{cost_enc::*, iterator_enc::*, picture_enc::WebPYUVAPicture, vp8i_enc::*};
+use libwebpop::internal::enc::{
+    cost_enc::*, iterator_enc::*, picture_enc::WebPYUVAPicture, vp8i_enc::*,
+};
 
 pub const SNAPSHOT: usize = 79;
 pub const PACKET: usize = 558;

@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::dsp::{dec::TransformWHT_C, enc::*};
+use libwebpop::internal::dsp::{dec::TransformWHT_C, enc::*};
 use support::{SEED, random, vp8_transforms as transforms};
 
 #[test]

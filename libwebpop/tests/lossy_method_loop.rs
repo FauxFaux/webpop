@@ -107,7 +107,7 @@ fn methods_0_to_3_opaque_files_match_normal_c_and_decode() {
             a[3],
             4,
             65536,
-            libwebpop::enc::frame_enc::PARTITION0_SIZE_LIMIT as u32,
+            libwebpop::internal::enc::frame_enc::PARTITION0_SIZE_LIMIT as u32,
             1,
             0,
             a[2],
@@ -123,7 +123,7 @@ fn methods_0_to_3_opaque_files_match_normal_c_and_decode() {
     );
 }
 
-use libwebpop::{
+use libwebpop::internal::{
     enc::{analysis_enc::VP8EncAnalyze, frame_enc::*, vp8i_enc::*},
     utils::bit_writer_utils::*,
 };

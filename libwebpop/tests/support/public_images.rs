@@ -1,5 +1,8 @@
 use super::{Case, ImageCase, SEED, random};
-use libwebpop::{LosslessOptions, WebPEncodeLosslessRGBA, encode_lossless_rgba};
+use libwebpop::{
+    WebPEncodeLosslessRGBA,
+    internal::{LosslessOptions, encode_lossless_rgba},
+};
 
 pub fn unpack(case: &Case) -> (ImageCase, LosslessOptions) {
     let a = &case.input;

@@ -5,7 +5,7 @@ mod native;
 mod near_lossless;
 mod support;
 
-use libwebpop::enc::near_lossless_enc::*;
+use libwebpop::internal::enc::near_lossless_enc::*;
 
 #[test]
 fn committed_preprocessing_fixtures() {

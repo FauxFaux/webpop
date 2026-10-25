@@ -22,12 +22,12 @@ pub fn public_output(case: &Case) -> Vec<u32> {
     assert_eq!(case.function, "WebPEncodeLossyMethod");
     let pixels: Vec<_> = a[7..].iter().map(|&v| v as u8).collect();
     let mut output = Vec::new();
-    libwebpop::encode_lossy_rgba(
+    libwebpop::internal::encode_lossy_rgba(
         &pixels,
         a[0],
         a[1],
         a[2] as usize,
-        &libwebpop::LossyOptions {
+        &libwebpop::internal::LossyOptions {
             quality: f32::from_bits(a[3]),
             method: a[5],
             alpha_quality: a[4] as i32,
@@ -94,7 +94,7 @@ pub fn tools_cases() -> Vec<Case> {
 
 /// Logical setup state for the normal-memory, single-partition Rust scope.
 pub fn tools_output(case: &Case) -> Vec<u32> {
-    use libwebpop::enc::vp8i_enc::VP8Encoder;
+    use libwebpop::internal::enc::vp8i_enc::VP8Encoder;
     let a = &case.input;
     assert_eq!(&a[4..6], &[0, 0]);
     let enc =
@@ -295,7 +295,7 @@ pub fn driver_fixture_cases() -> Vec<Case> {
 
 /// Exact compact observations, including the independently assembled file.
 pub fn loop_output(case: &Case) -> Vec<u32> {
-    use libwebpop::{
+    use libwebpop::internal::{
         enc::{analysis_enc::*, frame_enc::*, syntax_enc::VP8EncWrite, vp8i_enc::*},
         utils::bit_writer_utils::VP8BitWriterBuf,
     };

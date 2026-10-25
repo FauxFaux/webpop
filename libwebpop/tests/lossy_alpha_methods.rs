@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::filters::*,
     enc::{alpha_enc::*, vp8l_enc::VP8LEncodeStream},
     utils::{bit_writer_utils::*, filters_utils::WebPEstimateBestFilter},
@@ -367,8 +367,13 @@ fn alpha_effort_is_validated_for_transparent_and_opaque_jobs() {
             EncodeAlpha(&[0], 1, 1, 1, 100, 1, WEBP_FILTER_FAST, effort),
             Err(AlphaEncodeError::InvalidConfiguration)
         ));
-        let mut pic =
-            libwebpop::enc::picture_csp_enc::import_rgba_to_yuva(&[0, 0, 0, 255], 1, 1, 4).unwrap();
+        let mut pic = libwebpop::internal::enc::picture_csp_enc::import_rgba_to_yuva(
+            &[0, 0, 0, 255],
+            1,
+            1,
+            4,
+        )
+        .unwrap();
         assert!(matches!(
             VP8EncStartAlpha(&pic, 100, effort),
             Err(AlphaEncodeError::InvalidConfiguration)

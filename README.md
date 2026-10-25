@@ -45,11 +45,19 @@ port well: we've kept the original C (for now).
  * `cargo run --release -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp`
  * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 -m 6 input.png -o output.webp`
 
+During the 0.1.x release series, compatibility is guaranteed only for the
+crate-root `WebPEncodeLosslessRGBA`, `WebPEncodeRGBA`,
+`WebPEncodeRGBAWithAlphaQuality`, and `WebPEncodeRGBAWithNearLossless` functions,
+and `WebPEncodingError` as a `std::error::Error` with `Display`. Error variants,
+payloads, and exact messages are implementation details. Everything under
+`libwebpop::internal` is exposed for testing and integration, is unsupported,
+and may change or disappear in any release, including patch releases.
+
 The Rust library exposes `WebPEncodeRGBA(..., quality: f32, &mut output)` for
 lossy color with exact alpha and
 `WebPEncodeRGBAWithAlphaQuality(..., quality, alpha_quality, &mut output)` for
 independent alpha fidelity. Both use the pinned default preset and method 4.
-`encode_lossy_rgba` accepts `LossyOptions { quality, method, alpha_quality,
+`internal::encode_lossy_rgba` accepts `internal::LossyOptions { quality, method, alpha_quality,
 use_sharp_yuv }` with methods 0–6 and method 4 as the default. The RGBA
 entry points take a final `&mut Vec<u8>` and return `Result<(), _>`. Success
 replaces the buffer with a complete WebP file, reusing its capacity; errors
@@ -62,14 +70,14 @@ libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
 // The encoded size is output.len(); reuse output for the next image.
 ```
 
-The library also encodes full-canvas RGBA sequences with explicit millisecond
+The unsupported `internal` API also encodes full-canvas RGBA sequences with explicit millisecond
 timestamps. Each frame can select lossless, near-lossless or lossy methods 0–6
 settings. Repeats and zero durations are preserved; encoded frames stay in
 memory until `finish`. This full-frame policy has pinned WebPMux parity;
 animation optimization and a sequence CLI remain future work.
 
 ```rust
-use libwebpop::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
+use libwebpop::internal::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
 let mut encoder = AnimationEncoder::new(1, 1, AnimationOptions::default())?;
 encoder.add_rgba(&[255, 0, 0, 255], 4, 500, &AnimationFrameOptions::default())?;
 encoder.add_rgba(&[0, 0, 255, 128], 4, 600, &AnimationFrameOptions::default())?;

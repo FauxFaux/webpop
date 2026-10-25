@@ -13,7 +13,7 @@ pub use sequence::{
     AnimationOptions,
 };
 
-use crate::{LosslessOptions, LossyOptions, WebPEncodingError};
+use crate::{WebPEncodingError, internal::LosslessOptions, internal::LossyOptions};
 use muxinternal::FramePayload;
 use std::collections::TryReserveError;
 
@@ -172,8 +172,7 @@ impl EncodedFrame {
 /// remains ANMF; no decoding or full-canvas re-encoding is performed.
 ///
 /// ```
-/// use libwebpop::{AnimationContainer, AnimationContainerOptions,
-///     ContainerFrameOptions, EncodedFrame, LosslessOptions};
+/// use libwebpop::internal::{AnimationContainer, AnimationContainerOptions, ContainerFrameOptions, EncodedFrame, LosslessOptions};
 /// let mut animation = AnimationContainer::new(1, 1, AnimationContainerOptions::default())?;
 /// for rgba in [[255, 0, 0, 255], [0, 0, 255, 255]] {
 ///     let frame = EncodedFrame::encode_lossless_rgba(&rgba, 1, 1, 4, &LosslessOptions::default())?;

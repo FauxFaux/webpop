@@ -11,7 +11,7 @@ use crate::mux::{
     AnimationContainer, AnimationContainerOptions, AnimationError, ContainerFrameOptions,
     EncodedFrame, FrameBlend,
 };
-use crate::{LosslessOptions, LossyOptions};
+use crate::{internal::LosslessOptions, internal::LossyOptions};
 
 use super::keyframes::{CachedFrame, CandidateWindow};
 
@@ -52,7 +52,7 @@ pub struct LosslessCacheStatus {
 /// enable AnimationEncodingPolicy::Optimized or promise complete pinned parity.
 ///
 /// ```
-/// use libwebpop::mux::anim_encode::{ArgbView, LosslessAnimationCache};
+/// use libwebpop::internal::mux::anim_encode::{ArgbView, LosslessAnimationCache};
 /// let mut cache = LosslessAnimationCache::new(1, 1, Default::default())?;
 /// for (timestamp, pixel) in [(500, 0xffff0000), (600, 0xff0000ff)] {
 ///     cache.add_argb(ArgbView::new(&[pixel], 1, 1, 1)?, timestamp, &Default::default())?;

@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::mux::anim_encode::*;
+use libwebpop::internal::mux::anim_encode::*;
 
 fn output(out: &mut Vec<u32>, rect: FrameRectangle, view: Option<ArgbView<'_>>) {
     out.extend([

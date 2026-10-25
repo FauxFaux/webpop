@@ -121,7 +121,7 @@ fn methods_5_6_opaque_files_match_normal_c_and_decode() {
             a[3],
             4,
             65536,
-            libwebpop::enc::frame_enc::PARTITION0_SIZE_LIMIT as u32,
+            libwebpop::internal::enc::frame_enc::PARTITION0_SIZE_LIMIT as u32,
             1,
             0,
             a[2],
@@ -137,7 +137,7 @@ fn methods_5_6_opaque_files_match_normal_c_and_decode() {
     );
 }
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::enc::*,
     enc::{
         analysis_enc::VP8EncAnalyze, cost_enc::VP8CalculateLevelCosts, frame_enc::*,
@@ -351,7 +351,8 @@ fn candidate_order_and_refreshed_costs_follow_selected_rd_level() {
                         VP8CalculateLevelCosts(&mut expected);
                         assert_eq!(enc.proba.level_cost, expected.level_cost);
                         assert!(!enc.proba.dirty);
-                        changed = enc.proba.coeffs != libwebpop::enc::tree_enc::VP8CoeffsProba0;
+                        changed =
+                            enc.proba.coeffs != libwebpop::internal::enc::tree_enc::VP8CoeffsProba0;
                     }
                     VP8TokenLoopEvent::Reconstruct {
                         reconstruction: r, ..

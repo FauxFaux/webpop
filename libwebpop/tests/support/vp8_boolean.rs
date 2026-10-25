@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::utils::bit_writer_utils::*;
+use libwebpop::internal::utils::bit_writer_utils::*;
 
 // Request: initial reservation, full-trace flag, then (op, value, bits) triples.
 // Append (op 5) additionally consumes `value` byte words after its triple.

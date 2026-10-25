@@ -5,7 +5,7 @@
 //! Steps and strides in Rust views are measured in samples, not bytes.
 //!
 //! ```
-//! use libwebpop::sharpyuv::*;
+//! use libwebpop::internal::sharpyuv::*;
 //!
 //! let rgb = [255, 0, 0];
 //! let input = SharpYuvRgb::U8(SharpYuvRgbView {

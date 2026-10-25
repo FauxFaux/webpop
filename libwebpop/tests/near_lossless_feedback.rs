@@ -20,8 +20,8 @@ fn committed_feedback_fixtures_match_scalar_c() {
 
 #[test]
 fn quantized_residuals_reconstruct_with_bounded_error_and_bypass_exactly() {
-    use libwebpop::dsp::{lossless::VP8LPredictors, lossless_common::VP8LAddPixels};
-    use libwebpop::enc::predictor_enc::AddGreenToBlueAndRed;
+    use libwebpop::internal::dsp::{lossless::VP8LPredictors, lossless_common::VP8LAddPixels};
+    use libwebpop::internal::enc::predictor_enc::AddGreenToBlueAndRed;
     let mut changed = [0; 2];
     let mut alpha_changes = 0;
     for case in feedback::cases().into_iter().filter(|c| c.input[0] == 1) {

@@ -1,9 +1,11 @@
-use libwebpop::enc::backward_references_enc::{VP8LBackwardRefsInit, VP8LHashChainInit};
-use libwebpop::enc::vp8l_enc::{
+use libwebpop::internal::enc::backward_references_enc::{VP8LBackwardRefsInit, VP8LHashChainInit};
+use libwebpop::internal::enc::vp8l_enc::{
     EncodeImageNoHuffman, ImageWriteError, WriteImage, WriteImageSize, WriteRealAlphaAndVersion,
     WriteRiffHeader,
 };
-use libwebpop::utils::bit_writer_utils::{VP8LBitWriterFinish, VP8LBitWriterInit, VP8LPutBits};
+use libwebpop::internal::utils::bit_writer_utils::{
+    VP8LBitWriterFinish, VP8LBitWriterInit, VP8LPutBits,
+};
 
 // Test-only untransformed container. The public encoder still needs analysis
 // and transforms; this exercises the milestone-5 integration independently.

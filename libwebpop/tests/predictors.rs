@@ -22,7 +22,7 @@ fn committed_predictor_fixtures_match_scalar_c() {
 
 #[test]
 fn residuals_reconstruct_pixels_and_preserve_visible_channels() {
-    use libwebpop::dsp::{lossless::VP8LPredictors, lossless_common::VP8LAddPixels};
+    use libwebpop::internal::dsp::{lossless::VP8LPredictors, lossless_common::VP8LAddPixels};
     let mut cleaned = 0;
     let mut modes_used = [false; 14];
     for case in support::predictors::cases()
@@ -86,7 +86,7 @@ fn residuals_reconstruct_pixels_and_preserve_visible_channels() {
 
 #[test]
 fn constant_planes_and_transparency_control_eligible_modes() {
-    use libwebpop::enc::predictor_enc::*;
+    use libwebpop::internal::enc::predictor_enc::*;
     for mask in 0..16 {
         let mut delta = 0;
         for plane in 0..4 {
@@ -126,7 +126,7 @@ fn constant_planes_and_transparency_control_eligible_modes() {
 
 #[test]
 fn active_plane_histograms_match_byte_counts() {
-    use libwebpop::enc::predictor_enc::UpdateHisto;
+    use libwebpop::internal::enc::predictor_enc::UpdateHisto;
     let residuals = [0, 0xffffffff, 0x12345678, 0x80808080, 0x12345678];
     for mask in 0..16 {
         let mut actual = [7; 1024];
@@ -148,7 +148,7 @@ fn active_plane_histograms_match_byte_counts() {
 
 #[test]
 fn automatic_predictors_reconstruct_pixels() {
-    use libwebpop::dsp::{lossless::VP8LPredictors, lossless_common::VP8LAddPixels};
+    use libwebpop::internal::dsp::{lossless::VP8LPredictors, lossless_common::VP8LAddPixels};
     let mut selected_bits = std::collections::BTreeSet::new();
     let mut selected_modes = std::collections::BTreeSet::new();
     let mut mixed_maps = 0;
@@ -235,7 +235,7 @@ fn automatic_predictors_reconstruct_pixels() {
 
 #[test]
 fn uniform_predictor_ties_compact_to_the_largest_tile_size() {
-    use libwebpop::enc::predictor_enc::*;
+    use libwebpop::internal::enc::predictor_enc::*;
     for (pixel, exact, expected_mode) in [
         (0xff000000, true, 0),
         (0xff123456, true, 1),
@@ -259,7 +259,7 @@ fn uniform_predictor_ties_compact_to_the_largest_tile_size() {
 
 #[test]
 fn clamping_matches_an_exhaustive_auxiliary_size_search() {
-    use libwebpop::enc::vp8l_enc::ClampBits;
+    use libwebpop::internal::enc::vp8l_enc::ClampBits;
     for case in support::predictors::clamp_cases() {
         let a = &case.input;
         let count =
@@ -291,9 +291,9 @@ fn clamping_matches_an_exhaustive_auxiliary_size_search() {
 
 #[test]
 fn production_predictor_writer_decodes_with_preceding_transforms() {
-    use libwebpop::dsp::lossless_enc::VP8LSubtractGreenFromBlueAndRed;
-    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::dsp::lossless_enc::VP8LSubtractGreenFromBlueAndRed;
+    use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::internal::utils::bit_writer_utils::*;
     let mut count = 0;
     for case in support::predictors::transform_cases()
         .into_iter()
@@ -398,8 +398,8 @@ fn production_predictor_writer_decodes_with_preceding_transforms() {
 
 #[test]
 fn selected_and_supplied_predictor_maps_decode_in_complete_files() {
-    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::internal::utils::bit_writer_utils::*;
     for case in support::predictors::cases()
         .into_iter()
         .chain(support::predictors::search_cases())

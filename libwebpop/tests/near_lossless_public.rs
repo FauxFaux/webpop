@@ -110,8 +110,8 @@ fn near_lossless_public_fixtures_match_pinned_reference() {
 
 #[test]
 fn public_strength_and_geometry_validation() {
-    use libwebpop::enc::picture_csp_enc::RgbaInputError;
-    use libwebpop::{LosslessEncodeError, WebPEncodeRGBAWithNearLossless as encode};
+    use libwebpop::internal::enc::picture_csp_enc::RgbaInputError;
+    use libwebpop::{WebPEncodeRGBAWithNearLossless as encode, internal::LosslessEncodeError};
     for strength in [i32::MIN, -1, 101, i32::MAX] {
         assert!(matches!(
             encode(&[1, 2, 3, 255], 1, 1, 4, strength, &mut Vec::new()),
@@ -363,7 +363,7 @@ fn real_image_corpus_parity_and_metrics() {
 
 #[test]
 fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
-    use libwebpop::{LosslessEncodeError, LosslessOptions, encode_near_lossless_rgba};
+    use libwebpop::internal::{LosslessEncodeError, LosslessOptions, encode_near_lossless_rgba};
     let pixels = [127, 129, 131, 255];
     for strength in [i32::MIN, -1, 101, i32::MAX] {
         assert!(matches!(
@@ -489,7 +489,7 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
                 },
                 {
                     let mut output = Vec::new();
-                    libwebpop::encode_lossless_rgba(
+                    libwebpop::internal::encode_lossless_rgba(
                         &image.rgba,
                         image.width,
                         image.height,
@@ -508,7 +508,7 @@ fn configurable_near_lossless_validates_options_and_matches_existing_apis() {
 #[cfg(feature = "native-oracle")]
 #[test]
 fn near_lossless_options_match_pinned_reference() {
-    use libwebpop::{LosslessOptions, encode_near_lossless_rgba};
+    use libwebpop::internal::{LosslessOptions, encode_near_lossless_rgba};
     let mut cases = Vec::new();
     for (w, h) in [(1, 1), (19, 17), (65, 5), (65, 67)] {
         for pattern in [2, 9, 12, 24] {
@@ -580,7 +580,7 @@ fn near_lossless_options_match_pinned_reference() {
         if a[6] == 100 {
             assert_eq!(actual, {
                 let mut output = Vec::new();
-                libwebpop::encode_lossless_rgba(
+                libwebpop::internal::encode_lossless_rgba(
                     &allocation[1..],
                     a[0],
                     a[1],

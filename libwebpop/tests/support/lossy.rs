@@ -1,5 +1,5 @@
 use super::{Case, ImageCase, SEED, random};
-use libwebpop::dsp::enc::{BPS, FTransform_C};
+use libwebpop::internal::dsp::enc::{BPS, FTransform_C};
 
 pub fn encode(case: &Case) -> Result<Vec<u8>, libwebpop::WebPEncodingError> {
     let custom = case.function == "WebPEncodeRGBAWithAlphaQuality";

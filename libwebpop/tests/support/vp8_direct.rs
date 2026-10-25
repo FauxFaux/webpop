@@ -224,7 +224,7 @@ pub fn fixture_cases() -> Vec<Case> {
     cases
 }
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::cost::SetResidualCoeffs_C,
     enc::{cost_enc::*, frame_enc::*, iterator_enc::*, vp8i_enc::*},
     utils::bit_writer_utils::*,

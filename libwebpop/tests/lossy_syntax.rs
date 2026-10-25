@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{
+use libwebpop::internal::{
     enc::{syntax_enc::*, tree_enc::*, vp8i_enc::*},
     utils::bit_writer_utils::*,
 };

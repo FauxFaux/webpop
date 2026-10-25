@@ -1,6 +1,6 @@
 //! Method-dependent alpha leaves and composed files (methods milestone 7).
 use super::{Case, lossy, lossy_methods, vp8_alpha};
-use libwebpop::enc::alpha_enc::*;
+use libwebpop::internal::enc::alpha_enc::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let effort = case.input[0];
@@ -38,7 +38,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
 
 /// Compose the internal method-aware leaves while the public API stays method 4.
 pub fn file_output(case: &Case) -> Vec<u32> {
-    use libwebpop::{
+    use libwebpop::internal::{
         enc::{
             analysis_enc::VP8EncAnalyze, frame_enc::*, picture_csp_enc::*,
             picture_tools_enc::WebPCleanupTransparentArea, syntax_enc::VP8EncWriteWithAlpha,

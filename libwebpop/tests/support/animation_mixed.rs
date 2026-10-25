@@ -1,7 +1,7 @@
 //! Mixed-mode trials, shared/reversed config and original CacheFrame snapshots.
 use super::{Case, animation_lossless as ll, animation_lossy_carryover as vp8};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub fn config_words(c: MixedEncodingConfig) -> Vec<u32> {
     vec![

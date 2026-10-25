@@ -771,7 +771,7 @@ pub const kLZ77RLE: u32 = 2;
 pub const kLZ77Box: u32 = 4;
 
 /// Upstream trial selection. Returned sequences have spatially coded distances;
-/// refs[1] is populated only for do_no_cache in the full-effort path. Progress
+/// `refs[1]` is populated only for do_no_cache in the full-effort path. Progress
 /// callbacks and C error flags are replaced by a synchronous Result.
 #[allow(clippy::too_many_arguments, non_upper_case_globals)]
 pub fn VP8LGetBackwardReferences(

@@ -8,7 +8,7 @@ use super::*;
 use crate::enc::config_enc::LossyConfig;
 use crate::enc::picture_csp_enc::RgbaInputError;
 use crate::mux::{ContainerFrameOptions, EncodedFrame, FrameBlend, FrameDispose};
-use crate::{LossyOptions, WebPEncodingError};
+use crate::{WebPEncodingError, internal::LossyOptions};
 
 /// VP8 candidate controls without mixed trials or keyframe insertion policy.
 #[derive(Clone, Copy, Debug, Default)]

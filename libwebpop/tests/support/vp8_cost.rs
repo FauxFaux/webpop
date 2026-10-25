@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::cost::*,
     enc::{cost_enc::*, tree_enc::*, vp8i_enc::*},
     utils::bit_writer_utils::*,

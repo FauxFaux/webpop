@@ -1,5 +1,5 @@
 use super::{Case, SEED, random, vp8_reconstruct as reconstruction};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::quant::*,
     enc::{cost_enc::*, quant_enc::*, vp8i_enc::*},
 };
@@ -100,7 +100,7 @@ pub fn run_with_observer(
                 mb.r#type = a[0] as u8;
                 mb.uv_mode = ((a[4] + 1) % 4) as u8;
                 if a[0] != 0 {
-                    libwebpop::enc::iterator_enc::VP8SetIntra16Mode(it, enc, a[4] as u8);
+                    libwebpop::internal::enc::iterator_enc::VP8SetIntra16Mode(it, enc, a[4] as u8);
                 }
             }
             it.do_trellis = true;
@@ -424,7 +424,7 @@ pub fn frame_evaluate(a: &[u32]) -> Vec<u32> {
     frame_evaluate_with_method(a, 4)
 }
 pub fn frame_evaluate_with_method(a: &[u32], method: i32) -> Vec<u32> {
-    use libwebpop::enc::{analysis_enc::VP8EncAnalyze, iterator_enc::*};
+    use libwebpop::internal::enc::{analysis_enc::VP8EncAnalyze, iterator_enc::*};
     let quality = f32::from_bits(a[3]);
     let mut enc = super::vp8_analysis::seeded(a[0], a[1], a[2] as usize);
     enc.max_i4_header_bits = a[4] as i32;
@@ -478,7 +478,7 @@ pub fn frame_evaluate_with_method(a: &[u32], method: i32) -> Vec<u32> {
             u32::from(mb.segment),
             u32::from(mb.alpha),
         ]);
-        libwebpop::enc::frame_enc::RecordResiduals(&mut it, &mut enc, &rd);
+        libwebpop::internal::enc::frame_enc::RecordResiduals(&mut it, &mut enc, &rd);
         out.extend(it.top_nz.map(u32::from));
         out.extend(it.left_nz.map(u32::from));
         out.push(enc.nz[it.x + 1]);

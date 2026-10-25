@@ -571,9 +571,9 @@ fn pinned_public_encoder_round_trips() {
 
 #[test]
 fn auxiliary_streams_match_pinned_reference() {
-    use libwebpop::enc::backward_references_enc::*;
-    use libwebpop::enc::vp8l_enc::EncodeImageNoHuffman;
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::enc::backward_references_enc::*;
+    use libwebpop::internal::enc::vp8l_enc::EncodeImageNoHuffman;
+    use libwebpop::internal::utils::bit_writer_utils::*;
     let mut cases = Vec::new();
     let mut seed = support::SEED;
     for (w, h) in [(1, 1), (1, 37), (41, 1), (17, 19), (64, 33)] {
@@ -648,8 +648,10 @@ fn auxiliary_streams_match_pinned_reference() {
 
 #[test]
 fn image_headers_match_pinned_reference() {
-    use libwebpop::enc::vp8l_enc::{WriteImage, WriteImageSize, WriteRealAlphaAndVersion};
-    use libwebpop::utils::bit_writer_utils::{VP8LBitWriterInit, VP8LPutBits};
+    use libwebpop::internal::enc::vp8l_enc::{
+        WriteImage, WriteImageSize, WriteRealAlphaAndVersion,
+    };
+    use libwebpop::internal::utils::bit_writer_utils::{VP8LBitWriterInit, VP8LPutBits};
     let mut cases = Vec::new();
     for width in [1, 2, 255, 256, 16383] {
         for height in [1, 2, 255, 256, 16383] {

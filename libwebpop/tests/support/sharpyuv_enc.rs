@@ -1,5 +1,5 @@
 use super::{Case, ImageCase, lossy};
-use libwebpop::{LossyOptions, encode_lossy_rgba};
+use libwebpop::internal::{LossyOptions, encode_lossy_rgba};
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;
@@ -8,7 +8,9 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
     storage.extend(a[if import { 4 } else { 7 }..].iter().map(|&v| v as u8));
     let before = storage.clone();
     let out = if import {
-        use libwebpop::enc::{picture_csp_enc::*, picture_tools_enc::WebPCleanupTransparentArea};
+        use libwebpop::internal::enc::{
+            picture_csp_enc::*, picture_tools_enc::WebPCleanupTransparentArea,
+        };
         let mut pic = import_rgba_to_yuva_sharp(&storage[1..], a[0], a[1], a[2] as usize).unwrap();
         if a[3] != 0 {
             WebPCleanupTransparentArea(&mut pic);

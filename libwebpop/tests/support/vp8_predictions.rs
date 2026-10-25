@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::{dsp::enc::*, enc::vp8i_enc::*};
+use libwebpop::internal::{dsp::enc::*, enc::vp8i_enc::*};
 
 pub const LUMA16_OFFSETS: [usize; 4] = [I16DC16, I16TM16, I16VE16, I16HE16];
 pub const CHROMA_OFFSETS: [usize; 4] = [C8DC8, C8TM8, C8VE8, C8HE8];

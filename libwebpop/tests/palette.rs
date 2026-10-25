@@ -22,7 +22,7 @@ fn committed_palette_fixtures_match_scalar_c() {
 
 #[test]
 fn extracted_colors_and_mapping_match_independent_sets() {
-    use libwebpop::utils::palette::*;
+    use libwebpop::internal::utils::palette::*;
     use std::collections::BTreeSet;
     for case in support::palette::cases() {
         let a = &case.input;
@@ -53,7 +53,7 @@ fn extracted_colors_and_mapping_match_independent_sets() {
 
 #[test]
 fn monotonic_delta_order_and_transparent_threshold() {
-    use libwebpop::utils::palette::*;
+    use libwebpop::internal::utils::palette::*;
     for count in [17, 18, 256] {
         let sorted: Vec<u32> = (0..count).collect();
         let mut output = vec![0; count as usize];
@@ -145,8 +145,8 @@ fn committed_palette_transform_fixtures_match_scalar_c() {
 
 #[test]
 fn packed_palette_images_decode_exactly() {
-    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::internal::utils::bit_writer_utils::*;
     for case in support::palette::transform_cases()
         .into_iter()
         .filter(|c| c.input[5] == 0)

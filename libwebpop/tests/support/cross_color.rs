@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::predictor_enc::*;
+use libwebpop::internal::enc::predictor_enc::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;
@@ -69,7 +69,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
                     a[header + 256..header + 512].try_into().unwrap(),
                 );
                 vec![MultipliersToColorCode(
-                    &libwebpop::dsp::lossless::VP8LMultipliers {
+                    &libwebpop::internal::dsp::lossless::VP8LMultipliers {
                         green_to_red,
                         green_to_blue,
                         red_to_blue,
@@ -299,8 +299,8 @@ pub fn fixture_cases() -> Vec<Case> {
 }
 
 pub fn transform_evaluate(case: &Case) -> Vec<u32> {
-    use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-    use libwebpop::utils::bit_writer_utils::*;
+    use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+    use libwebpop::internal::utils::bit_writer_utils::*;
     let a = &case.input;
     let (width, height, quality, low, exact) =
         (a[0] as usize, a[1] as usize, a[3], a[4] != 0, a[5] != 0);

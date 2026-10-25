@@ -60,7 +60,7 @@ fn full_wasm_export_regression() {
             .unwrap()
             .into_rgba8();
         assert_eq!(decoded.dimensions(), (image.width, image.height));
-        let q = 1 << libwebpop::dsp::lossless_common::VP8LNearLosslessBits(case.input[3]);
+        let q = 1 << libwebpop::internal::dsp::lossless_common::VP8LNearLosslessBits(case.input[3]);
         for y in 0..image.height as usize {
             for x in 0..image.width as usize {
                 let source = &image.rgba[y * image.stride + x * 4..][..4];

@@ -1,5 +1,5 @@
 use super::{Case, SEED, random, vp8_cost as cost};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::cost::{SetResidualCoeffs_C, VP8EncBands},
     enc::{cost_enc::*, frame_enc::*, token_enc::*, vp8i_enc::*},
     utils::bit_writer_utils::*,

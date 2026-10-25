@@ -89,7 +89,7 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
 /// the encoder's usual transparent-area cleanup and alpha compression.
 ///
 /// ```
-/// use libwebpop::{LossyOptions, encode_lossy_rgba};
+/// use libwebpop::internal::{LossyOptions, encode_lossy_rgba};
 /// let rgba = [255u8; 4 * 4 * 4];
 /// let mut output = Vec::new();
 /// encode_lossy_rgba(&rgba, 4, 4, 16,
@@ -197,7 +197,7 @@ pub fn WebPEncodeLosslessRGBA(
 /// `WebPConfig::exact = 1` to preserve RGB beneath fully transparent pixels.
 /// The equivalent Rust configuration is:
 /// ```
-/// use libwebpop::{LosslessOptions, encode_lossless_rgba};
+/// use libwebpop::internal::{LosslessOptions, encode_lossless_rgba};
 ///
 /// let rgba = [255, 0, 0, 0]; // Preserve this invisible red pixel too.
 /// let options = LosslessOptions { exact: true, ..Default::default() };

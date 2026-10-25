@@ -1,7 +1,7 @@
 //! Direct, synthetic token serialization cases; distances are already plane codes.
 use super::Case;
-use libwebpop::enc::{backward_references_enc::*, histogram_enc::*, vp8l_enc::*};
-use libwebpop::utils::bit_writer_utils::*;
+use libwebpop::internal::enc::{backward_references_enc::*, histogram_enc::*, vp8l_enc::*};
+use libwebpop::internal::utils::bit_writer_utils::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;

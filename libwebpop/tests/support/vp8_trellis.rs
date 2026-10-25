@@ -1,5 +1,5 @@
 use super::{Case, SEED, random, vp8_cost as cost, vp8_quant};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::enc::{FTransform_C, kZigzag},
     enc::{quant_enc::*, vp8i_enc::*},
 };
@@ -208,7 +208,7 @@ pub fn initialized(a: &[u32]) -> (VP8Encoder, VP8Matrix, [i16; 16], [i16; 16]) {
         *dst = v as u8;
     }
     enc.proba.dirty = true;
-    libwebpop::enc::cost_enc::VP8CalculateLevelCosts(&mut enc.proba);
+    libwebpop::internal::enc::cost_enc::VP8CalculateLevelCosts(&mut enc.proba);
     let m = VP8Matrix {
         q: std::array::from_fn(|i| a[MATRIX + i] as u16),
         iq: std::array::from_fn(|i| a[MATRIX + 16 + i] as u16),

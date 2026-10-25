@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::yuv::*,
     enc::{picture_csp_enc::*, picture_enc::WebPYUVAPicture, picture_tools_enc::*},
 };

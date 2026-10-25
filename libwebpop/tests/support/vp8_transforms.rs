@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::dsp::{dec::TransformWHT_C, enc::*};
+use libwebpop::internal::dsp::{dec::TransformWHT_C, enc::*};
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;

@@ -1,7 +1,7 @@
 //! FlattenSimilarBlocks, lossy SetFrame and original-word CacheFrame snapshots.
 use super::{Case, SEED, animation_lossless, random};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub fn candidate_words(candidate: LossyCandidate) -> Vec<u32> {
     let r = candidate.rect;

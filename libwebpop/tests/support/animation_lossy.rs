@@ -1,7 +1,7 @@
 //! Isolated VP8 EncodeCandidate/filter integration; no lossy optimizer yet.
 use super::{Case, ImageCase, lossy};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub fn request(image: &ImageCase, options: LossyOptions, blending: bool) -> Case {
     let stride = image.width + 3;

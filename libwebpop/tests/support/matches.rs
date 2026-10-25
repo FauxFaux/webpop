@@ -1,7 +1,7 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::backward_references_cost_enc::*;
-use libwebpop::enc::backward_references_enc::*;
-use libwebpop::utils::color_cache_utils::*;
+use libwebpop::internal::enc::backward_references_cost_enc::*;
+use libwebpop::internal::enc::backward_references_enc::*;
+use libwebpop::internal::utils::color_cache_utils::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;

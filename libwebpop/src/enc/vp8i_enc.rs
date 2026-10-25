@@ -206,7 +206,7 @@ pub struct VP8ModeScore {
 
 /// Frame-persistent encoder foundations. Bitstream state follows in the
 /// corresponding port milestones.
-/// Prediction storage includes the constant top row and left column; nz[0]
+/// Prediction storage includes the constant top row and left column; `nz[0]`
 /// is the constant left sentinel, followed by one packed context per column.
 pub struct VP8Encoder {
     pub max_i4_header_bits: i32,

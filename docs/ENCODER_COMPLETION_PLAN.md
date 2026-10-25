@@ -1,5 +1,12 @@
 # Encoder completion plan
 
+For the initial 0.1.x release series, only the four crate-root `WebPEncode*`
+functions and `WebPEncodingError` as an `Error`/`Display` type carry compatibility
+guarantees. Configurable encoders, animation APIs, and codec helpers are exposed
+under `libwebpop::internal` for testing and integration and may change in patch
+releases. References below to implemented or public APIs describe availability,
+not additional stability guarantees.
+
 Reclassified 2026-10-25 at repository revision `6fe2ce7`, against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339` in [`upstream/`](../upstream).
 

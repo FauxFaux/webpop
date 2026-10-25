@@ -6,8 +6,8 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 use support::animation_cache as corpus;
 use support::animation_lossless::composite_lossless;
 

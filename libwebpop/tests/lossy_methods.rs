@@ -58,7 +58,7 @@ fn committed_method_references_match_public_api_and_preserve_defaults() {
 
 #[test]
 fn invalid_methods_fail_before_encoder_allocation() {
-    use libwebpop::{WebPEncodingError, enc::vp8i_enc::VP8Encoder};
+    use libwebpop::{WebPEncodingError, internal::enc::vp8i_enc::VP8Encoder};
     for method in [i32::MIN, -1, 7, i32::MAX] {
         for (width, height) in [(1, 1), (0, 0), (u32::MAX, u32::MAX)] {
             assert!(matches!(
@@ -249,11 +249,14 @@ fn method_fixtures_match_pinned_c() {
     eprintln!("{} method fixtures match pinned scalar C", cases.len());
 }
 
-use libwebpop::{LossyOptions, WebPEncodingError as Error, encode_lossy_rgba};
+use libwebpop::{
+    WebPEncodingError as Error,
+    internal::{LossyOptions, encode_lossy_rgba},
+};
 
 #[test]
 fn public_options_validate_before_import_and_preserve_output() {
-    use libwebpop::enc::picture_csp_enc::RgbaInputError as Input;
+    use libwebpop::internal::enc::picture_csp_enc::RgbaInputError as Input;
     let mut output = b"keep output".to_vec();
     let before = output.clone();
     for method in [7, 255, i32::MAX as u32, 1 << 31, u32::MAX] {
@@ -450,7 +453,7 @@ fn public_defaults_preserve_both_method4_convenience_apis() {
 
 #[test]
 fn prepared_and_sequence_frames_carry_lossy_method() {
-    use libwebpop::*;
+    use libwebpop::internal::*;
     let image = support::lossy::image(17, 19, 4);
     for method in 0..=6 {
         let options = LossyOptions {

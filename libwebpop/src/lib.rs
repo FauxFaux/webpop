@@ -2,17 +2,20 @@
 //!
 //! [`WebPEncodeRGBA`] encodes lossy VP8 with exact alpha;
 //! [`WebPEncodeRGBAWithAlphaQuality`] also permits alpha quantization.
-//! [`encode_lossy_rgba`] adds configurable SharpYUV conversion.
 //!
 //! [`WebPEncodeLosslessRGBA`] produces complete WebP images using libwebp's
-//! simple API defaults. [`encode_lossless_rgba`] also exposes effort and exact
-//! transparent-RGB handling. [`WebPEncodeRGBAWithNearLossless`] permits bounded
+//! simple API defaults. [`WebPEncodeRGBAWithNearLossless`] permits bounded
 //! pixel changes with the same simple API effort settings. All use the pinned
 //! encoder's configuration trials.
-//! [`encode_near_lossless_rgba`] also exposes compression effort and exact handling.
 //!
-//! [`AnimationEncoder`] accepts full-canvas RGBA sequences with explicit
-//! timestamps, per-frame codec settings and supplied metadata.
+//! During the 0.1.x release series, compatibility is guaranteed only for the
+//! four crate-root `WebPEncode*` functions and [`WebPEncodingError`] as an error
+//! implementing [`std::error::Error`]. Error variants and their payloads are
+//! implementation details and may change in patch releases.
+//!
+//! Everything under [`internal`] is exposed for testing and integration, is
+//! unsupported, and may change or disappear in any release, including patch
+//! releases. This includes configurable encoders, animation, and codec helpers.
 //!
 //! The still RGBA entry points take a final `output: &mut Vec<u8>` and return
 //! `Result<(), _>`. Success replaces the output with a complete WebP file,
@@ -28,25 +31,20 @@
 #![forbid(unsafe_code)]
 #![allow(non_snake_case)]
 
-pub mod dsp;
-pub mod enc;
-pub mod mux;
-pub mod sharpyuv;
-pub mod utils;
-pub mod webp;
+pub mod internal;
+
+// Keep existing implementation paths without exposing them at the crate root.
+use internal::{dsp, enc, mux, sharpyuv, utils, webp};
 
 mod encode;
 pub use encode::{
-    LosslessEncodeError, LosslessOptions, LossyOptions, WebPEncodeLosslessRGBA, WebPEncodeRGBA,
-    WebPEncodeRGBAWithAlphaQuality, WebPEncodeRGBAWithNearLossless, encode_lossless_rgba,
-    encode_lossy_rgba, encode_near_lossless_rgba,
+    WebPEncodeLosslessRGBA, WebPEncodeRGBA, WebPEncodeRGBAWithAlphaQuality,
+    WebPEncodeRGBAWithNearLossless,
 };
 
 /// Error type returned by the upstream-named simple encoding API.
-pub type WebPEncodingError = LosslessEncodeError;
-
-pub use mux::{
-    AnimationContainer, AnimationContainerOptions, AnimationEncoder, AnimationEncodingPolicy,
-    AnimationError, AnimationFrameOptions, AnimationOptions, BackgroundColor,
-    ContainerFrameOptions, EncodedFrame, FrameBlend, FrameDispose, MuxError,
-};
+///
+/// Compatibility during 0.1.x covers using this type as a [`std::error::Error`],
+/// including its [`std::fmt::Display`] implementation. Variants, payloads and
+/// exact error messages are unsupported implementation details.
+pub type WebPEncodingError = encode::LosslessEncodeError;

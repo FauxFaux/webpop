@@ -7,7 +7,8 @@ mod native;
 mod support;
 
 use image::{AnimationDecoder, ImageDecoder};
-use libwebpop::*;
+use libwebpop::WebPEncodeLosslessRGBA;
+use libwebpop::internal::*;
 use std::io::Cursor;
 use support::animation_mux as corpus;
 

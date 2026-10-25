@@ -177,7 +177,7 @@ fn exact_header_limit_accepts_i4_and_one_less_keeps_partial_reconstruction() {
 
 #[test]
 fn equal_i16_scores_keep_the_earliest_mode() {
-    use libwebpop::{
+    use libwebpop::internal::{
         dsp::enc::BPS,
         enc::{cost_enc::VP8FixedCostsI16, quant_enc::VP8I16ModeOffsets},
     };
@@ -249,7 +249,7 @@ fn non_rd_preserves_seeded_modes_and_does_not_commit_diffusion() {
 
 #[test]
 fn one_segment_fast_analysis_initializes_predictions() {
-    use libwebpop::enc::analysis_enc::VP8EncAnalyze;
+    use libwebpop::internal::enc::analysis_enc::VP8EncAnalyze;
     for method in 0..3 {
         let frame = support::vp8_analysis::frame_case(32, 32, 1, 1);
         let pic = support::vp8_analysis::picture(&frame.input);

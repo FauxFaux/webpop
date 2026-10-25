@@ -1,8 +1,8 @@
 //! 4b normalization and version-2 cache observations. Enabled traces remain
 //! reference-only until deferred selection/overflow integration are ported.
 use super::{Case, animation_cache, animation_codec_cache as codec, animation_mixed};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub fn options(case: &Case) -> Vec<u32> {
     let a = &case.input;

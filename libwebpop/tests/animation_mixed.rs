@@ -6,8 +6,9 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::WebPEncodingError;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 use support::{animation_lossless as ll, animation_mixed as corpus};
 
 struct Observation<'a> {

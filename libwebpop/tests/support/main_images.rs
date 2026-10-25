@@ -1,6 +1,6 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::{backward_references_enc::*, vp8l_enc::*};
-use libwebpop::utils::bit_writer_utils::*;
+use libwebpop::internal::enc::{backward_references_enc::*, vp8l_enc::*};
+use libwebpop::internal::utils::bit_writer_utils::*;
 
 pub fn pixels(case: &Case) -> &[u32] {
     &case.input[8 + 2 * case.input[7] as usize..]

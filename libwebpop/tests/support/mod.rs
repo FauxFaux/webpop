@@ -51,8 +51,8 @@ pub mod vp8_trellis;
 pub mod vp8_trellis_modes;
 pub mod vp8_yuv;
 
-use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
-use libwebpop::utils::{color_cache_utils::*, utils::*};
+use libwebpop::internal::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
+use libwebpop::internal::utils::{color_cache_utils::*, utils::*};
 
 pub const UPSTREAM_REVISION: &str = "1844042d1ca751e62e61df7617dba19c98588339";
 pub const SEED: u32 = 0x6d2b79f5;

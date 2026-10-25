@@ -6,7 +6,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::mux::anim_encode::*;
+use libwebpop::internal::mux::anim_encode::*;
 use support::animation;
 
 #[test]

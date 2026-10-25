@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::utils::bit_writer_utils::*;
+use libwebpop::internal::utils::bit_writer_utils::*;
 use support::vp8_boolean::{self as boolean, Decoder};
 
 #[test]

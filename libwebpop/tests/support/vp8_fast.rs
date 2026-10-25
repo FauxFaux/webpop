@@ -177,13 +177,13 @@ pub fn cases() -> Vec<Case> {
 pub fn distortion_state(
     a: &[u32],
 ) -> (
-    libwebpop::enc::vp8i_enc::VP8Encoder,
-    libwebpop::enc::vp8i_enc::VP8EncIterator,
-    libwebpop::enc::vp8i_enc::VP8ModeScore,
+    libwebpop::internal::enc::vp8i_enc::VP8Encoder,
+    libwebpop::internal::enc::vp8i_enc::VP8EncIterator,
+    libwebpop::internal::enc::vp8i_enc::VP8ModeScore,
     bool,
 ) {
     use super::vp8_reconstruct as reconstruction;
-    use libwebpop::enc::{quant_enc::*, vp8i_enc::*};
+    use libwebpop::internal::enc::{quant_enc::*, vp8i_enc::*};
     let request = &a[8..];
     let (mut enc, mut it) = search::initialized(request);
     enc.config.method = a[0] as i32;
@@ -210,7 +210,7 @@ pub fn distortion_state(
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     use super::vp8_reconstruct as reconstruction;
-    use libwebpop::enc::{analysis_enc::*, iterator_enc::*, vp8i_enc::*};
+    use libwebpop::internal::enc::{analysis_enc::*, iterator_enc::*, vp8i_enc::*};
     let a = &case.input;
     match case.function.as_str() {
         "VP8FastAnalyze" => {

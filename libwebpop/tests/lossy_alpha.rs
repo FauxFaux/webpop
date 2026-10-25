@@ -88,7 +88,7 @@ fn alpha_fixtures_match_pinned_reference() {
     }
 }
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::filters::*,
     enc::{alpha_enc::*, syntax_enc::*},
     utils::{

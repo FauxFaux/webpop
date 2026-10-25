@@ -3,7 +3,7 @@
 ## Target and compatibility
 
 Port the standalone [`upstream/sharpyuv/`](../upstream/sharpyuv/) library into
-a self-contained `libwebpop::sharpyuv` module under
+a self-contained `libwebpop::internal::sharpyuv` module under
 `libwebpop/src/sharpyuv/`. Keep the reference revision
 `1844042d1ca751e62e61df7617dba19c98588339`, whose SharpYUV API version is
 0.4.2. Preserve upstream function names, module boundaries, constants and
@@ -33,7 +33,7 @@ remain [encoder completion](ENCODER_COMPLETION_PLAN.md) work.
 ## Current repository and Rust boundary
 
 **Milestones 0–4 are complete (2026-10-24).**
-[`libwebpop::sharpyuv`](../libwebpop/src/sharpyuv/mod.rs) implements all scalar
+[`libwebpop::internal::sharpyuv`](../libwebpop/src/sharpyuv/mod.rs) implements all scalar
 conversion functions below, with its own types/errors and no encoder
 dependencies. The lossy encoder retains its ordinary YUVA importer by default
 and can select SharpYUV through `LossyOptions::use_sharp_yuv`. The

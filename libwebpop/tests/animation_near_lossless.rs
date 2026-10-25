@@ -6,8 +6,9 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::WebPEncodingError;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 use support::{
     animation_cache as cache, animation_lossless as lossless, animation_near_lossless as corpus,
 };
@@ -197,7 +198,7 @@ fn animation_near_lossless_routes_palette_predictor_and_standalone_after_crop() 
         case.input[13] = u32::from(exact);
         let base = corpus::base(&case);
         let (_, target) = lossless::canvases(&base);
-        let analysis = libwebpop::enc::vp8l_enc::EncoderAnalyze(
+        let analysis = libwebpop::internal::enc::vp8l_enc::EncoderAnalyze(
             target,
             w as usize,
             h as usize,
@@ -206,7 +207,7 @@ fn animation_near_lossless_routes_palette_predictor_and_standalone_after_crop() 
             70,
         )
         .unwrap();
-        use libwebpop::enc::vp8l_enc::EntropyIx::*;
+        use libwebpop::internal::enc::vp8l_enc::EntropyIx::*;
         assert!(analysis.crunch_configs.iter().all(|config| match pattern {
             103 => matches!(config.entropy_idx, kPalette | kPaletteAndSpatial),
             101 => matches!(config.entropy_idx, kSpatial | kSpatialSubGreen),
@@ -269,12 +270,13 @@ fn animation_near_lossless_routes_palette_predictor_and_standalone_after_crop() 
             *pixel = 0;
         }
     }
-    let analysis = libwebpop::enc::vp8l_enc::EncoderAnalyze(&pixels, 65, 5, 65, 4, 70).unwrap();
+    let analysis =
+        libwebpop::internal::enc::vp8l_enc::EncoderAnalyze(&pixels, 65, 5, 65, 4, 70).unwrap();
     assert_eq!(analysis.palette_size, 3);
     assert!(analysis.crunch_configs.iter().all(|config| matches!(
         config.entropy_idx,
-        libwebpop::enc::vp8l_enc::EntropyIx::kPalette
-            | libwebpop::enc::vp8l_enc::EntropyIx::kPaletteAndSpatial
+        libwebpop::internal::enc::vp8l_enc::EntropyIx::kPalette
+            | libwebpop::internal::enc::vp8l_enc::EntropyIx::kPaletteAndSpatial
     )));
 }
 

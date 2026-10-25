@@ -1,6 +1,6 @@
-use libwebpop::enc::backward_references_cost_enc::*;
-use libwebpop::enc::backward_references_enc::*;
-use libwebpop::webp::format_constants::MAX_LENGTH;
+use libwebpop::internal::enc::backward_references_cost_enc::*;
+use libwebpop::internal::enc::backward_references_enc::*;
+use libwebpop::internal::webp::format_constants::MAX_LENGTH;
 
 #[test]
 fn saturated_runs_retain_upstream_last_pixel_boundary() {

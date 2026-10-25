@@ -9,7 +9,7 @@ use super::*;
 use crate::enc::config_enc::{EncoderConfig, WebPValidateConfig};
 use crate::enc::picture_enc::WebPPicture;
 use crate::mux::{ContainerFrameOptions, EncodedFrame, FrameBlend, FrameDispose, MuxError};
-use crate::{LosslessOptions, WebPEncodingError};
+use crate::{WebPEncodingError, internal::LosslessOptions};
 use std::collections::TryReserveError;
 
 #[derive(Debug, thiserror::Error)]

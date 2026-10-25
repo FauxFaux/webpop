@@ -6,7 +6,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::*;
+use libwebpop::internal::*;
 use support::animation_mux as corpus;
 
 fn le24(a: &[u8]) -> u32 {

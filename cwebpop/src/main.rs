@@ -9,7 +9,9 @@ use std::{
 };
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
-use libwebpop::{LosslessOptions, LossyOptions, encode_lossy_rgba, encode_near_lossless_rgba};
+use libwebpop::internal::{
+    LosslessOptions, LossyOptions, encode_lossy_rgba, encode_near_lossless_rgba,
+};
 
 /// WebP encoder, based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]

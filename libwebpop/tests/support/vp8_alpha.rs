@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::{alpha_processing::*, filters::*},
     enc::{
         alpha_enc::*, analysis_enc::VP8EncAnalyze, frame_enc::VP8EncTokenLoop,
@@ -385,7 +385,7 @@ pub fn inverse(filtered: &[u8], w: usize, h: usize, stride: usize, filter: usize
     out
 }
 pub fn green_decode(bytes: &[u8], w: usize, h: usize) -> Vec<u8> {
-    use libwebpop::enc::vp8l_enc::WriteRiffHeader;
+    use libwebpop::internal::enc::vp8l_enc::WriteRiffHeader;
     let mut payload = Vec::new();
     payload.extend_from_slice(&((w as u32 - 1) | ((h as u32 - 1) << 14) | (1 << 28)).to_le_bytes());
     payload.extend_from_slice(bytes);

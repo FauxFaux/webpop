@@ -1,5 +1,7 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::{config_enc::VP8EncoderConfig, filter_enc::*, quant_enc::*, vp8i_enc::*};
+use libwebpop::internal::enc::{
+    config_enc::VP8EncoderConfig, filter_enc::*, quant_enc::*, vp8i_enc::*,
+};
 
 pub fn matrix(m: &VP8Matrix, out: &mut Vec<u32>) {
     out.extend(m.q.map(u32::from));
@@ -141,7 +143,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             let mut planes = a[..3].to_vec();
             planes.extend_from_slice(&a[4..]);
             let pic = super::vp8_analysis::picture(&planes);
-            libwebpop::enc::analysis_enc::VP8EncAnalyze(&mut enc, &pic);
+            libwebpop::internal::enc::analysis_enc::VP8EncAnalyze(&mut enc, &pic);
             VP8SetSegmentParams(&mut enc, f32::from_bits(a[3]));
             let mut out = state(&enc);
             out.extend([enc.alpha as u32, enc.uv_alpha as u32]);

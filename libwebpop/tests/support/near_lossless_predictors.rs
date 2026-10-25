@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use crate::support::{Case, SEED, random};
-use libwebpop::dsp::lossless_common::VP8LAddPixels;
-use libwebpop::enc::predictor_enc::*;
+use libwebpop::internal::dsp::lossless_common::VP8LAddPixels;
+use libwebpop::internal::enc::predictor_enc::*;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;

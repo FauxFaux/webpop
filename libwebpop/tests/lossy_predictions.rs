@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{dsp::enc::*, enc::vp8i_enc::*};
+use libwebpop::internal::{dsp::enc::*, enc::vp8i_enc::*};
 use support::{SEED, random, vp8_predictions as predictions};
 
 #[test]

@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::enc::*,
     enc::{analysis_enc::*, iterator_enc::*, vp8i_enc::*},
 };

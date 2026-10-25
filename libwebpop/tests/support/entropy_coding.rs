@@ -1,7 +1,7 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::vp8l_enc::*;
-use libwebpop::utils::bit_writer_utils::*;
-use libwebpop::utils::huffman_encode_utils::*;
+use libwebpop::internal::enc::vp8l_enc::*;
+use libwebpop::internal::utils::bit_writer_utils::*;
+use libwebpop::internal::utils::huffman_encode_utils::*;
 
 fn inspect(bw: &VP8LBitWriter, out: &mut Vec<u32>) {
     out.push(VP8LBitWriterNumBytes(bw) as u32);

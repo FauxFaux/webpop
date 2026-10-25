@@ -1,5 +1,5 @@
 use super::{Case, SEED, random};
-use libwebpop::{
+use libwebpop::internal::{
     dsp::enc::*,
     enc::{analysis_enc::*, iterator_enc::*, picture_enc::WebPYUVAPicture, vp8i_enc::*},
 };
@@ -353,7 +353,7 @@ pub fn frame_cases() -> Vec<Case> {
         }
     }
     let rgba = super::public_images::real_image();
-    let pic = libwebpop::enc::picture_csp_enc::import_rgba_to_yuva(
+    let pic = libwebpop::internal::enc::picture_csp_enc::import_rgba_to_yuva(
         &rgba.rgba,
         rgba.width,
         rgba.height,

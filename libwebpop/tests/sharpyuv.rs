@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::sharpyuv::{sharpyuv_dsp::*, sharpyuv_gamma::*, *};
+use libwebpop::internal::sharpyuv::{sharpyuv_dsp::*, sharpyuv_gamma::*, *};
 
 #[test]
 fn sharpyuv_committed_fixtures() {
@@ -280,7 +280,7 @@ fn sharpyuv_rgba_alpha_is_ignored_and_calls_are_repeatable() {
 
 #[test]
 fn sharpyuv_filters_and_srgb_paths_have_independent_checks() {
-    use libwebpop::sharpyuv::sharpyuv::{Filter2, ScaleDown};
+    use libwebpop::internal::sharpyuv::sharpyuv::{Filter2, ScaleDown};
     let tf = SharpYuvTransferFunctionType::kSharpYuvTransferFunctionSrgb;
     for a in [-32768, -16384, -1, 0, 1, 16383, 32767] {
         for b in [-32768, -1, 0, 1, 32767] {

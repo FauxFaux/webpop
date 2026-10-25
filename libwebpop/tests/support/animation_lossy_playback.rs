@@ -1,6 +1,6 @@
 //! Test-only rendering from independently decoded VP8 rectangles. The carryover
 //! optimizer's original-word canvases are deliberately not used for playback.
-use libwebpop::{ContainerFrameOptions, FrameBlend, FrameDispose};
+use libwebpop::internal::{ContainerFrameOptions, FrameBlend, FrameDispose};
 
 pub struct Frame {
     pub width: u32,

@@ -6,8 +6,8 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 use support::animation_lossless::{self as corpus, composite_lossless};
 
 fn rect(x: i32, y: i32, w: i32, h: i32) -> FrameRectangle {

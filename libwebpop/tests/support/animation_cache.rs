@@ -1,6 +1,6 @@
 use super::{Case, animation_carryover};
-use libwebpop::mux::anim_encode::*;
-use libwebpop::*;
+use libwebpop::internal::mux::anim_encode::*;
+use libwebpop::internal::*;
 
 pub struct Frame<'a> {
     pub duration: u32,

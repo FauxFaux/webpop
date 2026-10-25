@@ -1,8 +1,8 @@
 mod support;
 
-use libwebpop::dsp::lossless_common::LOG_2_PRECISION_BITS;
-use libwebpop::enc::{backward_references_enc::*, histogram_enc::*};
-use libwebpop::utils::color_cache_utils::*;
+use libwebpop::internal::dsp::lossless_common::LOG_2_PRECISION_BITS;
+use libwebpop::internal::enc::{backward_references_enc::*, histogram_enc::*};
+use libwebpop::internal::utils::color_cache_utils::*;
 
 #[test]
 fn hand_built_tokens_accumulate_without_reset() {

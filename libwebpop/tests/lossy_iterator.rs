@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::enc::BPS,
     enc::{iterator_enc::*, picture_enc::WebPYUVAPicture, vp8i_enc::*},
 };

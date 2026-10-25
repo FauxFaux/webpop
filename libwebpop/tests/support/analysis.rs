@@ -1,6 +1,6 @@
 use super::{Case, SEED, random};
-use libwebpop::enc::vp8l_enc::*;
-use libwebpop::utils::palette::GetColorPalette;
+use libwebpop::internal::enc::vp8l_enc::*;
+use libwebpop::internal::utils::palette::GetColorPalette;
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
     let a = &case.input;

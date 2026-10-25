@@ -7,8 +7,8 @@ mod preprocessing;
 mod quantization;
 mod support;
 
-use libwebpop::dsp::lossless_common::{VP8LAddPixels, VP8LSubPixels};
-use libwebpop::enc::predictor_enc::*;
+use libwebpop::internal::dsp::lossless_common::{VP8LAddPixels, VP8LSubPixels};
+use libwebpop::internal::enc::predictor_enc::*;
 
 #[test]
 fn committed_predictor_quantization_fixtures() {

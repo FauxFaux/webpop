@@ -5,7 +5,7 @@ mod fixture_support;
 mod native;
 mod support;
 
-use libwebpop::{
+use libwebpop::internal::{
     dsp::enc::QuantizeBlock_C,
     enc::{filter_enc::*, quant_enc::*, vp8i_enc::*},
 };
