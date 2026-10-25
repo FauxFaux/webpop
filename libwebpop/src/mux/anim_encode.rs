@@ -19,7 +19,7 @@ pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
     PickBestCandidate, SetFrameLossless, encode_near_lossless_candidate, set_frame_near_lossless,
 };
-pub use lossy::{LossyCandidate, encode_lossy_candidate};
+pub use lossy::{LossyCandidate, LossyCandidateOptions, SetFrameLossy, encode_lossy_candidate};
 
 fn validate_candidate_rectangle(
     sub_frame: ArgbView<'_>,
@@ -259,6 +259,71 @@ pub fn IncreaseTransparency(
     Ok(modified)
 }
 
+/// Replace fully opaque, similar 8×8 blocks with transparent source-average RGB
+/// and mark all 64 pixels as carried. Blocks use canvas coordinates: the first
+/// block starts strictly after the rectangle's left/top origin, even when the
+/// origin is already aligned. Partial edge blocks are untouched. Mask bytes
+/// outside replaced blocks, including any trailing bytes, retain their values.
+/// Validate dimensions, quality, rectangle and mask before modifying anything.
+pub fn FlattenSimilarBlocks(
+    src: ArgbView<'_>,
+    rect: &FrameRectangle,
+    dst: &mut ArgbViewMut<'_>,
+    quality: f32,
+    carryover_mask: &mut [u8],
+) -> Result<bool, AnimationLeafError> {
+    if (src.width, src.height) != (dst.width, dst.height) {
+        return Err(AnimationLeafError::InvalidDimensions);
+    }
+    if !(0.0..=100.0).contains(&quality) {
+        return Err(AnimationLeafError::InvalidQuality);
+    }
+    validate_rectangle(dst.as_view(), rect)?;
+    let area = (rect.width as usize)
+        .checked_mul(rect.height as usize)
+        .ok_or(AnimationLeafError::SizeOverflow)?;
+    if carryover_mask.len() < area {
+        return Err(AnimationLeafError::MaskTooShort);
+    }
+    let max_diff = QualityToMaxDiff(quality);
+    // usize avoids signed overflow for valid leaf canvases near i32::MAX.
+    let (left, top) = (rect.x_offset as usize, rect.y_offset as usize);
+    let x_start = (left + 8) & !7;
+    let y_start = (top + 8) & !7;
+    let x_end = (left + rect.width as usize) & !7;
+    let y_end = (top + rect.height as usize) & !7;
+    let mut modified = false;
+    for y in (y_start..y_end).step_by(8) {
+        for x in (x_start..x_end).step_by(8) {
+            let mut sums = [0u32; 3];
+            let mut count = 0;
+            for dy in 0..8 {
+                let source = src.row(y + dy).unwrap();
+                let target = dst.as_view().row(y + dy).unwrap();
+                for dx in 0..8 {
+                    let p = source[x + dx];
+                    if p >> 24 == 255 && PixelsAreSimilar(p, target[x + dx], max_diff) {
+                        count += 1;
+                        for (sum, shift) in sums.iter_mut().zip([16, 8, 0]) {
+                            *sum += (p >> shift) & 255;
+                        }
+                    }
+                }
+            }
+            if count == 64 {
+                let color = ((sums[0] / 64) << 16) | ((sums[1] / 64) << 8) | (sums[2] / 64);
+                for dy in 0..8 {
+                    dst.row_mut(y + dy).unwrap()[x..x + 8].fill(color);
+                    let at = (y + dy - top) * rect.width as usize + x - left;
+                    carryover_mask[at..at + 8].fill(1);
+                }
+                modified = true;
+            }
+        }
+    }
+    Ok(modified)
+}
+
 /// Copy complete ARGB words equal in both original inputs into the carryover
 /// canvas before selecting a later frame. Other pixels and padding stay intact.
 /// This includes invisible RGB and does not compare decoded codec output.
@@ -318,6 +383,51 @@ fn copy_pixels(src: ArgbView<'_>, dst: &mut ArgbViewMut<'_>) {
     for y in 0..src.height as usize {
         dst.row_mut(y).unwrap().copy_from_slice(src.row(y).unwrap());
     }
+}
+
+// CacheFrame's canvas updates are identical for VP8L and VP8. Keep original
+// ARGB words here; codec reconstruction and flattened colors are not history.
+fn update_candidate_canvases(
+    rect: FrameRectangle,
+    previous_dispose: Option<super::FrameDispose>,
+    mask: &[u8],
+    current: ArgbView<'_>,
+    previous_rect: FrameRectangle,
+    previous: &mut ArgbViewMut<'_>,
+    carryover: &mut ArgbViewMut<'_>,
+) -> Result<(), AnimationLeafError> {
+    if (current.width, current.height) != (previous.width, previous.height)
+        || (current.width, current.height) != (carryover.width, carryover.height)
+    {
+        return Err(AnimationLeafError::InvalidDimensions);
+    }
+    validate_rectangle(current, &rect)?;
+    if IsEmptyRect(&rect) {
+        return Err(AnimationLeafError::InvalidRectangle);
+    }
+    if previous_dispose.is_some() {
+        validate_rectangle(current, &previous_rect)?;
+        let area = (rect.width as usize)
+            .checked_mul(rect.height as usize)
+            .ok_or(AnimationLeafError::SizeOverflow)?;
+        if !mask.is_empty() && mask.len() < area {
+            return Err(AnimationLeafError::MaskTooShort);
+        }
+    }
+    if let Some(dispose) = previous_dispose {
+        DisposeFrameRectangle(dispose, &previous_rect, carryover)?;
+        let source = current.sub_view(rect)?;
+        let mut target = carryover.sub_view(rect)?;
+        if mask.is_empty() {
+            copy_pixels(source, &mut target);
+        } else {
+            CopyMaskedPixels(source, mask, &mut target)?;
+        }
+    } else {
+        copy_pixels(current, carryover);
+    }
+    copy_pixels(current, previous);
+    Ok(())
 }
 
 fn validate_rectangle(
@@ -640,8 +750,8 @@ pub fn IsLosslessBlendingPossible(
     })
 }
 
-/// Animation's alpha-weighted lossy blend heuristic. This does not enable
-/// blended lossy encoding, which also requires the internal filter override.
+/// Animation's alpha-weighted lossy blend heuristic. SetFrameLossy applies it
+/// before flattening and the blended candidate's internal filter override.
 pub fn IsLossyBlendingPossible(
     src: ArgbView<'_>,
     dst: ArgbView<'_>,

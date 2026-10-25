@@ -208,8 +208,39 @@ is independently decoded. The existing independent VP8 arithmetic reader checks
 profile and global/absolute segment filter levels, requiring all blended levels
 to be zero. Paired fixtures establish actual decoded RGB changes for every
 method, identical alpha payloads and decoded alpha across the override, and
-replacement identity with the public still encoder. Lossy selection/carryover,
-mixed trials and keyframes remain open.
+replacement identity with the public still encoder. Lossy selection/carryover
+is extended below; mixed trials and keyframes remain open.
+
+Lossy rectangle selection and carryover updates are implemented (2026-10-25).
+`FlattenSimilarBlocks` replaces wholly opaque, similar 8×8 blocks with
+transparent source-average RGB and records the packed carryover mask. It uses
+the original canvas grid, starting strictly after the rectangle's left/top
+origin, including already aligned origins. Partial blocks and a single
+nonopaque/dissimilar pixel prevent replacement. Checked independent strides,
+quality, rectangle and mask validation precede all mutations.
+
+`SetFrameLossy` and `LossyCandidateOptions` implement the VP8-only subset of
+SetFrame/GenerateCandidates: lossy rectangles and skips, preceding disposal
+alternatives, area selection or minimize-size trials, blend eligibility,
+global-grid flattening before cropping, the filter override and strict first
+winner on equal encoded size. Each trial starts from fresh original pixels.
+`LossyCandidate::update_canvases` shares CacheFrame's validated update branches
+with VP8L: preceding disposal, masked/original copying and saving the original
+input. Decoded VP8 pixels and transparent averages never become history.
+Similar-but-different skips retain the previous accepted original; exact
+repeated originals restore carried pixels before the next selection.
+
+There are 73 new C fixtures and 5,088 live comparisons: 1,392 flatten cases,
+2,772 candidate selections and 924 eight-frame carryover sequences (7,392
+transitions). Full mutations, controls, winning masks, codec payloads and both
+canvases match original C. Independent block checks reject each of 64 bad-pixel
+positions and verify truncated source averages and nonzero crop alignment.
+Live sequences include 994 similar-but-different skips, 21 background-plus-mask
+selections and carried pixel drift/restoration. Eighteen assembled fixture
+sequences, with unit durations assigned to accepted candidates, match the
+independent still-decoder/compositor and pinned all-frame decoder exactly.
+Lossy/mixed timestamp caching, mixed trials, keyframe policy and single-frame
+reconstruction remain open; the VP8L cache and public RGBA policies are unchanged.
 
 ## Scope and delivery order
 
@@ -417,7 +448,8 @@ Implement and test these output rules against the pinned sources:
   and provenance; lossless candidate selection and all-frame decoding now have
   wrappers too. Carryover sequences observe original CacheFrame/FlushFrames;
   default lossless cache/timing and full-file protocols are now implemented.
-  Keyframe-control protocols and lossy/mixed candidates remain open.
+  Lossy selection/carryover now has wrappers too. Keyframe-control protocols,
+  mixed candidates and lossy/mixed timestamp-cache protocols remain open.
 - [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
   default and explicit keyframe options, duration merging/splitting and both
   single-frame cleanup paths. Capture the decode-dependent case as an open
@@ -505,10 +537,17 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
 - [x] Port `QualityToMaxDiff`, alpha-weighted similarity and lossy rectangle/blend
   checks as isolated leaves, preserving floating evaluation and integer
   truncation at heuristic thresholds.
-- [ ] Port `FlattenSimilarBlocks` and lossy carryover updates.
+- [x] Port `FlattenSimilarBlocks` and lossy carryover updates. VP8-only SetFrame
+  and original-word CacheFrame updates match 73 fixtures and 5,088 live cases,
+  including 7,392 submitted-frame transitions and 18 exact all-frame decoder
+  checks. Lossy/mixed timestamp-cache integration remains below.
 - [ ] Port mixed candidate eligibility (palette thresholds, both codecs in
   minimize-size mode), config reversal and winner selection. Ordinary mixed
   mode does not unconditionally try both codecs on every frame.
+- [ ] Extend timestamp caching to lossy/mixed candidates, including the pin's
+  fixed lossy 1x1 overflow hold when lossless is disallowed. Compare cache
+  counters, skip/duration merging, capacity flushing and complete files with
+  keyframes disabled before adding keyframe insertion policy.
 - [ ] Port `KeyFramePenalty`, candidate caching, deferred keyframe selection,
   `kmin`/`kmax`, all-keyframes mode and minimize-size disabling of insertion.
   Include `IncreasePreviousDuration` freezing/rebasing an already selected

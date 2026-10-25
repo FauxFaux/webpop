@@ -283,8 +283,9 @@ static unsigned AnimationCandidateOutput(const FrameRectangle* rect,
   return at;
 }
 
-static unsigned AnimationLossless(const uint32_t* in, unsigned n, uint32_t* out,
-                                  unsigned near_lossless) {
+static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* out,
+                                    unsigned near_lossless, int lossy,
+                                    unsigned alpha_quality, unsigned sharp) {
   WebPPicture src, dst, view;
   FrameRectangle rect;
   WebPConfig config;
@@ -296,14 +297,17 @@ static unsigned AnimationLossless(const uint32_t* in, unsigned n, uint32_t* out,
   op = in[0]; flags = in[9];
   if (!in[1] || !in[2] || in[1] > 96 || in[2] > 64 ||
       in[3] < in[1] || in[4] < in[1] || in[3] > 128 || in[4] > 128 ||
-      flags > 63 || in[10] > 100 || in[11] > 6 || in[12] > 1) abort();
+      flags > 63 || (!lossy && in[10] > 100) || in[11] > 6 || in[12] > 1) abort();
   src_size = (in[2] - 1) * in[3] + in[1];
   dst_size = (in[2] - 1) * in[4] + in[1];
   if (n != 18 + src_size + dst_size + in[17] ||
       !WebPPictureInit(&src) || !WebPPictureInit(&dst) || !WebPPictureInit(&view) ||
       !WebPConfigInit(&config)) abort();
   pixels = (uint32_t*)malloc(dst_size * sizeof(*pixels));
-  mask = (uint8_t*)malloc(in[17] ? in[17] : 1);
+  // FlattenSimilarBlocks forms grid-aligned row pointers even for empty/skinny
+  // rectangles. Guard storage keeps those pointers inside this allocation;
+  // observations still contain exactly the caller's original mask extent.
+  mask = (uint8_t*)malloc((size_t)in[17] + 8 * in[1] + 16);
   if (pixels == NULL || mask == NULL) abort();
   memcpy(pixels, in + 18 + src_size, dst_size * sizeof(*pixels));
   for (i = 0; i < in[17]; ++i) mask[i] = in[18 + src_size + dst_size + i];
@@ -315,11 +319,16 @@ static unsigned AnimationLossless(const uint32_t* in, unsigned n, uint32_t* out,
   if (rect.x_offset < 0 || rect.y_offset < 0 || rect.width < 0 || rect.height < 0 ||
       (int64_t)rect.x_offset + rect.width > src.width ||
       (int64_t)rect.y_offset + rect.height > src.height) abort();
-  config.lossless = 1; config.quality = in[10]; config.method = in[11]; config.exact = in[12];
+  config.lossless = !lossy; config.method = in[11]; config.exact = in[12];
+  if (lossy) memcpy(&config.quality, in + 10, sizeof(config.quality));
+  else config.quality = in[10];
+  config.alpha_quality = alpha_quality; config.use_sharp_yuv = sharp;
   config.near_lossless = near_lossless;
+  if (!WebPValidateConfig(&config)) abort();
   if (op == 0) {
     if (in[17] < (unsigned)(rect.width * rect.height)) abort();
-    out[at++] = IncreaseTransparency(&src, &rect, &dst, mask);
+    out[at++] = lossy ? FlattenSimilarBlocks(&src, &rect, &dst, config.quality, mask)
+                       : IncreaseTransparency(&src, &rect, &dst, mask);
     for (i = 0; i < dst_size; ++i) out[at++] = pixels[i];
     for (i = 0; i < in[17]; ++i) out[at++] = mask[i];
   } else if (op == 1) {
@@ -379,12 +388,19 @@ static unsigned AnimationLossless(const uint32_t* in, unsigned n, uint32_t* out,
 }
 
 unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) {
-  return AnimationLossless(in, n, out, 100);
+  return AnimationCandidates(in, n, out, 100, 0, 100, 0);
 }
 
 unsigned WebpopAnimationNearLossless(const uint32_t* in, unsigned n, uint32_t* out) {
   if (!n || in[0] > 100) abort();
-  return AnimationLossless(in + 1, n - 1, out, in[0]);
+  return AnimationCandidates(in + 1, n - 1, out, in[0], 0, 100, 0);
+}
+
+// Lossy requests prefix the existing candidate layout with alpha quality and
+// SharpYUV; color quality occupies the existing quality word as f32 bits.
+unsigned WebpopAnimationLossy(const uint32_t* in, unsigned n, uint32_t* out) {
+  if (n < 2 || in[0] > 100 || in[1] > 1) abort();
+  return AnimationCandidates(in + 2, n - 2, out, 100, 1, in[0], in[1]);
 }
 
 // Three separately strided canvases, including destination padding, and a
@@ -433,11 +449,12 @@ static unsigned AnimationCanvasOutput(const WebPPicture* pic, uint32_t* out) {
 // Observe original CacheFrame canvas updates and selected candidates, then
 // FlushFrames to retain its normal one-frame lookbehind. Durations remain zero:
 // timing/merging and final assembly parity are outside this request's contract.
-unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32_t* out) {
+static unsigned AnimationCarryoverSequence(const uint32_t* in, unsigned n,
+                                             uint32_t* out, int lossy) {
   WebPAnimEncoderOptions options;
   WebPAnimEncoder* enc;
   unsigned frame, at = 4, written = 0;
-  if (n < 4 || !in[0] || !in[1] || in[0] > 32 || in[1] > 32 ||
+  if (n < 4 || !in[0] || !in[1] || in[0] > 64 || in[1] > 64 ||
       in[2] > 1 || !in[3] || in[3] > 16 ||
       !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
   options.minimize_size = in[2];
@@ -446,15 +463,24 @@ unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32
   for (frame = 0; frame < in[3]; ++frame) {
     WebPPicture current;
     WebPConfig config;
+    const unsigned header = lossy ? 5 : 4;
     unsigned size, count = enc->count;
-    if (n - at < 4 || in[at] < in[0] || in[at] > 64 || in[at + 1] > 100 ||
-        in[at + 2] > 6 || in[at + 3] > 1 || !WebPPictureInit(&current) ||
+    if (n - at < header || in[at] < in[0] || in[at] > 128 ||
+        (!lossy && in[at + 1] > 100) || in[at + 2] > 6 ||
+        (!lossy && in[at + 3] > 1) ||
+        (lossy && (in[at + 3] > 100 || in[at + 4] > 1)) || !WebPPictureInit(&current) ||
         !WebPConfigInit(&config)) abort();
     current.use_argb = 1; current.width = in[0]; current.height = in[1];
     current.argb_stride = in[at];
-    config.lossless = 1; config.quality = in[at + 1];
-    config.method = in[at + 2]; config.exact = in[at + 3];
-    at += 4; size = (current.height - 1) * current.argb_stride + current.width;
+    config.lossless = !lossy; config.method = in[at + 2];
+    if (lossy) {
+      memcpy(&config.quality, in + at + 1, sizeof(config.quality));
+      config.alpha_quality = in[at + 3]; config.use_sharp_yuv = in[at + 4];
+    } else {
+      config.quality = in[at + 1]; config.exact = in[at + 3];
+    }
+    if (!WebPValidateConfig(&config)) abort();
+    at += header; size = (current.height - 1) * current.argb_stride + current.width;
     if (size > n - at) abort();
     current.argb = (uint32_t*)(in + at); at += size;
     enc->curr_canvas = &current; enc->curr_canvas_copy_modified = 1;
@@ -478,6 +504,14 @@ unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32
   if (at != n) abort();
   WebpopIncludedAnimDelete(enc);
   return written;
+}
+
+unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32_t* out) {
+  return AnimationCarryoverSequence(in, n, out, 0);
+}
+
+unsigned WebpopAnimationLossyCarryoverSequence(const uint32_t* in, unsigned n, uint32_t* out) {
+  return AnimationCarryoverSequence(in, n, out, 1);
 }
 
 static unsigned AnimationCacheStatus(const WebPAnimEncoder* enc, uint32_t* out) {

@@ -6,6 +6,8 @@ pub mod animation_cache;
 pub mod animation_carryover;
 pub mod animation_lossless;
 pub mod animation_lossy;
+pub mod animation_lossy_carryover;
+pub mod animation_lossy_playback;
 pub mod animation_mux;
 pub mod animation_near_lossless;
 pub mod animation_subframes;
@@ -87,6 +89,9 @@ impl Case {
             "AnimationSubframes" => animation_subframes::evaluate(self),
             "AnimationLossless" => animation_lossless::evaluate(self),
             "AnimationLossyCandidate" => animation_lossy::evaluate(self),
+            "AnimationLossy" | "AnimationLossyCarryoverSequence" => {
+                animation_lossy_carryover::evaluate(self)
+            }
             "AnimationCarryover" | "AnimationCarryoverSequence" => {
                 animation_carryover::evaluate(self)
             }

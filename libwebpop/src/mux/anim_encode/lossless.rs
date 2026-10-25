@@ -91,42 +91,19 @@ impl LosslessCandidate {
         previous: &mut ArgbViewMut<'_>,
         carryover: &mut ArgbViewMut<'_>,
     ) -> Result<(), AnimationLeafError> {
-        if (current.width, current.height) != (previous.width, previous.height)
-            || (current.width, current.height) != (carryover.width, carryover.height)
-        {
-            return Err(AnimationLeafError::InvalidDimensions);
-        }
-        validate_rectangle(current, &self.rect)?;
-        if IsEmptyRect(&self.rect) {
-            return Err(AnimationLeafError::InvalidRectangle);
-        }
-        if self.previous_dispose.is_some() {
-            validate_rectangle(current, &previous_rect)?;
-            let area = (self.rect.width as usize)
-                .checked_mul(self.rect.height as usize)
-                .ok_or(AnimationLeafError::SizeOverflow)?;
-            if self.carries_over() && self.carryover_mask.len() < area {
-                return Err(AnimationLeafError::MaskTooShort);
-            }
-        }
-        if let Some(dispose) = self.previous_dispose {
-            DisposeFrameRectangle(dispose, &previous_rect, carryover)?;
-            let source = current.sub_view(self.rect)?;
-            let mut target = carryover.sub_view(self.rect)?;
-            if self.carries_over() {
-                CopyMaskedPixels(source, &self.carryover_mask, &mut target)?;
-            } else {
-                copy_pixels(source, &mut target);
-            }
-        } else {
-            copy_pixels(current, carryover);
-        }
-        copy_pixels(current, previous);
-        Ok(())
+        update_candidate_canvases(
+            self.rect,
+            self.previous_dispose,
+            &self.carryover_mask,
+            current,
+            previous_rect,
+            previous,
+            carryover,
+        )
     }
 }
 
-fn copy_picture(view: ArgbView<'_>) -> Result<WebPPicture, AnimationCandidateError> {
+pub(super) fn copy_picture(view: ArgbView<'_>) -> Result<WebPPicture, AnimationCandidateError> {
     if view.width > 16383 || view.height > 16383 {
         return Err(WebPEncodingError::from(
             crate::enc::picture_csp_enc::RgbaInputError::InvalidDimensions,
@@ -148,7 +125,7 @@ fn copy_picture(view: ArgbView<'_>) -> Result<WebPPicture, AnimationCandidateErr
     })
 }
 
-fn zero_mask(len: usize) -> Result<Vec<u8>, TryReserveError> {
+pub(super) fn zero_mask(len: usize) -> Result<Vec<u8>, TryReserveError> {
     let mut mask = Vec::new();
     mask.try_reserve_exact(len)?;
     mask.resize(len, 0);

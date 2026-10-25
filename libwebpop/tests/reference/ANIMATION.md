@@ -905,6 +905,124 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-This is isolated candidate encoding. It does not implement lossy SetFrame,
-FlattenSimilarBlocks, lossy carryover, mixed trials, keyframe selection or
-single-frame reconstruction. Public RGBA Optimized remains unavailable.
+This milestone isolated candidate encoding. Lossy SetFrame, flattening and
+carryover follow below; mixed trials, keyframe selection and single-frame
+reconstruction remain open. Public RGBA Optimized remains unavailable.
+
+## Lossy selection, flattening and carryover (2026-10-25)
+
+`FlattenSimilarBlocks`, `SetFrameLossy`, `LossyCandidateOptions` and
+`LossyCandidate::update_canvases` implement VP8-only candidate selection and the
+corresponding original-word CacheFrame updates. Each disposal trial uses a fresh
+copy of the current canvas. Blend eligibility and rectangle refinement precede
+flattening; the codec sees the selected crop only after global-grid mutation.
+The existing filter override, methods 0–6, alpha quality and SharpYUV are reused.
+
+Flattening starts each 8×8 block strictly after the rectangle origin, even when
+that origin is aligned, and visits only whole blocks aligned to the original
+canvas. All 64 source pixels must be opaque and similar to the destination.
+Replacement RGB is the truncated average of source channels, with alpha zero;
+all 64 mask bytes become one. Other destination words, padding and mask bytes
+remain untouched. A crop-local implementation would produce different masks
+and bytes for a rectangle at (2,2); a dedicated fixture and independent check
+cover that case. Empty/skinny rectangles make no changes. Safe Rust validates
+views, quality, rectangle and mask before mutation.
+
+SetFrame preserves NONE-before-BACKGROUND evaluation, lossy-area selection,
+minimize-size trials and strict first-minimum byte selection. Empty changes use
+lossy similarity: even quality 100 allows channel difference one at alpha 255.
+First frames force nonempty output, later keyframe evaluation uses the whole
+canvas, and an undecided preceding candidate excludes background disposal.
+Selected masks/disposal remain paired with the winning payload. Keyframe
+insertion policy, mixed-codec eligibility and timestamp caching are separate.
+
+Canvas updates use original input, never decoded VP8 pixels or average colors.
+Before selection, exact original repeats restore carryover words. On an accepted
+subframe, dispose the preceding rectangle, keep masked pixels, copy unmasked
+originals and save the entire original input as `prev_canvas`. Keyframes copy
+the whole original into both canvases. A skipped frame retains the last accepted
+original and rectangle even if the new original was merely similar. VP8L and
+VP8 share the same validated update implementation; existing VP8L fixtures and
+defaults are unchanged.
+
+### Protocol and provenance
+
+`AnimationLossy` prefixes the existing 18-word `AnimationLossless` request with
+`(alpha_quality, SharpYUV)`. The original quality word contains f32 bits; method,
+flags, rectangles, source/destination strides and mask length retain their
+positions in the original portion. Opcode 0 calls original FlattenSimilarBlocks
+and returns changed flag, the complete strided destination and every supplied
+mask byte. Opcode 3 calls original SetFrame with lossless/mixed disabled and
+uses the existing candidate response: present flag, rectangle, blend, preceding
+disposal, carries flag, packed winning mask and complete still bytes. The common
+C adapter preserves all older lossless/near-lossless request layouts. Additional
+mask backing storage keeps the original helper's grid-pointer arithmetic inside
+the allocation for empty/skinny leaf cases; only supplied mask bytes are observed.
+
+`AnimationLossyCarryoverSequence` has global header
+`(width, height, minimize_size, input_count)`. Each input contains
+`(ARGB_stride, quality_f32_bits, method, alpha_quality, SharpYUV)` then strided
+ARGB without final-row padding. The shared adapter calls original
+CopyCurrentCanvas/CacheFrame/FlushFrames with keyframes disabled. Its response
+is the existing per-input candidate-or-skip record followed by preceding
+rectangle, all `prev_canvas` words and all `canvas_carryover` words. It observes
+the original state without copying its algorithm. This protocol has no supplied
+timestamps and does not claim complete lossy WebPAnimEncoderAssemble parity.
+
+`fixtures/animation_lossy_carryover.txt` contains 73 C-generated records: eight
+flatten operations, 43 selections and 22 eight-input sequences. Source pin and
+toolchain were reviewed before generation: clean
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, Release
+`-O3 -DNDEBUG`, SIMD/threading off, near-lossless enabled. Actual flags remain
+in `target/native-oracle/provenance.txt`; no upstream source changed. Regenerate
+only this new file after reviewing those records:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_lossy_carryover animation_lossy_carryover_fixtures_match_pinned_reference -- --nocapture
+```
+
+### Independent checks and native comparisons
+
+All 5,088 live cases match C: 1,392 flatten operations, 2,772 selections and
+924 eight-input sequences (7,392 transitions). Inputs cover skinny and partial
+block geometries, distinct padded strides, missing final-row padding, all
+methods, fractional quality, alpha quantization, SharpYUV, first/later keyframe
+evaluation, undecided previous candidates and both size policies. Every mutated
+word and mask byte, selected control, complete codec file and resulting canvas
+is compared. The state corpus records 2,604 skipped inputs, including 994 with
+different originals, 840 background disposals, 560 masked candidates and 21
+background-plus-mask winners. It observes 34,368 held pixels differing from the
+current original and 27,648 exact-repeat restorations of carried pixels.
+
+Portable block checks independently enumerate canvas squares, test each of 64
+bad-pixel positions across 16 origins, and establish source-average truncation,
+opaque-only eligibility, bounds, untouched padding/mask tails and validation
+rollback. Candidate checks rebuild the selected globally flattened rectangle
+and compare the isolated VP8 encoding. Empty preceding rectangles exercise
+equal-size trials and first-winner mask/disposal preservation. Independent
+original-word transitions verify skip behavior, restoration and disposal-before-
+mask order, including raw invisible RGB and drift in carried blocks.
+
+For playback, accepted candidates receive unit durations and the next selected
+disposal is assigned to the preceding frame. All 18 fixture sequences with
+multiple accepted frames are assembled, their complete VP8/ALPH still rectangles
+decoded with `image`, and composited independently with replacement/blending and
+preceding disposal. The compositor implements the pinned decoder's straight-
+alpha integer rounding and transparent-background/keyframe shortcuts. Every
+canvas and cumulative timestamp matches pinned WebPAnimDecoder exactly, with
+no pixel tolerance. Optimizer carryover words are never used as decoded pixels;
+lossy output has no source-pixel equality guarantee. The four one-frame cases
+become stills and do not have animation timing.
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_lossy_carryover -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+The low-level LosslessAnimationCache remains VP8L-only. Lossy/mixed timestamp
+merging and overflow holds, mixed selection/config reversal, deferred keyframes,
+single-frame reconstruction and public RGBA Optimized remain open.

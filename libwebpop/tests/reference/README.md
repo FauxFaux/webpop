@@ -108,8 +108,10 @@ cases, including 980 public animation files, 140 pre-reconstruction files and
 24 exact all-frame decoder comparisons. Isolated lossy EncodeCandidate adds
 56 fixtures and 4,704 live comparisons, preserving default still output and
 checking blended profile 2/zero filter levels through an independent VP8 reader.
-Deferred-keyframe caching, lossy selection/carryover, mixed trials
-and decode-dependent single-frame parity remain open; the public RGBA
+Lossy SetFrame/FlattenSimilarBlocks and carryover updates add 73 fixtures and
+5,088 live cases, including 7,392 frame transitions and 18 exact all-frame
+decoder comparisons. Lossy/mixed timestamp caching, deferred keyframes, mixed
+trials and decode-dependent single-frame parity remain open; the public RGBA
 Optimized policy is rejected.
 
 This native backend was selected because it can expose internal/header leaves

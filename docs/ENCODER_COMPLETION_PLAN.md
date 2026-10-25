@@ -143,8 +143,13 @@ near-lossless RGB/intermediate-alpha caveat. Isolated lossy EncodeCandidate now
 disables filtering and selects VP8 profile 2 for blending: 56 fixtures and 4,704
 live original-C comparisons cover methods 0–6, alpha quality and SharpYUV, with
 independent header parsing and still decoding. Default still output is unchanged.
-Lossy selection/carryover, mixed candidates, keyframe controls, single-frame
-reconstruction and the RGBA Optimized policy remain open.
+Lossy SetFrame, globally aligned FlattenSimilarBlocks and original-word carryover
+updates now match 73 fixtures and 5,088 live cases: 1,392 flatten operations,
+2,772 selections and 924 eight-frame sequences (7,392 transitions). Eighteen
+assembled unit-duration sequences match independent compositing and the pinned
+all-frame decoder exactly. Lossy/mixed timestamp caching, mixed candidates,
+keyframe controls, single-frame reconstruction and the RGBA Optimized policy
+remain open.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared
