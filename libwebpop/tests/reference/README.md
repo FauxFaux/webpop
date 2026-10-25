@@ -93,6 +93,11 @@ comparisons with independent all-frame canvas/timing decodes;
 optimized-animation Rust parity remains future work.
 Checked ARGB subframe views and lossless/lossy rectangle routing add 47
 portable fixtures and 17,340 live cases against the original C helpers.
+Lossless candidate selection adds 79 fixtures and 3,120 live mutation/candidate
+cases, plus 48 all-frame compositing comparisons. The oracle now also links
+test-only pinned `webpdemux` for `WebPAnimDecoder`; production has no decoder
+or C dependency. See the animation record for the `image-webp` blending
+limitation and exact portable/native compositing checks.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

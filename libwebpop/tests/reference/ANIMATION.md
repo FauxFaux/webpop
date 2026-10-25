@@ -4,7 +4,8 @@ Source pin: `1844042d1ca751e62e61df7617dba19c98588339`, unchanged and clean.
 Recorded 2026-10-24 on Ubuntu x86_64 with GCC 15.2.0-16ubuntu1, CMake 4.2.3,
 Release `-O3 -DNDEBUG`, SIMD and threading disabled. The existing native build
 now enables `WEBP_BUILD_LIBWEBPMUX` and links CMake's `libwebpmux` target.
-No demux library or production C dependency is added.
+The initial leaf/mux milestones added no demux library. The lossless candidate
+milestone below links test-only `webpdemux`; no production C dependency is added.
 
 `animation.c` includes the original `src/mux/anim_encode.c`, renaming every
 external animation definition to avoid collisions with linked `libwebpmux`.
@@ -330,6 +331,144 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-Only the subframe-view/routing item of milestone 3 is complete. No candidate
-encoding, disposal selection, carryover masks, cache/duration merging or
-keyframe selection is enabled; the public optimized policy remains rejected.
+This step completes only subframe views/routing. The following section records
+the subsequent lossless candidate work. Cache/duration merging and keyframe
+selection remain disabled; the public optimized policy remains rejected.
+
+## Lossless candidate selection (milestone 3, second step)
+
+Recorded 2026-10-25 against the unchanged clean pin and existing GCC
+15.2.0-16ubuntu1 / CMake 4.2.3 toolchain, Release `-O3 -DNDEBUG`, scalar and
+synchronous. Provenance was reviewed before generating the new
+`fixtures/animation_candidates.txt`; previous fixtures are unchanged.
+The only native build addition is linking pinned `webpdemux` for all-frame
+decoder verification. Production remains safe Rust without a decoder or C.
+
+Checked `ArgbViewMut` supports inherited-stride nested views and row mutation.
+`IncreaseTransparency` replaces identical **nonzero** ARGB words with zero,
+marks packed rectangle-relative mask bytes as 1, and preserves other mask
+bytes, trailing storage, row padding and outside pixels. An already-zero word
+is not marked. `DisposeFrameRectangle` clears to transparent black, independently
+of ANIM background metadata. Geometry, layout and mask validation precede writes.
+
+`anim_encode/lossless.rs` ports the lossless subset of `EncodeCandidate`,
+`GenerateCandidates`, `PickBestCandidate` and `SetFrame` (the exposed helper is
+named `SetFrameLossless`). It accepts the actual carryover canvas, current
+canvas, preceding frame rectangle and explicit key/first/undecided/minimize
+controls. Only lossless strength 100 is enabled, with existing `LosslessOptions`
+methods 0–6. The first frame must be evaluated as a keyframe. An unchanged
+frame returns `None`; duration merging is left to the future cache.
+
+Routing preserves first-frame minimization, forced 1x1 empty frames, later
+keyframe bounds, suppression of background trials for key/undecided cases,
+strict area choice outside minimize-size mode, NONE-before-BACKGROUND trials
+in minimize-size mode, and strict encoded-byte selection (earlier wins ties).
+Candidates encode independently owned cropped ARGB copies through the existing
+typed VP8L payload boundary. This replaces `CopyCurrentCanvas` scratch restore
+without exposing codec cleanup or transparency mutation to caller inputs or
+later trials. Candidate comparison uses complete still-file size, as C does.
+The result owns the selected payload, zero-duration/no-disposal current-frame
+controls, optional preceding disposal and winning mask. Keyframe evaluation
+does not change preceding disposal. An absent carryover mask means no pixels
+carry over; a present mask covers the entire selected rectangle.
+
+Codec-level `exact` does not promise invisible RGB after transparency
+substitution. Near-lossless/lossy/mixed candidate selection and filter overrides
+are not exposed. There is still no optimized raw sequence policy, carryover
+canvas update, duration/cache transition or deferred keyframe decision.
+
+### Candidate and mutation protocol
+
+`AnimationLossless` is registered in the existing dispatcher/evaluator.
+`animation.c` calls original `IncreaseTransparency`, `DisposeFrameRectangle`,
+`EncodeCandidate` and `SetFrame`; selection algorithms are not copied into the
+wrapper. Its fixed 18-word header is:
+
+```text
+opcode, canvas width/height, source/destination pixel strides,
+rectangle x/y/width/height, flags, integer quality, method, exact,
+preceding rectangle x/y/width/height, mask byte count
+```
+
+Flags are key=1, first=2, preceding-candidate-undecided=4, minimize-size=8,
+direct-candidate-blend=16 and disposal-background=32. The header is followed by
+source and destination ARGB canvases (each `(height - 1) * stride + width`
+words), then one word per mask byte. Quality is lossless effort, not fidelity.
+
+| Opcode | Original operation | Output |
+| --- | --- | --- |
+| 0 | `IncreaseTransparency` | modified flag, complete destination storage including padding, complete mask |
+| 1 | `DisposeFrameRectangle` | complete destination storage including padding |
+| 2 | lossless `EncodeCandidate` on the supplied rectangle | candidate-present=1, candidate record |
+| 3 | lossless `SetFrame` | candidate-present flag, record if present |
+
+A candidate record contains rectangle x/y/width/height, C blend enum (0 blend,
+1 replace), preceding-disposal tag (0 untouched, 1 NONE, 2 BACKGROUND), carries
+flag, mask length/mask bytes, complete still-file byte count and bytes.
+Duration zero/current disposal NONE are asserted separately. The SetFrame
+wrapper supplies a preceding cache slot solely for observing selected disposal;
+it does not call CacheFrame, merge durations or compare optimized sequences.
+
+There are 3,120 live cases across 1x1, skinny, odd and 16x16/32x17 canvases,
+independent padded strides without final padding, methods 0–6, qualities
+0/70/100, both exact settings, all supported key/first/undecided/minimize
+controls, full/partial/empty preceding rectangles, unchanged input, hidden RGB,
+alpha-only changes, fading/erased/moving sprites, opposite corners and random
+pixels. Assertions require skipped (144), blended (306), replacement (1,422),
+BACKGROUND-selected (18) and carrying (136) selections, including four winning
+BACKGROUND masks. Both disposal alternatives can modify scratch pixels/masks;
+the selected mask and payload match C after replacement of the earlier winner.
+The 79 committed fixtures also include identical alternative sizes proving
+NONE wins ties, partial/empty mutation rectangles, sentinel mask values/tails
+and the explicit BACKGROUND winner with a nonempty mask.
+
+### Exact decoding and compositing
+
+`image-webp` 0.2.4's animated compositor was found to round some opaque blended
+colors down by one: it applies the approximate alpha blend even for source
+alpha 255. The pinned decoder's row routine copies those pixels directly.
+For example, an opaque `[152,118,84,255]` blended pixel can become
+`[151,117,83,255]` in that test decoder. This is not an encoder mismatch and
+is not accepted through tolerances or ignored pixel checks. The existing
+full-canvas replacement sequence tests still use its all-frame decoder.
+
+Candidate portable checks independently walk RIFF/ANMF, decode each VP8L
+payload with image's still decoder, dispose precisely the preceding rectangle
+to zero, and composite every frame. Eligible lossless blended payloads contain
+alpha 0 (hold) or 255 (copy); the checker asserts this property and uses exact
+endpoint-alpha composition. Replacement payloads copy all alpha values.
+Every canvas and cumulative timestamp is recorded; final visible RGB and alpha
+must equal the requested canvas. Invisible RGB is canonicalized to zero only
+in decoder observations, while exact codec/hidden-RGB behavior has separate
+payload tests. Mutation tests independently enumerate alpha 0/1/127/254/255,
+hidden nonzero RGB and prefilled mask preservation, with validation rollback.
+
+`AnimationDecode` is a reference-only decoder request: file byte count followed
+by bytes. `WebPAnimDecoder` runs in MODE_RGBA with threading disabled and returns
+canvas width/height, frame count, loop count, then each cumulative timestamp
+and full RGBA canvas, canonicalizing invisible RGB. It has no production or
+general Rust demux API. Native tests compare all frames of 48 prepared
+sequences to the portable compositor, including cropped preceding disposal,
+blend holds and all-transparent/forced first frames. Candidate payloads already
+compare byte-for-byte between C and Rust, so the checks apply to both outputs.
+
+Regenerate only the new candidate fixtures after reviewing provenance:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_candidates animation_candidate_fixtures_match_pinned_reference -- --nocapture
+```
+
+Validation commands:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_candidates -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+The lossless blend/disposal/candidate-selection item is complete. Carryover
+canvas updates (`CopyIdenticalPixels`/`CopyMaskedPixels`), CacheFrame/FlushFrames,
+timing merging/splitting and all lossy/mixed/keyframe selection remain open.

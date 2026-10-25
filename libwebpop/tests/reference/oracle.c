@@ -133,6 +133,8 @@ int WebpopSharpYuvPublic(const char*, const uint32_t*, unsigned, uint32_t*, unsi
 unsigned WebpopSharpYuvEncoder(const uint32_t*, unsigned, int, uint32_t*);
 unsigned WebpopAnimationLeaves(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationSubframes(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationLossless(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationDecode(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationMux(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationSingleFrame(const uint32_t*, unsigned, uint32_t*);
 
@@ -185,6 +187,10 @@ int main(void) {
       count = WebpopAnimationLeaves(in, n, out);
     } else if (IS(AnimationSubframes)) {
       count = WebpopAnimationSubframes(in, n, out);
+    } else if (IS(AnimationLossless)) {
+      count = WebpopAnimationLossless(in, n, out);
+    } else if (IS(AnimationDecode)) {
+      count = WebpopAnimationDecode(in, n, out);
     } else if (!strncmp(name, "SharpYuv", 8)) {
       if (IS(SharpYuvConvert) || IS(SharpYuvPublicInfo) || IS(SharpYuvTrace) || IS(SharpYuvImport) || IS(SharpYuvTimedConvert)) {
         REQUIRE(WebpopSharpYuvPublic(name, in, n, out, &count));

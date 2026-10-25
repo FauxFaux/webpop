@@ -11,6 +11,12 @@
 //! Lossless comparisons include invisible RGB. Lossy similarity requires equal
 //! alpha and weights RGB differences by that alpha.
 
+mod lossless;
+pub use lossless::{
+    AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
+    PickBestCandidate, SetFrameLossless,
+};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameRectangle {
     pub x_offset: i32,
@@ -33,6 +39,8 @@ pub enum AnimationLeafError {
     InvalidRectangle,
     #[error("quality must be finite and in 0..=100")]
     InvalidQuality,
+    #[error("carryover mask is shorter than the rectangle area")]
+    MaskTooShort,
 }
 
 /// Borrowed, checked ARGB canvas. Stride is in pixels; final-row padding is
@@ -116,6 +124,117 @@ impl<'a> ArgbView<'a> {
             self.stride,
         )
     }
+}
+
+/// Checked mutable ARGB storage. Mutations preserve row padding and pixels
+/// outside their rectangle; shared views borrow this storage temporarily.
+#[derive(Debug)]
+pub struct ArgbViewMut<'a> {
+    pixels: &'a mut [u32],
+    width: i32,
+    height: i32,
+    stride: usize,
+}
+
+impl<'a> ArgbViewMut<'a> {
+    pub fn new(
+        pixels: &'a mut [u32],
+        width: i32,
+        height: i32,
+        stride: usize,
+    ) -> Result<Self, AnimationLeafError> {
+        ArgbView::new(pixels, width, height, stride)?;
+        Ok(Self {
+            pixels,
+            width,
+            height,
+            stride,
+        })
+    }
+
+    pub fn as_view(&self) -> ArgbView<'_> {
+        ArgbView {
+            pixels: self.pixels,
+            width: self.width,
+            height: self.height,
+            stride: self.stride,
+        }
+    }
+
+    pub fn row_mut(&mut self, y: usize) -> Option<&mut [u32]> {
+        if y >= self.height as usize {
+            return None;
+        }
+        let start = y * self.stride;
+        Some(&mut self.pixels[start..start + self.width as usize])
+    }
+
+    pub fn sub_view(
+        &mut self,
+        rect: FrameRectangle,
+    ) -> Result<ArgbViewMut<'_>, AnimationLeafError> {
+        let view = self.as_view().sub_view(rect)?;
+        let len = view.pixels.len();
+        let start = self.as_view().offset(rect.x_offset, rect.y_offset);
+        ArgbViewMut::new(
+            &mut self.pixels[start..start + len],
+            rect.width,
+            rect.height,
+            self.stride,
+        )
+    }
+}
+
+/// Clear disposal to transparent black, independently of ANIM background
+/// metadata. Validation precedes mutation, including for a no-disposal call.
+pub fn DisposeFrameRectangle(
+    dispose: super::FrameDispose,
+    rect: &FrameRectangle,
+    canvas: &mut ArgbViewMut<'_>,
+) -> Result<(), AnimationLeafError> {
+    validate_rectangle(canvas.as_view(), rect)?;
+    if dispose == super::FrameDispose::Background {
+        for y in rect.y_offset..rect.y_offset + rect.height {
+            canvas.row_mut(y as usize).unwrap()[rect.x_offset as usize..][..rect.width as usize]
+                .fill(0);
+        }
+    }
+    Ok(())
+}
+
+/// Replace identical, nonzero ARGB words with transparent black and set their
+/// rectangle-relative mask bytes to 1. Other mask bytes retain their values;
+/// an already-zero word is not marked. Validate everything before mutation.
+pub fn IncreaseTransparency(
+    src: ArgbView<'_>,
+    rect: &FrameRectangle,
+    dst: &mut ArgbViewMut<'_>,
+    carryover_mask: &mut [u8],
+) -> Result<bool, AnimationLeafError> {
+    if (src.width, src.height) != (dst.width, dst.height) {
+        return Err(AnimationLeafError::InvalidDimensions);
+    }
+    validate_rectangle(dst.as_view(), rect)?;
+    let area = (rect.width as usize)
+        .checked_mul(rect.height as usize)
+        .ok_or(AnimationLeafError::SizeOverflow)?;
+    if carryover_mask.len() < area {
+        return Err(AnimationLeafError::MaskTooShort);
+    }
+    let mut modified = false;
+    for y in 0..rect.height as usize {
+        let source = src.row(rect.y_offset as usize + y).unwrap();
+        let target = dst.row_mut(rect.y_offset as usize + y).unwrap();
+        for x in 0..rect.width as usize {
+            let i = rect.x_offset as usize + x;
+            if source[i] == target[i] && target[i] != 0 {
+                target[i] = 0;
+                carryover_mask[y * rect.width as usize + x] = 1;
+                modified = true;
+            }
+        }
+    }
+    Ok(modified)
 }
 
 fn validate_rectangle(

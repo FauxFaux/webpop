@@ -23,6 +23,8 @@ separate from the public sequence API.
 
 The existing native oracle now links pinned scalar `libwebpmux` and includes
 the original animation source in an external wrapper with renamed exports.
+The lossless candidate milestone also links test-only `webpdemux` for exact
+all-frame decoding checks; production remains independent of C and decoding.
 There are 81 committed C fixtures and 80,287 live leaf comparisons, including
 adjacent float values around quality thresholds. Independent checks exhaust
 3x3 change masks and alpha/channel-difference pairs. See the
@@ -100,8 +102,30 @@ rectangles, view dimensions/strides and every visible view pixel. Independent
 checks cover all 3x3 change masks and 24,576 flag/quality/difference combinations,
 plus checked nested views, validation rollback and clearing stale skipped views.
 
-Transparency/carryover mutation, candidate encoding and caching remain open.
-Full-frame `WebPMux` and isolated routing parity do not establish optimized
+The lossless candidate path is implemented (2026-10-25) under
+`mux::anim_encode`: checked mutable views, `IncreaseTransparency`,
+`DisposeFrameRectangle`, lossless `EncodeCandidate`/`PickBestCandidate` and
+`SetFrameLossless` (the lossless subset of `SetFrame`/`GenerateCandidates`).
+It evaluates previous-disposal alternatives in pinned order, applies area
+selection or minimize-size trials, preserves the earlier candidate on equal
+byte size and returns the winning encoded rectangle, blend control,
+preceding-frame disposal and carryover mask. Independent candidate copies
+prevent transparency/codec cleanup from contaminating later trials. Lossless
+methods 0–6 and codec-level `exact` are supported; near-lossless, lossy and
+mixed candidates remain deferred. `exact` does not preserve invisible RGB
+discarded by transparency substitution during blending.
+
+There are 79 committed C fixtures and 3,120 live comparisons of mutations,
+candidate controls/masks and complete payload bytes against original C helpers
+and lossless `SetFrame`. Independent portable RIFF/VP8L decoding and exact
+endpoint-alpha compositing match 48 all-frame native `WebPAnimDecoder` runs.
+The `image-webp` animated compositor rounds some opaque blended pixels down
+by one; it remains suitable for full-frame replacements, while candidate tests
+use its still decoder plus the independent compositor and pinned decoder.
+This decoder limitation is documented, not hidden behind pixel tolerances.
+
+Carryover canvas updates, caching and timing merging remain open. Full-frame
+`WebPMux` and isolated candidate parity do not establish optimized sequence
 `WebPAnimEncoder` parity; the sequence API still rejects `Optimized`.
 
 ## Scope and delivery order
@@ -307,13 +331,15 @@ Implement and test these output rules against the pinned sources:
   static helpers outside the submodule, following the existing include-source
   wrapper convention without duplicate linked definitions. Leaves, output mux
   and the reference-only decode-dependent single-frame path now have wrappers
-  and provenance; optimizer candidates/cache/keyframe protocols remain open.
+  and provenance; lossless candidate selection and all-frame decoding now have
+  wrappers too. Cache/keyframe protocols and lossy/mixed candidates remain open.
 - [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
   default and explicit keyframe options, duration merging/splitting and both
   single-frame cleanup paths. Capture the decode-dependent case as an open
   completion requirement, not an ignored mismatch in a passing parity corpus.
-  Raw mux assembly and both single-frame paths are now recorded; optimized
-  candidates, keyframe options and duration merging/splitting remain open.
+  Raw mux assembly, both single-frame paths and isolated lossless candidate
+  selection are now recorded. Optimized sequences, keyframe options and
+  duration merging/splitting remain open.
 
 ### 1. Container assembly and metadata
 
@@ -353,12 +379,17 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
   ARGB views, `SubFrameParams` and both routing helpers match 47 committed
   fixtures and 17,340 live scalar C comparisons; independent exhaustive bounds
   and borrowed/nested-view tests verify geometry, stride and visible pixels.
-- [ ] Port blend eligibility, `IncreaseTransparency`, disposal alternatives,
+- [x] Port blend eligibility, `IncreaseTransparency`, disposal alternatives,
   candidate encoding and strict size/tie selection in upstream evaluation order.
+  Lossless subset: 79 fixtures, 3,120 live C comparisons, selected masks and
+  previous disposal, 48 exact all-frame decoder comparisons. Lossy/mixed
+  extensions belong to milestone 4; cache integration remains below.
 - [ ] Port the pin's `prev_canvas`, `canvas_carryover`, candidate/best carryover
   masks, `CopyIdenticalPixels` and `CopyMaskedPixels` updates. Comparing only
   adjacent original inputs is insufficient after earlier pixels are carried.
 - [ ] Port `SetFrame`, `CacheFrame`, `FlushFrames` and duration accumulation.
+  Isolated lossless `SetFrame` selection is implemented as `SetFrameLossless`;
+  cache integration and the sequence state transitions remain open.
   Merge unchanged frames without changing total duration. Port
   `IncreasePreviousDuration`'s transparent 1x1 hold frame when a merged duration
   would reach `2^24`, including cache-capacity and keyframe-state updates.
