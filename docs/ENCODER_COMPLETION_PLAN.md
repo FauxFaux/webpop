@@ -167,7 +167,7 @@ and the RGBA Optimized policy remain open.
   field/padding/size checks. Timestamp handling belongs to the sequence API.
 - [x] Encode raw full-canvas RGBA sequences with explicit final timing, preserving
   repeats and zero durations. `AnimationEncoder` supports per-frame lossless,
-  near-lossless and method-4 lossy settings plus supplied metadata. There are
+  near-lossless and lossy methods 0–6 plus supplied metadata. There are
   26 committed/live pinned WebPMux sequence comparisons and independent
   all-frame canvas/timing decodes. The explicit full-frame policy does not
   claim optimized `WebPAnimEncoder` parity; the CLI remains open.
@@ -188,6 +188,14 @@ subrectangle optimization decodes and re-encodes a candidate. The animation
 plan keeps this branch as an explicit completion gate against the production
 decoding exclusion above. Ordinary mux cleanup of a full-canvas single frame
 does not need decoding.
+
+The animation plan's 2026-10-25 replan splits the remaining work into shared
+lossy/mixed timestamp caching (4a), keyframe normalization/storage (4b), deferred
+selection (4c), keyframe/overflow integration (4d) and public optimized RGBA
+wiring (4e). It defines acceptance cases before implementation and focused
+comparisons before broad validation. Production decoding remains excluded;
+discussion must precede any decision to change that boundary. The full-frame
+sequence CLI and initial resource baseline can proceed independently.
 
 ## CLI completion
 
