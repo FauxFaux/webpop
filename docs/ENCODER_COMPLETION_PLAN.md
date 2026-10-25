@@ -1,18 +1,42 @@
 # Encoder completion plan
 
-Audited 2026-10-24 at repository revision `937e2d9`, against pinned libwebp
+Reclassified 2026-10-25 at repository revision `6fe2ce7`, against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339` in [`upstream/`](../upstream).
 
-The three port plans are complete for their stated configurations. Remaining
-encoder work is principally the advanced still-image API and its additional
-algorithms, encoder utilities, animation/container output, and performance.
-This inventory compares with the pin, rather than a newer libwebp release.
+The three port plans are complete for their stated configurations. This plan
+separates remaining **core encoder behavior**, **utilities around the encoder**,
+and **performance work**. These have separate completion gates. This inventory
+compares with the pin, rather than a newer libwebp release.
 
 Language bindings and C ABI compatibility are excluded. So are compressed-image
 decoding, image-file loaders, metadata extraction from input files, demuxing,
 and importing existing WebP containers for editing. Raw pixel layouts and
-RGB-to-YUV conversion remain encoder features. Metadata writing and animation
-encoding from prepared frames remain in scope.
+RGB-to-YUV conversion remain in scope. Metadata writing and animation encoding
+from prepared frames belong to the utility/output track.
+
+## Completion boundary
+
+- **Core:** algorithms and settings that can change the coded image stream for
+  the same source image: conversion, analysis, quantization, mode/transform
+  selection, entropy modeling, filtering parameters and syntax. The effect
+  may be confined to bytes; decoded pixels need not change. Internal trials and
+  refinement passes count when they affect those coding decisions.
+- **Utility:** configuration recipes, selection of quality to meet a target,
+  input adapters and picture operations, observation/reporting, output APIs,
+  container assembly and animation orchestration. A utility can change the
+  eventual file by changing the input, settings or selected candidate without
+  adding a core coding behavior. Presets need no encoding trial at all.
+- **Performance only:** scheduling, SIMD, allocation and equivalent faster
+  implementations. A change only to speed or memory does not count toward core
+  completion. Classify the actual branch, rather than the option's name:
+  `low_memory` also changes coding behavior and therefore has a core component.
+
+This is a functional boundary, not a requirement that utilities live outside
+the crate or that the core execute only one traversal. In particular,
+`emulate_jpeg_size` and entropy-analysis `pass` are not merely wrappers that
+re-encode at different public quality settings. Their pinned implementations
+change the core, as traced below. Target-size/PSNR selection is utility policy,
+although upstream integrates its search into the core's pass loops.
 
 ## Completed baseline
 
@@ -46,7 +70,7 @@ The older plans' deferred lists are historical: lossy VP8, ordinary YUV import,
 near-lossless, and ALPH are no longer outstanding. No additional default-path
 correctness defect was established by this source/documentation audit.
 
-## Remaining still-image features
+## Remaining core encoder features
 
 The API/configuration reference is
 [`encode.h`](../upstream/src/webp/encode.h), with defaults and validation in
@@ -56,31 +80,111 @@ The API/configuration reference is
 Some public low-level modules expose
 more knobs, but they do not provide a checked, integrated advanced encoder.
 
-| Gap | Current implementation and remaining work | Main sources |
+| Core behavior | Bitstream effect, current implementation and remaining work | Main sources |
 | --- | --- | --- |
-| Advanced Rust configuration and routing | Add checked configuration covering the supported upstream fields and connect it to complete-file encoding. Keep the existing convenience APIs and defaults. Internal `WebPEncode` is not a general public equivalent of upstream's config/picture API. | Rust [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) |
-| Public low-memory mode and additional direct-loop integrations | `VP8EncLoop`, single-pass statistics, fitted skip probabilities and skipped residual handling are complete for normal methods 0–2. Methods 3–6 use buffered tokens. Add checked `low_memory` routing for methods 3–6 and integrate direct coding with future partitions/passes/search. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c), Rust [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) |
-| Multiple coefficient partitions | Only one is emitted. Add 2/4/8 partitions, partition sizes, row distribution and overflow checks. Match upstream routing: its buffered token path forces one partition, so a partitions field alone is insufficient. | Upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c), [`syntax_enc.c`](../upstream/src/enc/syntax_enc.c) |
-| Rate control and repeated passes | Add `target_size`, `target_PSNR`, user-selected `pass` 1–10, and `qmin`/`qmax`; port quality search, convergence and state resets. Default header-budget retries already work and do not implement these features. Match the pin's target precedence and approximate-target behavior. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c) |
-| Segmentation, SNS and header-budget controls | Expose and validate `segments`, `sns_strength`, and `partition_limit`; generalize the analysis/setup paths currently used with default settings. Some quantizer/SNS helpers already accept parameters. | Rust [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs), [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) |
-| Filter controls and automatic filter search | Integrate `filter_strength`, `filter_sharpness`, simple/strong `filter_type`, and `autofilter`. Deterministic adjustment exists; SSIM statistics, filter trials and automatic selection do not. | Rust [`filter_enc.rs`](../libwebpop/src/enc/filter_enc.rs), upstream [`filter_enc.c`](../upstream/src/enc/filter_enc.c) |
-| Preprocessing and SharpYUV | Add segment smoothing and pseudo-random conversion dithering. Scalar SharpYUV and its encoder/CLI routing are complete, including `--pre 4` and upstream's small-image fallback. The caller adapts the independent module without adding encoder dependencies to it. See the [SharpYUV plan](SHARPYUV_PORT_PLAN.md). | Rust [`sharpyuv/`](../libwebpop/src/sharpyuv/), [`picture_csp_enc.rs`](../libwebpop/src/enc/picture_csp_enc.rs), upstream [`picture_csp_enc.c`](../upstream/src/enc/picture_csp_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) |
-| Presets and JPEG-size emulation | Add picture/photo/drawing/icon/text presets, full default-preset initialization, and `emulate_jpeg_size`. Several presets depend on the missing preprocessing or configurable segmentation/filter behavior. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c), [`quant_enc.c`](../upstream/src/enc/quant_enc.c) |
-| Lossless preset levels and image hints | `-z` levels 0–9 need the upstream method/quality mapping and option ordering; the underlying methods already exist. Add `image_hint`. At this pin, `WEBP_HINT_GRAPH` changes initial VP8L writer allocation; the other hint values do not imply additional missing compression algorithms. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c), [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c) |
-| Configurable alpha method/filter | Integrate public `alpha_compression` 0/1 and filtering none/fast/best. Low-level Rust `EncodeAlpha` already accepts these and tries the filters; public lossy encoding fixes compression=1/filter=fast. Effort, VP8L quality and fast-filter selection now follow the selected method for all methods 0–6. | Rust [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) |
-| Lossy transparent-area policy | Add lossy `exact` handling: current routing always performs YUVA cleanup and the CLI rejects `--lossy --exact`. Follow upstream's cleanup semantics; lossy `exact` does not make RGB lossless. | Rust [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c) |
-| Encoder threading | Add `thread_level`: split VP8L configuration trials, split lossy analysis where upstream does, and run the alpha job concurrently with VP8 coding. Present execution is synchronous. Preserve selection/tie behavior and error propagation for the requested thread mode. | Upstream [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c), [`alpha_enc.c`](../upstream/src/enc/alpha_enc.c), [`thread_utils.c`](../upstream/src/utils/thread_utils.c) |
+| Checked core configuration and routing | Expose the core settings below through a validated, integrated complete-file encoder. Keep convenience APIs/defaults. Internal `WebPEncode` is not a general public equivalent of upstream's config/picture API. | Rust [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) |
+| Direct coding for methods 3–6 (`low_memory`) | Switches from buffered tokens to `VP8EncLoop`, with different probability/skip handling and potentially different bytes/distortion even with one partition. Direct coding is complete for methods 0–2; add checked routing and integration for 3–6. Memory savings alone do not count. | Upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c) `MapConfigToTools`, [`frame_enc.c`](../upstream/src/enc/frame_enc.c); Rust [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) |
+| Multiple coefficient partitions (`partitions`) | Changes syntax and coefficient placement, even when pixels are identical. Only one is emitted. Add 2/4/8 partitions, size fields, row distribution and overflow checks. Buffered tokens force one partition; methods 3–6 require the direct route above to honor multiple partitions. | Upstream [`iterator_enc.c`](../upstream/src/enc/iterator_enc.c) `VP8IteratorSetRow`, [`syntax_enc.c`](../upstream/src/enc/syntax_enc.c) `GeneratePartition0` / `EmitPartitionsSize` |
+| Entropy-analysis passes (`pass` 1–10) | Additional passes at fixed quality retain/refine token statistics, probabilities and coding costs; they can change modes/residuals and bytes. Port both direct and buffered loops with correct resets. Existing automatic partition-0 retries are separate. Target-driven quality updates belong to utilities below. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c) `StatLoop` / `VP8EncTokenLoop` |
+| Segmentation (`segments` 1–4) and SNS (`sns_strength` 0–100) | Analysis assigns macroblocks to segments; SNS changes segment quantizers, chroma deltas and method-dependent RD/trellis costs. These affect coded coefficients, segment maps and headers. Generalize the default analysis/setup paths and expose their knobs; some Rust helpers already accept parameters. Segments are not coefficient partitions. | Upstream [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) `AssignSegments`, [`quant_enc.c`](../upstream/src/enc/quant_enc.c) `VP8SetSegmentParams` / `SetupMatrices`; Rust [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs), [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) |
+| Header budget (`partition_limit` 0–100) | Limits Intra4 header bits during mode selection, changing the Intra4/Intra16 decisions and stream. It does not set an overall target size or the number of partitions. Expose the configurable limit; default partition-0 budget retries already exist. | Upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c) `MapConfigToTools`, [`quant_enc.c`](../upstream/src/enc/quant_enc.c) `PickBestIntra4` |
+| VP8 deblocking controls and `autofilter` | Select simple/strong filtering, sharpness and per-segment strengths signaled to the decoder. Deterministic adjustment exists; integrate public controls plus SSIM trials/automatic strength selection. This is independent of alpha prediction filters. | Rust [`filter_enc.rs`](../libwebpop/src/enc/filter_enc.rs); upstream [`filter_enc.c`](../upstream/src/enc/filter_enc.c), [`quant_enc.c`](../upstream/src/enc/quant_enc.c) `SetupFilterStrength`, [`syntax_enc.c`](../upstream/src/enc/syntax_enc.c) `PutFilterHeader` |
+| Conversion and segment-map preprocessing | Add `preprocessing & 2` pseudo-random conversion dithering and `preprocessing & 1` segment-map smoothing. Scalar SharpYUV (`use_sharp_yuv` or bit 4) and its encoder/CLI routing are complete. These change samples or coding assignments, rather than execution speed alone. See timing/routing below and the [SharpYUV plan](SHARPYUV_PORT_PLAN.md). | Rust [`sharpyuv/`](../libwebpop/src/sharpyuv/), [`picture_csp_enc.rs`](../libwebpop/src/enc/picture_csp_enc.rs); upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) `SmoothSegmentMap` |
+| JPEG-like quantizer mapping (`emulate_jpeg_size`) | Uses image complexity and quality to replace the base quality-to-compression curve before segment quantizers are computed. Add the alternative mapping and its analysis dependency. There is no JPEG encode/size measurement or outer quality search. | Upstream [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) `VP8EncAnalyze`, [`quant_enc.c`](../upstream/src/enc/quant_enc.c) `QualityToJPEGCompression` / `VP8SetSegmentParams` |
+| Configurable alpha compression/filter | `alpha_compression` 0/1 changes raw/compressed ALPH representation; predictive filtering changes ALPH header/residuals and the chosen stream. Low-level Rust `EncodeAlpha` already supports compression and none/fast/best trials; public lossy encoding fixes compression=1/filter=fast. Method-dependent alpha effort is complete for 0–6. | Rust [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs); upstream [`alpha_enc.c`](../upstream/src/enc/alpha_enc.c) `ApplyFiltersAndEncode` |
+| Lossy transparent-area policy (`exact`) | Cleanup changes the YUVA input to coding and therefore can change bytes. Private configuration already gates cleanup for animation, but public still options and the CLI do not expose lossy `exact`. Connect that policy; lossy `exact` does not make RGB lossless. | Rust [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs); upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c) |
 
 `use_delta_palette` is reserved in the pinned public header and is not an
 implemented encoder feature to port. Near-lossless below strength 100 can
 change intermediate alpha by design; an exact-alpha near-lossless option would
 be a separate extension, not a missing upstream capability.
 
-## Raw input, output and encoder utilities
+### When conversion and filtering run
 
-These are encoder API features even though they do not introduce new bitstream
-coding tools. Use safe Rust ownership and borrowing rather than reproducing C
-allocation/free entry points or ABI structures.
+The pinned lossy path in [`WebPEncode`](../upstream/src/enc/webp_enc.c) is:
+
+1. **Before VP8 analysis:** convert ARGB/RGBA to YUV420(A), using ordinary
+   conversion, conversion dithering, or SharpYUV. SharpYUV iteratively improves
+   the conversion itself; it does not rerun VP8 or tune the encoder quality.
+   It changes the Y/U/V samples and can change the stream, so it counts as a
+   core input-conversion feature even though it is a separate module. It is
+   bypassed for supplied YUV, takes precedence over dithering, and falls back
+   to ordinary conversion when either dimension is below 4. Transparent-area
+   cleanup follows conversion unless `exact` is set.
+2. **During analysis:** choose segments, optionally smooth the segment map
+   (`preprocessing & 1`), and collect complexity for quantization/SNS. Segment
+   smoothing changes assignments, not source pixels. Each coding pass then
+   sets quantizers, SNS-dependent costs and initial filter strengths.
+3. **During color encoding:** reconstruct unfiltered macroblocks for prediction
+   and residual coding. With `autofilter`, `VP8StoreFilterStats` tries deblocking
+   strengths on scratch reconstructions and compares SSIM. The trials cover
+   internal subblock edges, not a complete filtered frame, and do not feed
+   filtered pixels back into prediction. The buffered path collects these
+   statistics only on its final pass.
+4. **After the coding loop, before headers are written:**
+   `VP8AdjustFilterStrength` chooses final strengths (SSIM-based with autofilter,
+   deterministic otherwise). Segment/filter headers and the VP8 profile carry
+   the resulting decoder instructions. The decoder applies deblocking to the
+   reconstructed picture. `show_compressed` exports the unfiltered encoder
+   reconstruction; it does not run that decoder filter.
+
+Separately, **alpha prediction filtering** runs on the alpha plane before VP8L
+compression within the ALPH job. Fast/best choose prediction candidates, encode
+them and select the result, with raw fallback. These are internal coding trials
+with different residuals/header bits, so they count as core. The alpha job can
+run alongside color coding; concurrency itself is performance work. Sources:
+[`frame_enc.c`](../upstream/src/enc/frame_enc.c),
+[`filter_enc.c`](../upstream/src/enc/filter_enc.c),
+[`alpha_enc.c`](../upstream/src/enc/alpha_enc.c), and
+[`picture_csp_enc.c`](../upstream/src/enc/picture_csp_enc.c).
+
+## Encoder utilities
+
+### Configuration recipes and target selection
+
+| Utility | Remaining work and boundary with the core | Main sources |
+| --- | --- | --- |
+| Picture/photo/drawing/icon/text presets | Initialize ordinary core settings; presets neither encode nor observe output. Add full default initialization, preset mappings and CLI ordering. The photo recipe enables conversion dithering, so preset parity depends on that core feature. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c) `WebPConfigInitInternal` |
+| Lossless preset levels (`-z` 0–9) | Map levels to existing method/quality settings and lossless mode; preserve subsequent option overrides. No new VP8L compression algorithm. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c) `WebPConfigLosslessPreset`, [`cwebp.c`](../upstream/examples/cwebp.c) |
+| Target size / PSNR (`target_size`, `target_PSNR`) | Port quality updates, estimates, convergence and target precedence. This is selection policy over the core's quality parameter. Upstream integrates partial/statistics passes into both coding loops, rather than independently re-encoding complete files; fresh public encode calls need not reproduce its bytes. Keep any stateful pass integration in the core while exposing target policy separately. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c) `InitPassStats` / `ComputeNextQ` / `OneStatPass` / `VP8EncTokenLoop` |
+| Quality bounds (`qmin`, `qmax`) | Normalize initial quality and bound target-driven updates. These introduce no new coding algorithm: `InitPassStats` clamps quality even when target search is disabled. Implement that single-pass clamp as well as search bounds; default 0/100 is already equivalent. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c) `InitPassStats` / `ComputeNextQ` |
+
+`pass` has two roles: the core entropy-analysis count and the utility search's
+iteration budget. Without targets, the pinned loops repeat at fixed quality
+and carry coding statistics forward; separate fresh encodes at the same quality
+would discard that state. Also, `InitVP8Encoder` enables chroma error-diffusion
+storage when `pass > 1`, even above its normal quality cutoff of 98; this can
+change coding independently of target search. With targets, `do_search` enables
+quality updates and, on the direct path, changes probe/RD behavior. A utility
+implementation must preserve these dependencies to claim pinned search parity.
+
+The bounds clamp the pass's working quality, not the original configuration
+used earlier for conversion dithering and fast analysis. Rewriting the global
+quality before the whole pipeline is not generally equivalent. Sources:
+[`webp_enc.c`](../upstream/src/enc/webp_enc.c) `InitVP8Encoder` / `WebPEncode`,
+[`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) `FastMBAnalyze`, and
+[`frame_enc.c`](../upstream/src/enc/frame_enc.c) `InitPassStats`.
+
+At this pin, nonzero `target_size` wins over `target_PSNR` in `InitPassStats`,
+despite the opposite precedence stated in `encode.h`. The size is an estimate,
+not a guaranteed complete-file byte budget, and the PSNR uses coding-loop
+distortion, not an external decode with deblocking and RGB comparison. The CLI
+changes `pass == 1` to 6 when a target is present; the library does not. A
+standalone `pass > 1` does not enable a 40 dB target search: that fallback value
+is initialized, but `do_search` remains false. Search is lossy-only.
+
+The official [cwebp manual](https://developers.google.com/speed/webp/docs/cwebp)
+was also consulted. Its standalone-pass/40 dB and segment-option descriptions
+do not match these pinned branches: `segments` is used in buffered encoding
+too; it is coefficient `partitions` that buffered encoding forces to one.
+Use the pinned implementation for parity and fixtures.
+
+### Raw input, picture operations, output and observation
+
+These are utility/API work, independent of core completion. Raw layout adapters
+must preserve logical samples; RGB/YUV conversion algorithms remain core as
+described above. Use safe Rust ownership and borrowing rather than reproducing
+C allocation/free entry points or ABI structures.
 
 - [ ] Add checked RGB, BGR and BGRA convenience routes, plus RGBX/BGRX import
   equivalents. Current top-level APIs accept only RGBA. Define signed-stride
@@ -114,7 +218,12 @@ References: upstream [`encode.h`](../upstream/src/webp/encode.h),
 [`picture_tools_enc.c`](../upstream/src/enc/picture_tools_enc.c), and
 [`picture_psnr_enc.c`](../upstream/src/enc/picture_psnr_enc.c).
 
-## Container and animation output
+## Utility track: container and animation output
+
+Container chunks, frame selection, timing, disposal/blending and animation
+optimization change the output file, but compose the still-image core. Track
+them independently; they do not gate still-image core completion. Any new
+still-image coding behavior they require belongs to the core table above.
 
 The [animation and multi-frame plan](ANIMATION_PORT_PLAN.md) expands this work
 into output-layer, raw-frame, optimizer and CLI milestones. Basic full-frame
@@ -197,24 +306,25 @@ comparisons before broad validation. Production decoding remains excluded;
 discussion must precede any decision to change that boundary. The full-frame
 sequence CLI and initial resource baseline can proceed independently.
 
-## CLI completion
+## CLI integration by track
 
 [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) declares many upstream-style
 options but deliberately rejects unsupported ones before opening files.
 Complete the underlying features above, then wire and test these options:
 
-| Area | Currently rejected options |
-| --- | --- |
-| Presets and hints | `-z`, `--preset`, `--hint` |
-| Lossy analysis and filtering | `--segments`, `--sns`, `-f`, `--sharpness`, `--strong`, `--nostrong`, `--af`, `--partition_limit` |
-| Search and preprocessing | `--size`, `--psnr`, `--pass`, `--qrange`, `--pre` values other than 0/4, `--jpeg_like` |
-| Alpha controls | `--alpha_method`, `--alpha_filter`, `--blend_alpha`, legacy `--alpha_cleanup` |
-| Input pixel operations | Raw YUV `-s`, `--crop`, `--resize`, `--resize_mode` |
-| Resource policy | `--mt`, `--low_memory` |
-| Reports and reconstruction | `--progress`, `--map`, `--print_psnr`, `--print_ssim`, `--print_lsim`, `-d` |
-| Metadata output | `--metadata` currently has no implementation; writing supplied metadata is in scope, input-file extraction/copying is excluded |
+| Track | Area | Currently rejected options |
+| --- | --- | --- |
+| Core | Lossy analysis and deblocking | `--segments`, `--sns`, `-f`, `--sharpness`, `--strong`, `--nostrong`, `--af`, `--partition_limit` |
+| Core | Entropy passes, conversion and quantization | `--pass` (also a search budget), `--pre` values other than 0/4, `--jpeg_like` |
+| Core | Alpha coding and direct coding | `--alpha_method`, `--alpha_filter`, `--low_memory` |
+| Utility | Configuration recipes and target selection | `-z`, `--preset`, `--size`, `--psnr`, `--qrange` |
+| Utility | Input and picture operations | Raw YUV `-s`, `--crop`, `--resize`, `--resize_mode`, `--blend_alpha`, legacy `--alpha_cleanup` |
+| Utility | Reports and reconstruction | `--progress`, `--map`, `--print_psnr`, `--print_ssim`, `--print_lsim`, `-d` |
+| Utility/output | Metadata output | `--metadata` currently has no implementation; writing supplied metadata is in scope, input-file extraction/copying is excluded |
+| Performance/compatibility | Scheduling and allocation hints | `--mt`, `--hint`; neither adds a core coding algorithm at this pin |
 
-Also extend `--lossy -m` beyond 4 and permit lossy `--exact` when implemented.
+Permit lossy `--exact` when the public still configuration exposes it.
+`--lossy -m` already supports 0–6.
 `--alpha_q`, `--sharp_yuv` and `--pre 0/4` already work for lossy encoding.
 `--noasm` is accepted and is
 currently a no-op because there is no explicit accelerated backend. `--short`
@@ -222,11 +332,25 @@ currently prints the byte count; upstream's richer statistics depend on the
 reporting work above. Animation now has a full-frame library API and still
 needs a sequence frontend; it is not a missing mode of upstream `cwebp` itself.
 
-## Known performance gaps
+## Performance and compatibility: outside core completion
 
-Functional completion does not establish performance parity. Measurements
-below are dated observations for particular inputs/builds, not acceptance
-thresholds or claims about every configuration.
+None of this section gates functional core completion. Functional completion
+does not establish performance parity. Measurements below are dated observations
+for particular inputs/builds, not acceptance thresholds or claims about every
+configuration.
+
+- `thread_level` schedules VP8L configuration trials, lossy analysis jobs and
+  alpha/color coding concurrently. Porting workers adds no new coding tool.
+  Preserve candidate order, size ties, results and error propagation when
+  implementing it. Sources: [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c)
+  `VP8LEncodeStream`, [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c)
+  `VP8EncAnalyze`, [`alpha_enc.c`](../upstream/src/enc/alpha_enc.c).
+- `image_hint` is an allocation/compatibility option here: `WEBP_HINT_GRAPH`
+  changes initial VP8L writer capacity; the other hints add no compression
+  branch. It does not belong in a list of missing coding algorithms. Source:
+  [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c) `VP8LEncodeImage`.
+- `low_memory` has a separate core obligation above because it changes the
+  coding path. Measuring or improving that path's memory/CPU usage belongs here.
 
 | Gap or evidence | Recorded result and implication |
 | --- | --- |
@@ -272,43 +396,59 @@ Performance work remaining:
 - [ ] Measure threading throughput and peak-memory tradeoffs, and low-memory
   mode's CPU/memory tradeoff, once those features exist.
 
-## Suggested implementation order and completion checks
+## Implementation order and separate completion checks
 
 The completed [additional lossy methods plan](LOSSY_METHODS_PLAN.md) records
 methods 0–6, their direct-loop/trellis/alpha dependencies, checked API/CLI
-integration and release baseline. Other advanced encoder options remain below.
+integration and release baseline. Prioritize the remaining core independently
+of utility and performance work:
 
-1. **Configuration foundation and small integrations:** define the checked
-   advanced Rust API; wire existing alpha controls, configurable scalar knobs,
-   lossless level mapping and hints. Add raw layout adapters without changing
-   the existing convenience APIs.
-2. **Additional VP8 configurations:** extend direct-loop routing to public
-   low-memory mode for methods 3–6. Add multiple partitions, repeated
-   passes and target-size/PSNR search with the correct routing dependencies.
-3. **Quality controls and presets:** finish configurable analysis/filtering,
-   automatic filter search, preprocessing, SharpYUV, JPEG-size emulation and
-   preset behavior. Test conversion routing through prepared ARGB and YUV inputs.
-4. **Integration and tools:** add writers, progress/cancellation, statistics,
-   reconstruction, metrics, picture operations and CLI support. Metadata output
-   can proceed independently; build animation on the output container layer.
-   Follow the [animation plan](ANIMATION_PORT_PLAN.md) for an earlier usable
-   raw-frame release, then lossless/lossy/mixed optimization and a sequence CLI.
-5. **Performance:** establish missing comparison baselines early; carry scalar
-   predictor improvements, SIMD, workers and memory work alongside the relevant
-   algorithm milestones. Rebenchmark the final supported configurations.
+1. **Core configuration:** validate and integrate existing alpha controls,
+   lossy exact policy, configurable segment/SNS/header-budget and manual filter
+   settings through the complete-file APIs. Preserve convenience defaults.
+2. **Core coding paths:** extend direct coding to methods 3–6, then multiple
+   coefficient partitions and fixed-quality entropy passes. Cover direct and
+   buffered statistics/reset behavior; these are prerequisites for faithful
+   utility target search, not reasons to bundle that policy into this milestone.
+3. **Core algorithms:** add automatic filter selection, segment-map smoothing,
+   conversion dithering and JPEG-like quantizer mapping. SharpYUV is already
+   complete; verify its routing with the new options and prepared YUV inputs.
+4. **Utilities:** build presets/level recipes once their core settings work;
+   add bounded target search using the established pass machinery. Input
+   adapters, writers, progress/cancellation, statistics, reconstruction,
+   metrics, picture operations and their CLI options can proceed independently.
+   Follow the [animation plan](ANIMATION_PORT_PLAN.md) for the output/sequence
+   work and its separate production-decoding boundary.
+5. **Performance/compatibility:** carry profiling, scalar improvements, SIMD,
+   workers and allocation hints as a separate backlog. Benchmarks inform that
+   work and do not delay the functional core gate.
 
 For each feature, extend the existing portable fixtures, independent checks
 and pinned native oracle rather than introducing another reference stack.
 Compare intermediates at new algorithm branches and complete files for matching
-configurations, including requested thread mode. Check presets and CLI option
-ordering, invalid values, short/padded buffers, geometry limits, partition/RIFF
-overflow, cancellation and write failures where applicable. Retain the pin and
-fixture provenance. Carry upstream `WEBP_INLINE` as plain `#[inline]`.
+configurations. Include a deterministic case where each claimed core setting
+changes bytes or parsed syntax, alongside cases where the setting is inactive
+or quantizes to the same result. Check decoded pixels separately: partitions
+and entropy choices can change bytes without changing reconstruction. Retain
+the pin and fixture provenance. Carry upstream `WEBP_INLINE` as plain `#[inline]`.
 
-Completion means the in-scope pinned encoder behaviors above have checked Rust
-interfaces, their CLI equivalents are connected where applicable, new paths
-have parity and independent validation, and performance limitations are measured
-and documented. Do not claim a generic speed/memory parity result from the
-existing lossless-only comparisons. Run the relevant tests, the full portable
-and native-oracle suites, formatting, and a production library build as features
-land; this audit itself changes documentation only.
+- **Core complete:** every remaining core-table behavior has a checked,
+  integrated Rust interface, matching complete-file output against the pin and
+  independent validation. Cover segments 1–4, all coefficient partition counts
+  on supported routes, fixed-quality passes without targets, direct/buffered
+  coding, manual/automatic filtering, preprocessing precedence and supplied-YUV
+  bypass. Check invalid values, buffer/geometry limits and partition overflow.
+  Utility wrappers and performance work are not prerequisites.
+- **Utilities complete:** the selected utility/API/CLI and animation milestones
+  have their own parity and failure checks. Verify preset equivalence to explicit
+  settings, CLI ordering, target precedence/convergence, single-pass quality
+  clamping, cancellation, write failures and RIFF limits. Verify that observation
+  features leave encoded bytes unchanged. Claim pinned target-search parity
+  only with its internal pass state and distortion/size metrics preserved.
+- **Performance work:** report paired speed/memory evidence with matching
+  settings and bytes. Workers, SIMD and allocation-only hints do not earn
+  additional core feature credit. Preserve bitstream behavior when optimizing.
+
+Run relevant tests, the full portable and native-oracle suites, formatting and
+a production library build as code features land. This reclassification changes
+documentation only; no encoder implementation or fixtures are changed.
