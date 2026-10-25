@@ -58,16 +58,16 @@ needed. Preserve their behavior and reference fixtures.
 | Rust location | Existing behavior | Additional work |
 | --- | --- | --- |
 | [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` now validates and carries method too | Expose method in existing public options after the algorithms compose; finish method propagation into alpha effort |
-| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding still uses the method-4 token loop | Direct/token frame dispatch after the additional algorithms land |
+| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches direct/token frames from the mapped tools | Trellis methods remain guarded until their algorithms land |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
 | [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD and distortion refinement; non-RD `VP8Decimate` | Selected-mode requantization, trellis and remaining RD dispatch |
-| [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct residual coding/statistics, skip fitting/reset, token recording, refresh/retry loop and deterministic filter finalization | Statistics pass and direct final coding; generalize token RD level |
+| [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct residual coding/statistics, skip fitting/reset, token recording, refresh/retry loop and deterministic filter finalization | Statistics/direct drivers and method-3 tokens complete; integrate trellis RD levels |
 | [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, filters, VP8L and raw fallback | Replace fixed effort 4/q32 throughout with method-dependent effort and quality |
-| [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including skip syntax | Compose with a direct-loop partition and fitted skip state; verify existing skip branches |
+| [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including composed direct residuals and fitted skip state | No additional syntax for this scope |
 | [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Parses methods 0–6 but rejects lossy methods other than 4 | Route every valid method to the checked configurable lossy API |
 
 `VP8Decimate` now accepts non-RD and basic RD;
-`VP8EncTokenLoopWithObserver` still asserts method 4;
+`VP8EncTokenLoopWithObserver` accepts methods 3/4;
 `ReconstructIntra16` and `ReconstructIntra4` reject trellis. Removing assertions
 alone would produce the wrong encoder. Matrix setup already contains the
 method threshold for texture-distortion weighting and the trellis lambdas;
@@ -218,7 +218,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–3 are complete; milestones 4–8 remain pending. Integrate callers after
+Milestones 0–4 are complete; milestones 5–8 remain pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -229,7 +229,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | 1 (complete) | Validated internal method configuration, tool mapping and propagation into encoder setup; retain public method-4 entry points | 0 | 84 normal-resource setup states match C across all methods; 7 additional portable setup fixtures; invalid signed methods rejected before allocation; method-4 bytes unchanged |
 | 2 (complete) | Fast analysis, distortion refinement and non-RD `VP8Decimate` | 1 | 61 portable fixtures and 5,973 live C requests match fast decisions, selected modes, reconstruction, levels, nonzero masks and context/diffusion state for methods 0–2 |
 | 3 (complete) | Direct coefficient coding/statistics and skip-probability leaves | 0 | 37 portable fixtures and 4,811 live C requests; exact bytes, writer/counter/statistics state, skip costs and post-skip contexts; independent coefficient decoding and geometric context checks |
-| 4 | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | Methods 0–3 opaque files match normal C; method-0 probe limits, skip on/off, retries, borders and final filter state observed |
+| 4 (complete) | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | 27 portable fixtures, 1,335 exact C driver traces and 1,384 normal-public-C opaque files; probe boundaries, skip on/off, retries, borders, probabilities and final filter state match |
 | 5 | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | Exact levels/dequantized coefficients/masks and traceback; independent bounded path enumeration including terminal/tie cases |
 | 6 | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | Methods 5/6 opaque files match normal C; traces distinguish selected-mode versus candidate trellis; method 4 remains identical |
 | 7 | Method-dependent alpha effort, quality and filter trials | 1, existing ALPH/VP8L; 4 and 6 for complete files | Exact headerless streams, filter maps, winning payloads and complete transparent files across all methods/alpha qualities |
@@ -365,6 +365,27 @@ context, but preserves the packed DC context for Intra4. Exercise neighboring
 skipped/coded macroblocks and row transitions; do not reset all state uniformly.
 
 ### 4. The two-pass frame path and method-3 tokens
+
+Completed 2026-10-25, continuing from `1fa6593`. `OneStatPass`, `StatLoop`,
+`InitBitWriters`, `VP8EncLoop` and shared `PostLoopFinalize` now implement the
+fixed single-partition, one-configured-pass/no-target path. The token loop
+accepts method 3 and uses the mapped basic RD level. Complete-file glue selects
+the mapped driver, and the container boundary calls either result residuals.
+Public APIs and CLI still select method 4; method-dependent alpha and trellis
+remain pending.
+
+Twenty-seven new portable fixtures were captured from C before driver porting.
+The live corpus compares 1,335 driver traces and 1,384 opaque RGBA files against
+normal public C, with independent decoding. Traces include fitted probabilities,
+statistics/level costs, selected levels, reconstruction, packed contexts,
+diffusion, mode headers, final residual bytes and filter state. Method-0 probes
+cover totals 49/50/51 and 199/200/201/204; direct and token retries cover strict
+header-cost boundaries, retained statistics and a token refresh before retry.
+Independent context grids and syntax-event decoding check 10,255 statistics
+macroblocks, 13,059 coded blocks, 93 omitted blocks, 3,016 I4 decisions, 20
+retries and 159 row transitions. See the
+[reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-4).
+
 
 Port the applicable `PassStats` initialization, `OneStatPass`, `StatLoop`,
 `InitBitWriters`, `VP8EncLoop` and `PostLoopFinalize`. With no target and one

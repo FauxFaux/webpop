@@ -58,15 +58,43 @@ pub fn picture(a: &[u32]) -> WebPYUVAPicture {
     }
 }
 pub fn encode(a: &[u32]) -> (Vec<u32>, Vec<u8>) {
+    encode_method(a, 4, false)
+}
+
+pub fn encode_method(a: &[u32], method: i32, method_trace: bool) -> (Vec<u32>, Vec<u8>) {
     let quality = f32::from_bits(a[2]);
     let pic = picture(a);
-    let mut enc = VP8Encoder::new(a[0], a[1], quality <= 98.).unwrap();
+    let mut enc = VP8Encoder::new_with_method(a[0], a[1], quality <= 98., method).unwrap();
+    enc.config.quality = quality;
     enc.segment_hdr.num_segments = a[3] as usize;
     enc.segment_hdr.update_map = a[3] > 1;
     enc.max_i4_header_bits = a[4] as i32;
     VP8EncAnalyze(&mut enc, &pic);
     let mut out = Vec::new();
-    let bw = if a[7] == 0 && u64::from(a[5]) == PARTITION0_SIZE_LIMIT {
+    let bw = if !enc.use_tokens {
+        VP8EncLoopWithObserver(&mut enc, &pic, quality, u64::from(a[5]), |enc, event| {
+            if a[7] == 0 {
+                return;
+            }
+            match event {
+                VP8DirectLoopEvent::ScanStart { pass, .. } => {
+                    out.extend([0, pass as u32]);
+                    state(enc, &mut out);
+                }
+                VP8DirectLoopEvent::Macroblock {
+                    pass,
+                    index,
+                    score,
+                    iterator,
+                    ..
+                } => {
+                    macroblock_words(enc, &mut out, pass, index, score, iterator, true);
+                }
+                VP8DirectLoopEvent::StatEnd { .. } => {}
+            }
+        })
+        .unwrap()
+    } else if a[7] == 0 && u64::from(a[5]) == PARTITION0_SIZE_LIMIT {
         VP8EncTokenLoop(&mut enc, &pic, quality).unwrap()
     } else {
         VP8EncTokenLoopWithObserver(&mut enc, &pic, quality, u64::from(a[5]), |enc, event| {
@@ -89,45 +117,7 @@ pub fn encode(a: &[u32]) -> (Vec<u32>, Vec<u8>) {
                     iterator: it,
                     ..
                 } => {
-                    out.extend([2, pass as u32, index as u32]);
-                    for v in [rd.D, rd.SD, rd.H, rd.R, rd.score] {
-                        wide(&mut out, v as u64);
-                    }
-                    out.push(rd.nz);
-                    out.push(hash(
-                        rd.y_dc_levels
-                            .iter()
-                            .chain(rd.y_ac_levels.iter().flatten())
-                            .chain(rd.uv_levels.iter().flatten())
-                            .map(|&v| v as i32 as u32),
-                    ));
-                    out.push(hash(
-                        (0..16)
-                            .flat_map(|y| (0..16).map(move |x| u32::from(it.yuv_out[y * 32 + x])))
-                            .chain((0..8).flat_map(|y| {
-                                (16..32).map(move |x| u32::from(it.yuv_out[y * 32 + x]))
-                            })),
-                    ));
-                    let mb = enc.mb_info[index];
-                    out.extend([
-                        u32::from(mb.r#type),
-                        u32::from(mb.uv_mode),
-                        u32::from(mb.skip),
-                        u32::from(mb.segment),
-                        u32::from(mb.alpha),
-                    ]);
-                    out.extend(it.top_nz.map(u32::from));
-                    out.extend(it.left_nz.map(u32::from));
-                    out.push(enc.nz[it.x + 1]);
-                    out.extend(it.left_derr.iter().flatten().map(|&v| v as i32 as u32));
-                    out.extend(
-                        enc.top_derr
-                            .as_ref()
-                            .map_or([[0; 2]; 2], |top| top[it.x])
-                            .iter()
-                            .flatten()
-                            .map(|&v| v as i32 as u32),
-                    );
+                    macroblock_words(enc, &mut out, pass, index, rd, it, method_trace);
                 }
                 VP8TokenLoopEvent::PassEnd {
                     pass,
@@ -135,6 +125,9 @@ pub fn encode(a: &[u32]) -> (Vec<u32>, Vec<u8>) {
                     distortion,
                     retry,
                 } => {
+                    if method_trace {
+                        return;
+                    }
                     out.extend([3, pass as u32]);
                     wide(&mut out, header_cost);
                     wide(&mut out, distortion);
@@ -438,4 +431,62 @@ pub fn fixture_cases() -> Vec<Case> {
         out.push(c);
     }
     out
+}
+
+fn macroblock_words(
+    enc: &VP8Encoder,
+    out: &mut Vec<u32>,
+    pass: usize,
+    index: usize,
+    rd: &VP8ModeScore,
+    it: &VP8EncIterator,
+    selected_only: bool,
+) {
+    out.extend([2, pass as u32, index as u32]);
+    for v in [rd.D, rd.SD, rd.H, rd.R, rd.score] {
+        wide(out, v as u64);
+    }
+    out.push(rd.nz);
+    out.push(hash(
+        rd.y_dc_levels
+            .iter()
+            .take(if selected_only && enc.mb_info[index].r#type == 0 {
+                0
+            } else {
+                16
+            })
+            .chain(rd.y_ac_levels.iter().flatten())
+            .chain(rd.uv_levels.iter().flatten())
+            .map(|&v| v as i32 as u32),
+    ));
+    out.push(hash(
+        (0..16)
+            .flat_map(|y| (0..16).map(move |x| u32::from(it.yuv_out[y * 32 + x])))
+            .chain((0..8).flat_map(|y| (16..32).map(move |x| u32::from(it.yuv_out[y * 32 + x])))),
+    ));
+    let mb = enc.mb_info[index];
+    out.extend([
+        u32::from(mb.r#type),
+        u32::from(mb.uv_mode),
+        u32::from(mb.skip),
+        u32::from(mb.segment),
+        u32::from(mb.alpha),
+    ]);
+    if selected_only && enc.config.method < 3 && enc.proba.use_skip_proba && mb.skip {
+        out.extend([0; 17]);
+        out.push(u32::from(it.left_nz[8]));
+    } else {
+        out.extend(it.top_nz.map(u32::from));
+        out.extend(it.left_nz.map(u32::from));
+    }
+    out.push(enc.nz[it.x + 1]);
+    out.extend(it.left_derr.iter().flatten().map(|&v| v as i32 as u32));
+    out.extend(
+        enc.top_derr
+            .as_ref()
+            .map_or([[0; 2]; 2], |top| top[it.x])
+            .iter()
+            .flatten()
+            .map(|&v| v as i32 as u32),
+    );
 }

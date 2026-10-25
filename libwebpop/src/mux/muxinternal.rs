@@ -21,7 +21,7 @@ pub(crate) enum EncodedImage<'a> {
         height: u32,
         profile: u8,
         partition0: &'a [u8],
-        tokens: &'a [u8],
+        residuals: &'a [u8],
         alpha: Option<&'a [u8]>,
     },
 }
@@ -35,10 +35,10 @@ impl EncodedImage<'_> {
                 height,
                 profile,
                 partition0,
-                tokens,
+                residuals,
                 alpha,
             } => Ok(AssembleWebP(
-                width, height, profile, partition0, tokens, alpha, output,
+                width, height, profile, partition0, residuals, alpha, output,
             )?),
         }
     }
@@ -73,16 +73,17 @@ impl EncodedImage<'_> {
                 height,
                 profile,
                 partition0,
-                tokens,
+                residuals,
                 alpha,
             } => {
                 let header = PutVP8FrameHeader(width, height, profile, partition0.len())?;
-                let (size, _) = WebPSizes(partition0.len(), tokens.len(), alpha.map(<[u8]>::len))?;
+                let (size, _) =
+                    WebPSizes(partition0.len(), residuals.len(), alpha.map(<[u8]>::len))?;
                 let mut image = Vec::new();
                 image.try_reserve_exact(size as usize)?;
                 image.extend_from_slice(&header);
                 image.extend_from_slice(partition0);
-                image.extend_from_slice(tokens);
+                image.extend_from_slice(residuals);
                 // Pinned VP8 encoders include the final zero byte in the chunk
                 // length; preserve it when the payload goes through WebPMux.
                 image.resize(size as usize, 0);

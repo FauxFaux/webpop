@@ -52,6 +52,7 @@ unsigned WebpopScoreOps(const uint32_t*, uint32_t*);
 unsigned WebpopAlphaOps(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopLoopFrame(const uint32_t*, uint32_t*);
 unsigned WebpopMethodLoopFrame(const uint32_t*, uint32_t*);
+unsigned WebpopMethodLoopTrace(const uint32_t*, uint32_t*);
 unsigned WebpopMethodTools(const uint32_t*, uint32_t*);
 unsigned WebpopLossyMethodEncode(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopFrameSegments(const uint32_t*, uint32_t*);
@@ -256,8 +257,8 @@ int main(void) {
       REQUIRE(n == 3 && in[0] > 0 && in[0] <= 16383 && in[1] > 0 && in[1] <= 16383 && in[2] <= 3);
       REQUIRE(((in[0]+15)/16)*((in[1]+15)/16) <= 4096);
       count = WebpopFixedImage(in, out);
-    } else if (IS(VP8LoopFrame) || IS(VP8MethodLoopFrame)) {
-      const unsigned offset=IS(VP8MethodLoopFrame)?1:0;
+    } else if (IS(VP8LoopFrame) || IS(VP8MethodLoopFrame) || IS(VP8MethodLoopTrace)) {
+      const unsigned offset=IS(VP8LoopFrame)?0:1;
       const uint32_t* frame=in+offset;
       unsigned pixels;
       float quality;
@@ -269,7 +270,10 @@ int main(void) {
       REQUIRE(n == offset+9+pixels);
       for(i=offset+9;i<n;++i) REQUIRE(in[i] <= 255);
       if(frame[6]) { unsigned x,y; for(y=0;y<frame[1];++y) for(x=0;x<frame[0];++x) REQUIRE(frame[9+y*frame[8]+4*x+3] == 255); }
-      if(offset) {
+      if(IS(VP8MethodLoopTrace)) {
+        REQUIRE(in[0]<=4 && frame[7]==1);
+        count=WebpopMethodLoopTrace(in,out);
+      } else if(offset) {
         REQUIRE(in[0]<=6 && frame[3]==4 && frame[4]==65536 && frame[5]==((524288u-2048u)<<11) && frame[7]==0);
         count=WebpopMethodLoopFrame(in,out);
       } else count=WebpopLoopFrame(in,out);

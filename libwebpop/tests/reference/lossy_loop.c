@@ -23,6 +23,7 @@ static unsigned trace_n, loop_pass, trace_enabled;
 static uint64_t header_sum, distortion_sum;
 static uint64_t header_limit;
 static int imported, initialized;
+static int method_trace;
 static VP8ModeScore last_score;
 // Compact method observations deliberately exclude uninitialized candidate
 // fields. Statistics/final scans may use different RD levels and visit counts.
@@ -124,7 +125,10 @@ static void ObserveSave(VP8EncIterator* it) {
   if(trace_enabled) {
     Word(2); Word(loop_pass); Word(it->x+it->y*enc->mb_w);
     Wide(last_score.D); Wide(last_score.SD); Wide(last_score.H); Wide(last_score.R); Wide(last_score.score); Word(last_score.nz);
-    for(i=0;i<16;++i) h=(h^(uint32_t)(int32_t)last_score.y_dc_levels[i])*16777619u;
+    // Non-RD I4 leaves the DC array undefined. The new trace hashes only
+    // selected coefficients; keep the historical method-4 protocol unchanged.
+    if(!method_trace || it->mb->type==1)
+      for(i=0;i<16;++i) h=(h^(uint32_t)(int32_t)last_score.y_dc_levels[i])*16777619u;
     for(y=0;y<16;++y) for(x=0;x<16;++x) h=(h^(uint32_t)(int32_t)last_score.y_ac_levels[y][x])*16777619u;
     for(y=0;y<8;++y) for(x=0;x<16;++x) h=(h^(uint32_t)(int32_t)last_score.uv_levels[y][x])*16777619u;
     Word(h); h=2166136261u;
@@ -132,12 +136,23 @@ static void ObserveSave(VP8EncIterator* it) {
     for(y=0;y<8;++y) for(x=16;x<32;++x) h=(h^it->yuv_out[y*BPS+x])*16777619u;
     Word(h);
     Word(it->mb->type); Word(it->mb->uv_mode); Word(it->mb->skip); Word(it->mb->segment); Word(it->mb->alpha);
-    for(i=0;i<9;++i) Word(it->top_nz[i]); for(i=0;i<9;++i) Word(it->left_nz[i]); Word(*it->nz);
+    // A skipped non-RD block does not unpack context scratch. Some bytes can
+    // therefore be uninitialized on the first final block; packed contexts and
+    // the left DC byte remain defined. Never serialize that unused scratch.
+    if(method_trace && enc->method<3 && enc->proba.use_skip_proba && it->mb->skip) {
+      for(i=0;i<9;++i) Word(0);
+      for(i=0;i<8;++i) Word(0);
+      Word(it->left_nz[8]);
+    } else {
+      for(i=0;i<9;++i) Word(it->top_nz[i]);
+      for(i=0;i<9;++i) Word(it->left_nz[i]);
+    }
+    Word(*it->nz);
     for(y=0;y<2;++y) for(x=0;x<2;++x) Word(enc->top_derr?(uint32_t)(int32_t)it->left_derr[y][x]:0);
     for(y=0;y<2;++y) for(x=0;x<2;++x) Word(enc->top_derr?(uint32_t)(int32_t)enc->top_derr[it->x][y][x]:0);
   }
   VP8IteratorSaveBoundary(it);
-  if(trace_enabled && it->x==enc->mb_w-1 && it->y==enc->mb_h-1) {
+  if(trace_enabled && !method_trace && it->x==enc->mb_w-1 && it->y==enc->mb_h-1) {
     uint64_t size=header_sum+enc->segment_hdr.size;
     Word(3); Word(loop_pass); Wide(size); Wide(distortion_sum); Word(enc->max_i4_header_bits>0 && size>header_limit);
   }
@@ -223,6 +238,14 @@ unsigned WebpopLoopFrame(const uint32_t* in,uint32_t* out) {
 
 unsigned WebpopMethodLoopFrame(const uint32_t* in,uint32_t* out) {
   return LoopFrame(in+1,out,in[0],1);
+}
+
+unsigned WebpopMethodLoopTrace(const uint32_t* in,uint32_t* out) {
+  unsigned n;
+  method_trace=1;
+  n=LoopFrame(in+1,out,in[0],0);
+  method_trace=0;
+  return n;
 }
 
 unsigned WebpopMethodTools(const uint32_t* in,uint32_t* out) {

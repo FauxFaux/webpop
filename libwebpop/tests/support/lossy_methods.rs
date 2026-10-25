@@ -1,5 +1,5 @@
 //! Reference-first cases for the methods extension. Until each algorithm lands,
-//! only method 4 is evaluated in Rust; other methods are C reference artifacts.
+//! methods 0–4 have frame drivers; trellis/alpha variants remain C references.
 use super::{Case, ImageCase, lossy, vp8_loop};
 
 pub const RD_LEVELS: [u32; 7] = [0, 0, 0, 1, 1, 2, 3];
@@ -264,6 +264,205 @@ pub fn fixture_cases() -> Vec<Case> {
             "VP8MethodTools",
             vec![17, 19, 98.5f32.to_bits(), method, 0, 0],
         ));
+    }
+    cases
+}
+
+pub fn driver_fixture_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for method in 0..=4 {
+        for (w, h, q, pattern) in [(1, 1, 0., 0), (17, 19, 75., 4), (17, 19, 98.5, 2)] {
+            let base = vp8_loop::frame_case(w, h, q, 4, pattern, true);
+            let mut input = vec![method];
+            input.extend(base.input);
+            cases.push(Case::new("VP8MethodLoopTrace", input));
+        }
+        // Zero limit: direct non-RD headers still include segment-map costs;
+        // token mode exercises retries after a probability refresh.
+        let mut base = vp8_loop::frame_case(97 * 16, 1, 75., 4, 4, true);
+        base.input[4] = 1;
+        base.input[5] = 0;
+        let mut input = vec![method];
+        input.extend(base.input);
+        cases.push(Case::new("VP8MethodLoopTrace", input));
+    }
+    for count in [49, 50, 51, 199, 200, 201, 204] {
+        let mut input = vec![0];
+        input.extend(vp8_loop::frame_case(count * 16, 1, 75., 4, 0, false).input);
+        cases.push(Case::new("VP8MethodLoopFrame", input));
+    }
+    cases
+}
+
+/// Exact compact observations, including the independently assembled file.
+pub fn loop_output(case: &Case) -> Vec<u32> {
+    use libwebpop::{
+        enc::{analysis_enc::*, frame_enc::*, syntax_enc::VP8EncWrite, vp8i_enc::*},
+        utils::bit_writer_utils::VP8BitWriterBuf,
+    };
+    let method = case.input[0];
+    let a = &case.input[1..];
+    let quality = f32::from_bits(a[2]);
+    let pic = vp8_loop::picture(a);
+    let mut enc = VP8Encoder::new_with_method(a[0], a[1], quality <= 98., method as i32).unwrap();
+    enc.config.quality = quality;
+    enc.segment_hdr.num_segments = a[3] as usize;
+    enc.max_i4_header_bits = a[4] as i32;
+    VP8EncAnalyze(&mut enc, &pic);
+    let mut passes: Vec<[u32; 6]> = Vec::new();
+    let (mut refresh, mut emit) = (0, 0);
+    fn mb(p: &mut [u32; 6], enc: &VP8Encoder, index: usize, trellis: bool) {
+        let info = enc.mb_info[index];
+        p[1] += 1;
+        p[2 + usize::from(info.r#type == 0)] += 1;
+        p[4] += u32::from(info.skip);
+        p[5] += u32::from(trellis);
+    }
+    let bw =
+        if enc.use_tokens {
+            VP8EncTokenLoopWithObserver(&mut enc, &pic, quality, u64::from(a[5]), |enc, event| {
+                match event {
+                    VP8TokenLoopEvent::PassStart { .. } => {
+                        passes.push([enc.rd_opt_level as u32, 0, 0, 0, 0, 0])
+                    }
+                    VP8TokenLoopEvent::Refresh { .. } => refresh += 1,
+                    VP8TokenLoopEvent::Macroblock {
+                        index, iterator, ..
+                    } => mb(passes.last_mut().unwrap(), enc, index, iterator.do_trellis),
+                    VP8TokenLoopEvent::Emit { .. } => emit += 1,
+                    _ => {}
+                }
+            })
+            .unwrap()
+        } else {
+            VP8EncLoopWithObserver(&mut enc, &pic, quality, u64::from(a[5]), |enc, event| {
+                match event {
+                    VP8DirectLoopEvent::ScanStart { .. } => {
+                        passes.push([enc.rd_opt_level as u32, 0, 0, 0, 0, 0])
+                    }
+                    VP8DirectLoopEvent::Macroblock {
+                        index, iterator, ..
+                    } => mb(passes.last_mut().unwrap(), enc, index, iterator.do_trellis),
+                    _ => {}
+                }
+            })
+            .unwrap()
+        };
+    let mut out = vec![
+        method,
+        enc.rd_opt_level as u32,
+        u32::from(enc.use_tokens),
+        1,
+        passes.len() as u32,
+    ];
+    out.extend(passes.into_iter().flatten());
+    let residuals = VP8BitWriterBuf(&bw);
+    out.extend([
+        refresh,
+        emit,
+        u32::from(enc.proba.use_skip_proba),
+        u32::from(enc.proba.skip_proba),
+        enc.proba.nb_skip as u32,
+        super::vp8_tokens::hash(super::vp8_cost::probability_words(&enc.proba.coeffs)),
+        enc.filter_hdr.level as u32,
+        residuals.len() as u32,
+    ]);
+    let mut file = Vec::new();
+    VP8EncWrite(&enc, a[0], a[1], 0, residuals, &mut file).unwrap();
+    out.push(file.len() as u32);
+    out.extend(file.into_iter().map(u32::from));
+    out
+}
+
+pub fn driver_output(case: &Case) -> Vec<u32> {
+    if case.function == "VP8MethodLoopFrame" {
+        loop_output(case)
+    } else {
+        assert_eq!(case.function, "VP8MethodLoopTrace");
+        vp8_loop::encode_method(&case.input[1..], case.input[0] as i32, true).0
+    }
+}
+
+pub fn driver_cases() -> Vec<Case> {
+    let mut cases = driver_fixture_cases();
+    for method in 0..=3 {
+        // C-observed first-pass header costs for this fixed source.
+        let cost = if method < 3 { 1555 } else { 20912 };
+        for limit in [cost - 1, cost, cost + 1] {
+            let mut base = vp8_loop::frame_case(17, 19, 75., 4, 4, true);
+            base.input[5] = limit;
+            let mut input = vec![method];
+            input.extend(base.input);
+            cases.push(Case::new("VP8MethodLoopTrace", input));
+        }
+        for (w, h) in [
+            (1, 17),
+            (17, 1),
+            (3, 5),
+            (15, 15),
+            (16, 16),
+            (17, 19),
+            (31, 33),
+            (65, 49),
+        ] {
+            for q in [0., 1., 30., 50., 75., 98., 98.5, 99., 100.] {
+                for p in [0, 2, 3, 4] {
+                    let mut input = vec![method];
+                    input.extend(vp8_loop::frame_case(w, h, q, 4, p, true).input);
+                    cases.push(Case::new("VP8MethodLoopTrace", input));
+                }
+            }
+        }
+        for count in [49, 50, 51, 96, 97, 199, 200, 201, 204, 776] {
+            for p in [0, 4] {
+                let mut input = vec![method];
+                input.extend(vp8_loop::frame_case(count * 16, 1, 75., 4, p, true).input);
+                cases.push(Case::new("VP8MethodLoopTrace", input));
+            }
+        }
+        for segments in 1..=4 {
+            for limit in [0, 1, 8192, 65536] {
+                let mut base = vp8_loop::frame_case(17, 19, 75., segments, 4, true);
+                base.input[5] = limit;
+                let mut input = vec![method];
+                input.extend(base.input);
+                cases.push(Case::new("VP8MethodLoopTrace", input));
+            }
+        }
+    }
+    cases
+}
+
+pub fn driver_rgba_cases() -> Vec<Case> {
+    let mut images = vp8_loop::rgba_cases();
+    for (w, h) in [(16383, 1), (1, 16383), (193, 129)] {
+        let mut image = lossy::image(w, h, 4);
+        for y in 0..h as usize {
+            for x in 0..w as usize {
+                image.rgba[y * image.stride + 4 * x + 3] = 255;
+            }
+        }
+        for q in [0., 75., 98.5, 100.] {
+            images.push(vp8_loop::rgba_case(&image, q));
+        }
+    }
+    // Fractional qualities around the fast-analysis integer thresholds.
+    let mut image = lossy::image(33, 17, 2);
+    for y in 0..17 {
+        for x in 0..33 {
+            image.rgba[y * image.stride + 4 * x + 3] = 255;
+        }
+    }
+    for q in [29.99, 30., 30.01, 74.99, 75., 75.01] {
+        images.push(vp8_loop::rgba_case(&image, q));
+    }
+    let mut cases = Vec::new();
+    for method in 0..=3 {
+        for image in &images {
+            let mut input = vec![method];
+            input.extend_from_slice(&image.input);
+            cases.push(Case::new("VP8MethodLoopFrame", input));
+        }
     }
     cases
 }

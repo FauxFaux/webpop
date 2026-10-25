@@ -6,7 +6,7 @@ use super::{
     alpha_enc::VP8EncStartAlpha,
     analysis_enc::VP8EncAnalyze,
     config_enc::{EncoderConfig, LossyConfig, WebPValidateConfig},
-    frame_enc::VP8EncTokenLoop,
+    frame_enc::{VP8EncLoop, VP8EncTokenLoop},
     picture_enc::{WebPPicture, WebPYUVAPicture},
     picture_tools_enc::{WebPCleanupTransparentArea, WebPReplaceTransparentPixels},
     syntax_enc::{GeneratePartition0, PutVP8FrameHeader},
@@ -42,7 +42,7 @@ pub(crate) fn WebPEncode<T>(
     VP8LEncodeImage(config, picture, write)
 }
 
-/// The default method-4 token path, with synchronous analysis/alpha jobs.
+/// Method-dependent frame coding with synchronous analysis/alpha jobs.
 /// Separate owned picture types make the required storage explicit: callers
 /// import ARGB for VP8L and YUVA for VP8 before entering either encoder.
 pub(crate) fn WebPEncodeLossy<T>(
@@ -60,7 +60,11 @@ pub(crate) fn WebPEncodeLossy<T>(
     enc.config.quality = config.quality;
     VP8EncAnalyze(&mut enc, picture);
     let alpha = VP8EncStartAlpha(picture, config.alpha_quality)?;
-    let tokens = VP8EncTokenLoop(&mut enc, picture, config.quality)?;
+    let residuals = if enc.use_tokens {
+        VP8EncTokenLoop(&mut enc, picture, config.quality)?
+    } else {
+        VP8EncLoop(&mut enc, picture, config.quality)?
+    };
     PutVP8FrameHeader(picture.width, picture.height, 0, 0)?;
     let partition0 = GeneratePartition0(&enc)?;
     write(crate::mux::muxinternal::EncodedImage::Vp8 {
@@ -68,7 +72,7 @@ pub(crate) fn WebPEncodeLossy<T>(
         height: picture.height,
         profile: 0, // Default preset's complex filter uses VP8 profile 0.
         partition0: VP8BitWriterBuf(&partition0),
-        tokens: VP8BitWriterBuf(&tokens),
+        residuals: VP8BitWriterBuf(&residuals),
         alpha: alpha.as_ref().map(|a| a.data.as_slice()),
     })
 }

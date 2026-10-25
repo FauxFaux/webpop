@@ -17,6 +17,9 @@ fn check_reference(case: &Case, output: &[u32]) {
         }
         "VP8MethodLoopFrame" => {
             let file = methods::check_loop(case, output);
+            if case.input[0] <= 4 {
+                assert_eq!(output, methods::loop_output(case));
+            }
             if case.input[0] == 4 {
                 // Compare the new observed C route against the existing Rust
                 // frame loop without changing the old request/fixture layout.

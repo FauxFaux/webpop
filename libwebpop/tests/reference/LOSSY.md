@@ -1986,3 +1986,102 @@ Validation passed: full workspace `cargo test` and
 library build; `cargo fmt --all -- --check`; and staged/unstaged `git diff --check`.
 All inherited method-4 fixtures remain byte-identical, including full files,
 detailed frame traces, alpha and SharpYUV paths. The upstream checkout is clean.
+
+## Remaining lossy methods: milestone 4
+
+Completed 2026-10-25 from `1fa6593`. The fixed normal-memory scope now has
+`OneStatPass`, `StatLoop`, `InitBitWriters`, `VP8EncLoop` and shared
+`PostLoopFinalize`. Direct methods 0–2 collect statistics, fit skip/coefficient
+probabilities and refresh costs, then reconstruct a fresh final scan. Statistics
+are cleared once before retries; borders, nonzero state and diffusion reset at
+each scan. Method 0 samples at most 50 macroblocks at frame totals <=200,
+otherwise `total >> 2`, while skip fitting still uses the full-frame denominator.
+Methods 1/2 sample the whole frame. With one configured pass and no target,
+quality remains fixed and convergence/PSNR bookkeeping has no consumers.
+
+Method 3 now uses the existing token driver with the mapped basic RD level.
+Both drivers return the same finalized coefficient-partition writer type;
+container/mux assembly calls these bytes residuals. Production glue selects
+from the mapped tools before frame coding. Public lossy options/CLI still
+select method 4; trellis and method-dependent alpha remain pending.
+
+The new `VP8MethodLoopTrace` request is method followed by the unchanged
+`VP8LoopFrame` input layout, requires trace enabled and supports methods 0–4.
+It uses the existing original-loop observer in `lossy_loop.c`. Unlike the
+compact `VP8MethodLoopFrame`, it permits segment/header-budget overrides and
+the synthetic header limit for bounded retries. Full public C file requests
+continue to use the normally built library, without injected state.
+
+Detailed output follows the old frame trace's tagged records:
+
+- Tag 0: scan ordinal and the existing 2,150-word encoder state after setup.
+- Tag 1: scan ordinal, macroblock index and encoder state on a token refresh.
+- Tag 2: scan ordinal/index, five wide scalar scores, nonzero mask, coefficient
+  and reconstruction hashes, five macroblock fields, nine top and nine left
+  context bytes, packed contexts, and eight diffusion-error words.
+- Tag 4: encoder state and token count/hash, followed by tokens for <=64 macroblocks.
+- Tag 5: final encoder state, prediction-map length/bytes, five fields per
+  macroblock, coefficient-partition length/bytes, then file length/bytes.
+
+Tag 3 (the old full-frame-only pass-end record) is omitted: statistics probes
+can stop mid-frame, and the next scan/final state captures retries without
+pretending the probe visited every block. I4 DC coefficients are excluded from
+the coefficient hash because non-RD I4 leaves that array undefined. Skipped
+non-RD blocks can leave context scratch uninitialized; their top scratch and
+first eight left scratch bytes serialize as zero, while packed contexts and
+the separately defined left DC byte are compared. All old request layouts and
+fixtures retain their exact bytes.
+
+The 27 new `fixtures/lossy_method_loop.txt` cases were captured from C before
+porting the drivers (then corrected to exclude undefined context scratch).
+They cover detailed methods 0–4, quality/diffusion boundaries, a retry after a
+token refresh, and compact method-0 probe boundaries 49/50/51 and
+199/200/201/204. The original 77 method fixtures now also compare compact Rust
+observations for methods 0–4; methods 5/6 remain reference-only.
+
+Live checks compare 1,335 exact driver requests, including both families,
+full/partial probes, multiple rows, one to four segments, skip enabled/disabled,
+probability/statistics/level-cost state, reconstructed pixels, selected levels,
+contexts/diffusion, final modes/partitions/filter strength, and direct/basic-token
+header retries. C-observed first-pass costs for the fixed 17x19 mixed source at
+quality 75 are 1,555 for methods 0–2 and 20,912 for method 3. Limits immediately
+below, equal to and above those costs verify the strict retry comparison.
+Another 1,384 complete opaque files match normal public C and independently
+decode: methods 0–3, nine integer/fractional qualities, odd and border geometry,
+16,383-pixel skinny images, 193x129 images, the committed real-image sample,
+padded strides and qualities around fast-analysis integer thresholds.
+
+Independent geometric context grids and coefficient syntax-event parsing check
+scan resets, residual bits, sampled skip counts, whole-frame skip denominators,
+retained statistics on retries and unchanged statistics during final coding.
+Coverage counts are printed by
+`direct_scans_reset_borders_fit_sampled_statistics_and_decode_residuals`.
+The inherited direct-leaf suite independently decodes coefficients and validates
+packed skip contexts, while syntax tests independently parse skip headers.
+
+The reviewed clean upstream pin and toolchain remain unchanged:
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, scalar dispatch, threading off, token buffering enabled,
+Rust 1.101.0-nightly `7189d39d9` (2026-10-22). Review this provenance before
+regeneration:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_method_loop method_loop_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_method_loop
+cargo test -p libwebpop --features native-oracle \
+  --test lossy_method_loop --test lossy_methods -- --nocapture
+cargo test -p libwebpop --release --features native-oracle \
+  --test lossy_method_loop --test lossy_methods --test lossy_loop \
+  --test lossy_fast --test lossy_direct -- --nocapture
+```
+
+Validation passed: full workspace `cargo test` and
+`cargo test --features native-oracle`; release native suites `lossy_method_loop`
+(6 tests), `lossy_methods` (6), `lossy_loop` (9), `lossy_fast` (10) and
+`lossy_direct` (7); `cargo build -p libwebpop --lib`;
+`cargo fmt --all -- --check`; and `git diff --check`. The independent direct
+scan checks observed 10,255 statistics macroblocks, 13,059 coded macroblocks,
+93 omitted blocks, 3,016 I4 decisions, 20 retries and 159 row transitions.
+All inherited method-4, lossless, near-lossless, alpha, animation and SharpYUV
+fixtures remain byte-identical. The upstream checkout is unchanged and clean.

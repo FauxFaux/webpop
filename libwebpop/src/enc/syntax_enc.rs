@@ -112,13 +112,13 @@ pub fn PutVP8FrameHeader(
 
 /// Check lengths without allocating, including synthetic sizes near RIFF limits.
 /// Pinned libwebp includes the final padding byte in the VP8 chunk length.
-pub fn OpaqueWebPSizes(size0: usize, token_size: usize) -> Result<(u32, u32), VP8WriteError> {
-    WebPSizes(size0, token_size, None)
+pub fn OpaqueWebPSizes(size0: usize, residual_size: usize) -> Result<(u32, u32), VP8WriteError> {
+    WebPSizes(size0, residual_size, None)
 }
 
 pub fn WebPSizes(
     size0: usize,
-    token_size: usize,
+    residual_size: usize,
     alpha_size: Option<usize>,
 ) -> Result<(u32, u32), VP8WriteError> {
     if size0 >= VP8_MAX_PARTITION0_SIZE {
@@ -126,7 +126,7 @@ pub fn WebPSizes(
     }
     let vp8 = 10usize
         .checked_add(size0)
-        .and_then(|s| s.checked_add(token_size))
+        .and_then(|s| s.checked_add(residual_size))
         .and_then(|s| s.checked_add(s & 1))
         .ok_or(VP8WriteError::FileTooBig)?;
     let alpha_extra = match alpha_size {
@@ -151,10 +151,10 @@ pub fn AssembleOpaqueWebP(
     height: u32,
     profile: u8,
     partition0: &[u8],
-    tokens: &[u8],
+    residuals: &[u8],
     output: &mut Vec<u8>,
 ) -> Result<(), VP8WriteError> {
-    AssembleWebP(width, height, profile, partition0, tokens, None, output)
+    AssembleWebP(width, height, profile, partition0, residuals, None, output)
 }
 
 /// Replace `output` with a complete WebP file, reusing its capacity.
@@ -164,12 +164,12 @@ pub fn AssembleWebP(
     height: u32,
     profile: u8,
     partition0: &[u8],
-    tokens: &[u8],
+    residuals: &[u8],
     alpha: Option<&[u8]>,
     output: &mut Vec<u8>,
 ) -> Result<(), VP8WriteError> {
     let header = PutVP8FrameHeader(width, height, profile, partition0.len())?;
-    let (vp8, riff) = WebPSizes(partition0.len(), tokens.len(), alpha.map(<[u8]>::len))?;
+    let (vp8, riff) = WebPSizes(partition0.len(), residuals.len(), alpha.map(<[u8]>::len))?;
     let total = (riff as usize)
         .checked_add(8)
         .ok_or(VP8WriteError::FileTooBig)?;
@@ -196,22 +196,22 @@ pub fn AssembleWebP(
     output.extend_from_slice(&vp8.to_le_bytes());
     output.extend_from_slice(&header);
     output.extend_from_slice(partition0);
-    output.extend_from_slice(tokens);
+    output.extend_from_slice(residuals);
     output.resize(total, 0);
     Ok(())
 }
 
-/// Opaque assembly from stored modes and finalized token bytes.
+/// Opaque assembly from stored modes and finalized residual bytes.
 /// Output guarantees follow [`AssembleWebP`].
 pub fn VP8EncWrite(
     enc: &VP8Encoder,
     width: u32,
     height: u32,
     profile: u8,
-    tokens: &[u8],
+    residuals: &[u8],
     output: &mut Vec<u8>,
 ) -> Result<(), VP8WriteError> {
-    VP8EncWriteWithAlpha(enc, width, height, profile, tokens, None, output)
+    VP8EncWriteWithAlpha(enc, width, height, profile, residuals, None, output)
 }
 
 /// Assemble a WebP file with optional alpha; output guarantees follow [`AssembleWebP`].
@@ -220,7 +220,7 @@ pub fn VP8EncWriteWithAlpha(
     width: u32,
     height: u32,
     profile: u8,
-    tokens: &[u8],
+    residuals: &[u8],
     alpha: Option<&[u8]>,
     output: &mut Vec<u8>,
 ) -> Result<(), VP8WriteError> {
@@ -234,7 +234,7 @@ pub fn VP8EncWriteWithAlpha(
         height,
         profile,
         VP8BitWriterBuf(&bw),
-        tokens,
+        residuals,
         alpha,
         output,
     )

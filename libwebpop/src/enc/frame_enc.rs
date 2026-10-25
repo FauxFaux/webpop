@@ -387,6 +387,193 @@ pub fn RecordTokens(
     Ok(())
 }
 
+/// Direct-loop observations after import/setup and after residual handling.
+/// Statistics and final coding deliberately retain separate iterator lifetimes.
+pub enum VP8DirectLoopEvent<'a> {
+    ScanStart {
+        pass: usize,
+        statistics: bool,
+    },
+    Macroblock {
+        pass: usize,
+        statistics: bool,
+        index: usize,
+        score: &'a VP8ModeScore,
+        iterator: &'a VP8EncIterator,
+    },
+    StatEnd {
+        pass: usize,
+        header_cost: u64,
+        retry: bool,
+    },
+}
+
+fn OneStatPass(
+    enc: &mut VP8Encoder,
+    pic: &WebPYUVAPicture,
+    quality: f32,
+    nb_mbs: usize,
+    pass: usize,
+    observe: &mut impl FnMut(&VP8Encoder, VP8DirectLoopEvent<'_>),
+) -> u64 {
+    let mut it = VP8EncIterator::default();
+    VP8IteratorInit(enc, &mut it);
+    SetLoopParams(enc, quality);
+    observe(
+        enc,
+        VP8DirectLoopEvent::ScanStart {
+            pass,
+            statistics: true,
+        },
+    );
+    // With one configured pass and no target search, only the header estimate
+    // is consumed. Non-RD scores legitimately leave D/R/H at zero.
+    let mut header_cost = 0;
+    for index in 0..nb_mbs.min(enc.mb_info.len()) {
+        VP8IteratorImport(&mut it, enc, pic, false);
+        let mut rd = VP8ModeScore::default();
+        if VP8Decimate(&mut it, enc, &mut rd, VP8RDLevel::RD_OPT_NONE) {
+            enc.proba.nb_skip += 1;
+        }
+        // Even zero macroblocks contribute coefficient statistics here.
+        RecordResiduals(&mut it, enc, &rd);
+        header_cost += rd.H as u64;
+        observe(
+            enc,
+            VP8DirectLoopEvent::Macroblock {
+                pass,
+                statistics: true,
+                index,
+                score: &rd,
+                iterator: &it,
+            },
+        );
+        VP8IteratorSaveBoundary(&mut it, enc);
+        if !VP8IteratorNext(&mut it, enc) {
+            break;
+        }
+    }
+    header_cost + enc.segment_hdr.size as u64
+}
+
+fn StatLoop(
+    enc: &mut VP8Encoder,
+    pic: &WebPYUVAPicture,
+    quality: f32,
+    header_limit: u64,
+    observe: &mut impl FnMut(&VP8Encoder, VP8DirectLoopEvent<'_>),
+) -> usize {
+    let total = enc.mb_info.len();
+    let nb_mbs = if enc.config.method == 0 {
+        if total > 200 { total >> 2 } else { 50 }
+    } else {
+        total
+    };
+    // The pin clears token statistics once, retaining them across header retries.
+    ResetTokenStats(&mut enc.proba);
+    let mut pass = 0;
+    loop {
+        let header_cost = OneStatPass(enc, pic, quality, nb_mbs, pass, observe);
+        let retry = enc.max_i4_header_bits > 0 && header_cost > header_limit;
+        observe(
+            enc,
+            VP8DirectLoopEvent::StatEnd {
+                pass,
+                header_cost,
+                retry,
+            },
+        );
+        pass += 1;
+        if !retry {
+            break;
+        }
+        enc.max_i4_header_bits >>= 1;
+    }
+    FinalizeSkipProba(&mut enc.proba, total);
+    FinalizeTokenProbas(&mut enc.proba);
+    VP8CalculateLevelCosts(&mut enc.proba);
+    pass
+}
+
+// Single coefficient partition, initialized only after segment quantization.
+fn InitBitWriters(enc: &VP8Encoder) -> Result<VP8BitWriter, TryReserveError> {
+    const AVERAGE_BYTES_PER_MB: [usize; 8] = [50, 24, 16, 9, 7, 5, 3, 2];
+    VP8BitWriterInit(enc.mb_info.len() * AVERAGE_BYTES_PER_MB[(enc.base_quant >> 4) as usize])
+}
+
+fn PostLoopFinalize(enc: &mut VP8Encoder, bw: &mut VP8BitWriter) -> Result<(), TryReserveError> {
+    VP8BitWriterFinish(bw)?;
+    VP8AdjustFilterStrength(enc);
+    Ok(())
+}
+
+/// One statistics pass (plus header retries), then a separately reconstructed
+/// final scan. Only methods 0–2 select this path with the supported settings.
+pub fn VP8EncLoop(
+    enc: &mut VP8Encoder,
+    pic: &WebPYUVAPicture,
+    quality: f32,
+) -> Result<VP8BitWriter, TryReserveError> {
+    VP8EncLoopWithObserver(enc, pic, quality, PARTITION0_SIZE_LIMIT, |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn VP8EncLoopWithObserver(
+    enc: &mut VP8Encoder,
+    pic: &WebPYUVAPicture,
+    quality: f32,
+    header_limit: u64,
+    mut observe: impl FnMut(&VP8Encoder, VP8DirectLoopEvent<'_>),
+) -> Result<VP8BitWriter, TryReserveError> {
+    assert!(!enc.use_tokens && enc.rd_opt_level == VP8RDLevel::RD_OPT_NONE);
+    assert!(quality.is_finite() && header_limit <= PARTITION0_SIZE_LIMIT);
+    assert!(enc.max_i4_header_bits >= 0);
+    assert_eq!(
+        (enc.mb_w, enc.mb_h),
+        (
+            (pic.width as usize).div_ceil(16),
+            (pic.height as usize).div_ceil(16),
+        )
+    );
+    let pass = StatLoop(enc, pic, quality, header_limit, &mut observe);
+    let mut bw = InitBitWriters(enc)?;
+    let mut it = VP8EncIterator::default();
+    VP8IteratorInit(enc, &mut it);
+    observe(
+        enc,
+        VP8DirectLoopEvent::ScanStart {
+            pass,
+            statistics: false,
+        },
+    );
+    for index in 0..enc.mb_info.len() {
+        VP8IteratorImport(&mut it, enc, pic, false);
+        let mut rd = VP8ModeScore::default();
+        let skip = VP8Decimate(&mut it, enc, &mut rd, enc.rd_opt_level);
+        if !skip || !enc.proba.use_skip_proba {
+            CodeResiduals(&mut bw, &mut it, enc, &rd)?;
+        } else {
+            ResetAfterSkip(&mut it, enc);
+        }
+        observe(
+            enc,
+            VP8DirectLoopEvent::Macroblock {
+                pass,
+                statistics: false,
+                index,
+                score: &rd,
+                iterator: &it,
+            },
+        );
+        VP8IteratorSaveBoundary(&mut it, enc);
+        if !VP8IteratorNext(&mut it, enc) {
+            break;
+        }
+    }
+    PostLoopFinalize(enc, &mut bw)?;
+    Ok(bw)
+}
+
 /// Observation points for subgraph comparisons. Borrowed state is read-only;
 /// normal encoding instantiates the driver with a no-op observer.
 pub enum VP8TokenLoopEvent<'a> {
@@ -415,7 +602,7 @@ pub enum VP8TokenLoopEvent<'a> {
     },
 }
 
-/// Method 4, one configured pass, no target search, skip syntax or autofilter.
+/// Buffered basic-RD methods, one configured pass, no target search, skip syntax or autofilter.
 /// Header-budget retries remain part of this default path.
 pub fn VP8EncTokenLoop(
     enc: &mut VP8Encoder,
@@ -435,7 +622,7 @@ pub fn VP8EncTokenLoopWithObserver(
     header_limit: u64,
     mut observe: impl FnMut(&VP8Encoder, VP8TokenLoopEvent<'_>),
 ) -> Result<VP8BitWriter, TryReserveError> {
-    assert_eq!(enc.config.method, 4);
+    assert!(matches!(enc.config.method, 3 | 4));
     assert!(enc.use_tokens);
     let rd_opt = enc.rd_opt_level;
     assert!(!enc.proba.use_skip_proba && quality.is_finite());
@@ -508,9 +695,7 @@ pub fn VP8EncTokenLoopWithObserver(
     }
     FinalizeTokenProbas(&mut enc.proba);
     observe(enc, VP8TokenLoopEvent::Emit { tokens: &tokens });
-    const AVERAGE_BYTES_PER_MB: [usize; 8] = [50, 24, 16, 9, 7, 5, 3, 2];
-    let mut bw =
-        VP8BitWriterInit(enc.mb_info.len() * AVERAGE_BYTES_PER_MB[(enc.base_quant >> 4) as usize])?;
+    let mut bw = InitBitWriters(enc)?;
     // The probability array is fixed-size; avoid a fallible heap copy.
     let mut probabilities = [0; NUM_TYPES * NUM_BANDS * NUM_CTX * NUM_PROBAS];
     for (dst, &p) in probabilities
@@ -520,7 +705,6 @@ pub fn VP8EncTokenLoopWithObserver(
         *dst = p;
     }
     VP8EmitTokens(&mut tokens, &mut bw, &probabilities, true)?;
-    VP8BitWriterFinish(&mut bw)?;
-    VP8AdjustFilterStrength(enc);
+    PostLoopFinalize(enc, &mut bw)?;
     Ok(bw)
 }
