@@ -58,6 +58,7 @@ pub(crate) fn WebPEncodeLossy<T>(
         config.method,
     )?;
     enc.config.quality = config.quality;
+    enc.config.filter_strength = config.filter_strength;
     VP8EncAnalyze(&mut enc, picture);
     let alpha = VP8EncStartAlpha(picture, config.alpha_quality, config.method as u32)?;
     let residuals = if enc.use_tokens {
@@ -65,12 +66,15 @@ pub(crate) fn WebPEncodeLossy<T>(
     } else {
         VP8EncLoop(&mut enc, picture, config.quality)?
     };
-    PutVP8FrameHeader(picture.width, picture.height, 0, 0)?;
+    // InitEncoder selects profile 2 when filtering is disabled. The default
+    // complex filter uses profile 0; autofilter is off in both supported paths.
+    let profile = if config.filter_strength > 0 { 0 } else { 2 };
+    PutVP8FrameHeader(picture.width, picture.height, profile, 0)?;
     let partition0 = GeneratePartition0(&enc)?;
     write(crate::mux::muxinternal::EncodedImage::Vp8 {
         width: picture.width,
         height: picture.height,
-        profile: 0, // Default preset's complex filter uses VP8 profile 0.
+        profile,
         partition0: VP8BitWriterBuf(&partition0),
         residuals: VP8BitWriterBuf(&residuals),
         alpha: alpha.as_ref().map(|a| a.data.as_slice()),

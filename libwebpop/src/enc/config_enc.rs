@@ -115,6 +115,7 @@ pub(crate) struct LossyConfig {
     pub quality: f32,
     pub alpha_quality: i32,
     pub method: i32,
+    pub filter_strength: i32,
 }
 
 impl LossyConfig {
@@ -122,6 +123,19 @@ impl LossyConfig {
         let method =
             i32::try_from(options.method).map_err(|_| LosslessEncodeError::InvalidMethod)?;
         Self::new(options.quality, options.alpha_quality, method)
+    }
+
+    /// EncodeCandidate disables filtering for blended VP8 rectangles. Autofilter
+    /// is already disabled by every supported configuration.
+    pub fn for_animation(
+        options: &LossyOptions,
+        use_blending: bool,
+    ) -> Result<Self, LosslessEncodeError> {
+        let mut config = Self::from_options(options)?;
+        if use_blending {
+            config.filter_strength = 0;
+        }
+        Ok(config)
     }
 
     pub fn new(quality: f32, alpha_quality: i32, method: i32) -> Result<Self, LosslessEncodeError> {
@@ -136,6 +150,7 @@ impl LossyConfig {
             quality,
             alpha_quality,
             method,
+            filter_strength: VP8EncoderConfig::default().filter_strength,
         })
     }
 }

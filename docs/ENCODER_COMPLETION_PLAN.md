@@ -119,7 +119,7 @@ References: upstream [`encode.h`](../upstream/src/webp/encode.h),
 The [animation and multi-frame plan](ANIMATION_PORT_PLAN.md) expands this work
 into output-layer, raw-frame, optimizer and CLI milestones. Basic full-frame
 animation can ship using the current codecs before the advanced still-image
-work is complete; optimized lossy blending needs a filter-control integration.
+work is complete; optimized lossy blending uses a separate filter-control integration.
 Isolated animation pixel comparisons, rectangle refinement/even snapping and
 blend-eligibility leaves now have portable fixtures and pinned C comparisons
 under `src/mux/`. Checked prepared-frame container assembly now matches pinned
@@ -139,8 +139,12 @@ and 29 timed all-frame decoder checks. Near-lossless VP8L candidates and the sam
 cache now support strength 0–100, with 64 fixtures, 4,893 live C cases (3,773
 candidates and 1,120 cached sequences) and 24 exact all-frame decoder checks.
 Per-rectangle codec routing follows transparency substitution and retains the
-near-lossless RGB/intermediate-alpha caveat. Lossy/mixed candidates, keyframe
-controls, single-frame reconstruction and the RGBA Optimized policy remain open.
+near-lossless RGB/intermediate-alpha caveat. Isolated lossy EncodeCandidate now
+disables filtering and selects VP8 profile 2 for blending: 56 fixtures and 4,704
+live original-C comparisons cover methods 0–6, alpha quality and SharpYUV, with
+independent header parsing and still decoding. Default still output is unchanged.
+Lossy selection/carryover, mixed candidates, keyframe controls, single-frame
+reconstruction and the RGBA Optimized policy remain open.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared

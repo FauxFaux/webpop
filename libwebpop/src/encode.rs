@@ -118,12 +118,32 @@ pub(crate) fn encode_lossy_rgba_with<T>(
     write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, WebPEncodingError>,
 ) -> Result<T, WebPEncodingError> {
     let config = LossyConfig::from_options(options)?;
-    let mut picture = if options.use_sharp_yuv {
+    encode_lossy_rgba_with_config(
+        rgba,
+        width,
+        height,
+        stride,
+        &config,
+        options.use_sharp_yuv,
+        write,
+    )
+}
+
+pub(crate) fn encode_lossy_rgba_with_config<T>(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    config: &LossyConfig,
+    use_sharp_yuv: bool,
+    write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, WebPEncodingError>,
+) -> Result<T, WebPEncodingError> {
+    let mut picture = if use_sharp_yuv {
         import_rgba_to_yuva_sharp(rgba, width, height, stride)?
     } else {
         import_rgba_to_yuva(rgba, width, height, stride)?
     };
-    WebPEncodeLossy(&config, &mut picture, write)
+    WebPEncodeLossy(config, &mut picture, write)
 }
 
 /// Encode positive-stride RGBA as a complete lossless still-image WebP using

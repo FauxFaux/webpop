@@ -181,17 +181,7 @@ pub fn encode_near_lossless_candidate(
 ) -> Result<LosslessCandidate, AnimationCandidateError> {
     let near_lossless = checked_strength(strength)?;
     WebPValidateConfig(options)?;
-    if rect.x_offset < 0
-        || rect.y_offset < 0
-        || rect.x_offset & 1 != 0
-        || rect.y_offset & 1 != 0
-        || rect.x_offset >= 1 << 24
-        || rect.y_offset >= 1 << 24
-        || rect.width != sub_frame.width
-        || rect.height != sub_frame.height
-    {
-        return Err(AnimationLeafError::InvalidRectangle.into());
-    }
+    validate_candidate_rectangle(sub_frame, rect)?;
     let picture = copy_picture(sub_frame)?;
     encode_picture(picture, rect, options, near_lossless, use_blending)
 }

@@ -13,11 +13,31 @@
 
 mod cache;
 mod lossless;
+mod lossy;
 pub use cache::{LosslessAnimationCache, LosslessAnimationCacheOptions, LosslessCacheStatus};
 pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
     PickBestCandidate, SetFrameLossless, encode_near_lossless_candidate, set_frame_near_lossless,
 };
+pub use lossy::{LossyCandidate, encode_lossy_candidate};
+
+fn validate_candidate_rectangle(
+    sub_frame: ArgbView<'_>,
+    rect: FrameRectangle,
+) -> Result<(), AnimationLeafError> {
+    if rect.x_offset < 0
+        || rect.y_offset < 0
+        || rect.x_offset & 1 != 0
+        || rect.y_offset & 1 != 0
+        || rect.x_offset >= 1 << 24
+        || rect.y_offset >= 1 << 24
+        || rect.width != sub_frame.width
+        || rect.height != sub_frame.height
+    {
+        return Err(AnimationLeafError::InvalidRectangle);
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameRectangle {

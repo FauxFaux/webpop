@@ -822,7 +822,89 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-Lossy/mixed candidates, filtering overrides, deferred/bounded/all-keyframe
-selection and decode-dependent single-frame reconstruction remain open. The
+At this VP8L milestone, lossy/mixed candidates, filtering overrides,
+deferred/bounded/all-keyframe selection and decode-dependent single-frame
+reconstruction remained open. The lossy filter integration follows below. The
 public RGBA Optimized policy remains rejected. This extends the supported VP8L
 subset without claiming complete pinned animation parity.
+
+## Lossy candidate filter integration (2026-10-25)
+
+`mux::anim_encode::encode_lossy_candidate` ports the lossy branch of
+`EncodeCandidate` independently of lossy rectangle selection, flattening,
+carryover and caching. It accepts a checked borrowed ARGB subframe, rectangle,
+existing `LossyOptions` and blending flag. `LossyCandidate` owns typed VP8/ALPH
+output, rectangle and initial controls; `encoded_size` includes the complete
+still representation used by upstream size comparisons. Codec configuration
+remains private. Replacement candidates use default filter strength 60;
+blended candidates use zero. Autofilter stays disabled. `InitVP8Encoder` also
+selects VP8 profile 2 when filtering is disabled, versus default profile 0.
+The override reaches setup, filter adjustment and the frame header. Method
+mapping, direct/token loops, alpha effort and SharpYUV reuse the still pipeline.
+No general filter settings were added to public `LossyOptions`.
+
+### Protocol and provenance
+
+`AnimationLossyCandidate` takes ten header words:
+
+```text
+width height ARGB_stride x_offset y_offset quality_f32_bits method alpha_quality SharpYUV use_blending
+```
+
+Strided ARGB words follow, excluding final-row padding. Width/height are positive,
+origins even and below `2^24`. The wrapper copies the picture and calls the
+original `EncodeCandidate` from the included pinned animation source. It does
+not duplicate the filter override. The response is:
+
+```text
+x_offset y_offset width height blend_method duration dispose_method file_byte_count complete_still_bytes...
+```
+
+Each byte occupies a u32 word; blend/dispose use pinned mux enum values.
+Initial duration is zero and disposal is NONE. Invalid codec configuration
+returns no words. The shared dispatcher and oracle build are unchanged apart
+from this new request; no upstream source is modified.
+
+`fixtures/animation_lossy_candidates.txt` contains 56 C-generated records:
+seven methods, four input/configuration combinations, paired replacement and
+blended encoding. Geometries cover 1x1, 3x5 and 17x19; inputs include opaque,
+smooth alpha and random RGBA, fractional quality, quantized alpha, SharpYUV
+and its small-dimension fallback. Source pin/toolchain were reviewed before
+generation: clean `1844042d1ca751e62e61df7617dba19c98588339`, GCC
+15.2.0-16ubuntu1, Release `-O3 -DNDEBUG`, SIMD/threading off and near-lossless on.
+Actual flags remain in `target/native-oracle/provenance.txt`. Existing default
+still fixtures are unchanged. Regenerate only this new fixture file with:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_lossy_candidates animation_lossy_candidate_fixtures_match_pinned_reference -- --nocapture
+```
+
+### Validation and boundaries
+
+The live corpus compares 4,704 complete candidate outputs: seven geometries
+(1x17, 17x1, 3x5, 4x4, 15x16, 17x19, 33x17), six alpha/color patterns,
+all methods 0–6, four color/alpha quality pairs, both SharpYUV settings and both
+blend controls. Every complete file matches original C and independently
+decodes with `image`. RIFF/chunk lengths, order/padding, VP8X/ALPH flags,
+dimensions and exact/quantized alpha use the existing independent still checks.
+An existing independent arithmetic reader parses VP8 partition 0, including
+absolute segment features and global filter strength. All blended strengths
+must be zero, with profile 2; replacements retain profile 0 and match the public
+still API exactly. Paired fixtures demonstrate changed decoded RGB with each
+method while ALPH bytes and decoded alpha remain identical across the override.
+Portable checks also cover invalid configuration/geometry, codec dimension
+limits, independently strided nested views, missing final-row padding and source
+immutability.
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_lossy_candidates -- --nocapture
+cargo test -p libwebpop --release --features native-oracle --test animation_lossy_candidates -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+This is isolated candidate encoding. It does not implement lossy SetFrame,
+FlattenSimilarBlocks, lossy carryover, mixed trials, keyframe selection or
+single-frame reconstruction. Public RGBA Optimized remains unavailable.

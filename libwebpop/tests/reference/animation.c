@@ -13,6 +13,53 @@
 #include "src/mux/anim_encode.c"
 #include "src/webp/demux.h"
 
+// Original EncodeCandidate: exercise its filter override without duplicating it.
+// Input: width, height, ARGB stride, x, y, quality bits, method,
+// alpha quality, SharpYUV, use blending, then strided ARGB (no final padding).
+unsigned WebpopAnimationLossyCandidate(const uint32_t* in, unsigned n,
+                                       uint32_t* out) {
+  WebPConfig config;
+  WebPPicture pic;
+  Candidate candidate;
+  FrameRectangle rect;
+  uint32_t* pixels;
+  uint64_t size;
+  float quality;
+  unsigned i, at = 0;
+  if (n < 10 || !in[0] || !in[1] || in[0] > 16383 || in[1] > 16383 ||
+      in[2] < in[0] || in[2] > in[0] + 64 || in[3] >= (1u << 24) ||
+      in[4] >= (1u << 24) || (in[3] & 1) || (in[4] & 1) ||
+      in[8] > 1 || in[9] > 1) abort();
+  size = (uint64_t)(in[1] - 1) * in[2] + in[0];
+  if (size > (1u << 20) || n != 10 + size) abort();
+  memcpy(&quality, in + 5, sizeof(quality));
+  if (!WebPConfigPreset(&config, WEBP_PRESET_DEFAULT, quality)) return 0;
+  config.method = (int32_t)in[6];
+  config.alpha_quality = (int32_t)in[7];
+  config.use_sharp_yuv = in[8];
+  if (!WebPValidateConfig(&config)) return 0;
+  if (!WebPPictureInit(&pic)) abort();
+  pixels = (uint32_t*)malloc(size * sizeof(*pixels));
+  if (!pixels) abort();
+  memcpy(pixels, in + 10, size * sizeof(*pixels));
+  pic.use_argb = 1; pic.width = in[0]; pic.height = in[1];
+  pic.argb_stride = in[2]; pic.argb = pixels;
+  rect.x_offset = in[3]; rect.y_offset = in[4];
+  rect.width = in[0]; rect.height = in[1];
+  if (EncodeCandidate(&pic, &rect, &config, in[9], &candidate) != VP8_ENC_OK ||
+      candidate.mem.size > (1u << 20) - 8) abort();
+  out[at++] = candidate.rect.x_offset; out[at++] = candidate.rect.y_offset;
+  out[at++] = candidate.rect.width; out[at++] = candidate.rect.height;
+  out[at++] = candidate.info.blend_method;
+  out[at++] = candidate.info.duration; out[at++] = candidate.info.dispose_method;
+  out[at++] = candidate.mem.size;
+  for (i = 0; i < candidate.mem.size; ++i) out[at++] = candidate.mem.mem[i];
+  WebPMemoryWriterClear(&candidate.mem);
+  WebPPictureFree(&pic);
+  free(pixels);
+  return at;
+}
+
 // Test-only all-frame decoder. Canonicalize invisible RGB in the observations.
 unsigned WebpopAnimationDecode(const uint32_t* in, unsigned n, uint32_t* out) {
   WebPAnimDecoderOptions options;

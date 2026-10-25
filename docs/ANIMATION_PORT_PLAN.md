@@ -192,6 +192,25 @@ the crop-size shortcut and transparency-induced palette routing. Strength below
 pixels from earlier near-lossless frames to be encoded again. The decode-based
 single-frame gate and public RGBA `Optimized` policy remain open.
 
+The isolated lossy `EncodeCandidate` path is implemented (2026-10-25) as
+`mux::anim_encode::encode_lossy_candidate`, returning a `LossyCandidate` with
+typed VP8/ALPH payload, rectangle, initial controls and complete encoded size.
+Blended candidates use internal filter strength zero and VP8 profile 2;
+replacement candidates retain strength 60 and profile 0. Autofilter remains off.
+Both paths reuse method 0–6, alpha quality and SharpYUV propagation. Public still
+options, prepared full-frame encoding and their default bytes are unchanged.
+This helper encodes a supplied checked ARGB rectangle; it does not select one,
+check blend eligibility, flatten pixels or update carryover.
+
+There are 56 new C fixtures and 4,704 live comparisons against the pin's original
+`EncodeCandidate`, covering initial controls and complete payloads. Every file
+is independently decoded. The existing independent VP8 arithmetic reader checks
+profile and global/absolute segment filter levels, requiring all blended levels
+to be zero. Paired fixtures establish actual decoded RGB changes for every
+method, identical alpha payloads and decoded alpha across the override, and
+replacement identity with the public still encoder. Lossy selection/carryover,
+mixed trials and keyframes remain open.
+
 ## Scope and delivery order
 
 Deliver useful multi-frame encoding before completing the animation optimizer:
@@ -221,7 +240,7 @@ settings to be supported by every candidate codec, even when a heuristic might
 ultimately choose only one; reject unsupported combinations before encoding.
 
 That plan deliberately fixes the default filter settings. Animation's blended
-lossy filter override is a separate internal integration, preserving those
+lossy filter override is now a separate internal integration, preserving those
 still-image defaults and their fixtures. Likewise, adapt its shared
 single-partition result at the encoded-frame payload boundary below; animation
 does not select the direct/token loop or change coefficient-partition policy.
@@ -477,9 +496,12 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
 
 ### 4. Lossy, mixed mode and keyframes
 
-- [ ] Add the internal lossy filter override and compare it independently to C,
+- [x] Add the internal lossy filter override and compare it independently to C,
   preserving the methods plan's default-filter fixtures. Reuse its validated
   method propagation and method-dependent alpha job for every enabled method.
+  Isolated VP8 EncodeCandidate now matches 56 fixtures and 4,704 live original-C
+  comparisons, including profile 2, zero filter levels and exact alpha-path
+  preservation. Rectangle selection and lossy carryover remain below.
 - [x] Port `QualityToMaxDiff`, alpha-weighted similarity and lossy rectangle/blend
   checks as isolated leaves, preserving floating evaluation and integer
   truncation at heuristic thresholds.
