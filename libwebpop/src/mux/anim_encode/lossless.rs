@@ -2,9 +2,8 @@
 // Derived from upstream/src/mux/anim_encode.c at
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
-//! Lossless subset of SetFrame/GenerateCandidates. Sequence caching, keyframe
-//! decisions remain separate. Winning candidates supply the canvas updates
-//! extracted from CacheFrame, without implementing its timing/cache policy.
+//! VP8L subset of SetFrame/GenerateCandidates, with lossless and near-lossless
+//! codec settings. Caching and keyframe decisions remain separate.
 
 use super::*;
 use crate::enc::config_enc::{EncoderConfig, WebPValidateConfig};
@@ -27,8 +26,9 @@ pub enum AnimationCandidateError {
     InvalidFirstFrame,
 }
 
-/// Supported subset of the upstream candidate controls: exact lossless VP8L
-/// (strength 100), without mixed/lossy trials. `exact` is codec-level only:
+/// VP8L candidate controls without mixed/lossy trials. The lossless functions
+/// select strength 100; their near-lossless siblings accept strength separately.
+/// `exact` is codec-level only:
 /// transparency substitution can still discard invisible RGB during blending.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LosslessCandidateOptions {
@@ -39,6 +39,7 @@ pub struct LosslessCandidateOptions {
     pub minimize_size: bool,
 }
 
+/// Winning VP8L rectangle, from either lossless or near-lossless selection.
 #[derive(Debug)]
 pub struct LosslessCandidate {
     pub frame: EncodedFrame,
@@ -77,7 +78,9 @@ impl LosslessCandidate {
     /// `EncodeCandidate` directly must set this field for a subframe update.
     ///
     /// Before selecting a later frame, call `CopyIdenticalPixels(previous,
-    /// current, carryover)` and pass that carryover to `SetFrameLossless`.
+    /// current, carryover)` and pass that carryover to `SetFrameLossless` or
+    /// `set_frame_near_lossless`. Carryover always retains original input words,
+    /// even when near-lossless encoding changes the decoded pixels.
     /// A skipped frame has no candidate and must not advance `previous` or
     /// the previous rectangle. Timing and preceding-frame controls belong to
     /// the caller. All validation precedes mutations of either destination.
@@ -161,6 +164,22 @@ pub fn EncodeCandidate(
     options: &LosslessOptions,
     use_blending: bool,
 ) -> Result<LosslessCandidate, AnimationCandidateError> {
+    encode_near_lossless_candidate(sub_frame, rect, options, 100, use_blending)
+}
+
+/// VP8L EncodeCandidate with explicit near-lossless strength. The checked
+/// subframe is copied, then the existing codec chooses palette, predictor or
+/// standalone preprocessing on that rectangle. Strength 100 is EncodeCandidate.
+/// Lower strengths can change RGB and intermediate alpha; `exact` only disables
+/// codec cleanup/predictor quantization, not standalone preprocessing.
+pub fn encode_near_lossless_candidate(
+    sub_frame: ArgbView<'_>,
+    rect: FrameRectangle,
+    options: &LosslessOptions,
+    strength: i32,
+    use_blending: bool,
+) -> Result<LosslessCandidate, AnimationCandidateError> {
+    let near_lossless = checked_strength(strength)?;
     WebPValidateConfig(options)?;
     if rect.x_offset < 0
         || rect.y_offset < 0
@@ -174,18 +193,26 @@ pub fn EncodeCandidate(
         return Err(AnimationLeafError::InvalidRectangle.into());
     }
     let picture = copy_picture(sub_frame)?;
-    encode_picture(picture, rect, options, use_blending)
+    encode_picture(picture, rect, options, near_lossless, use_blending)
+}
+
+pub(super) fn checked_strength(strength: i32) -> Result<u32, WebPEncodingError> {
+    if !(0..=100).contains(&strength) {
+        return Err(WebPEncodingError::InvalidNearLosslessStrength);
+    }
+    Ok(strength as u32)
 }
 
 fn encode_picture(
     mut picture: WebPPicture,
     rect: FrameRectangle,
     options: &LosslessOptions,
+    near_lossless: u32,
     use_blending: bool,
 ) -> Result<LosslessCandidate, AnimationCandidateError> {
     let config = EncoderConfig {
         options: *options,
-        near_lossless: 100,
+        near_lossless,
     };
     let frame = crate::enc::webp_enc::WebPEncode(&config, &mut picture, |image| {
         image.into_frame(rect.width as u32, rect.height as u32)
@@ -226,6 +253,7 @@ fn GenerateCandidates(
     rect: FrameRectangle,
     dispose: FrameDispose,
     options: &LosslessCandidateOptions,
+    near_lossless: u32,
     best: &mut Option<LosslessCandidate>,
 ) -> Result<(), AnimationCandidateError> {
     let use_blending =
@@ -255,7 +283,7 @@ fn GenerateCandidates(
     } else {
         false
     };
-    let mut candidate = encode_picture(picture, rect, &options.codec, use_blending)?;
+    let mut candidate = encode_picture(picture, rect, &options.codec, near_lossless, use_blending)?;
     if carries_over {
         candidate.carryover_mask = mask;
     }
@@ -269,7 +297,7 @@ fn GenerateCandidates(
 /// Lossless-only port of SetFrame. `previous` is the optimizer's carryover
 /// canvas, which can differ from the preceding original input. `previous_rect`
 /// is the rectangle that would be cleared by background disposal. Returns
-/// `None` for an unchanged frame; timing merging belongs to the future cache.
+/// `None` for an unchanged frame; timing merging belongs to the cache.
 /// Does not update either canvas or enable the public Optimized policy.
 pub fn SetFrameLossless(
     previous: ArgbView<'_>,
@@ -277,6 +305,21 @@ pub fn SetFrameLossless(
     previous_rect: FrameRectangle,
     options: &LosslessCandidateOptions,
 ) -> Result<Option<LosslessCandidate>, AnimationCandidateError> {
+    set_frame_near_lossless(previous, current, previous_rect, options, 100)
+}
+
+/// SetFrame's VP8L path with explicit near-lossless strength. Comparison,
+/// rectangles, blend eligibility and masks still use original ARGB words.
+/// Transparency substitution precedes codec routing. Carryover updates retain
+/// original input words, not decoded pixels; playback below 100 is not lossless.
+pub fn set_frame_near_lossless(
+    previous: ArgbView<'_>,
+    current: ArgbView<'_>,
+    previous_rect: FrameRectangle,
+    options: &LosslessCandidateOptions,
+    strength: i32,
+) -> Result<Option<LosslessCandidate>, AnimationCandidateError> {
+    let near_lossless = checked_strength(strength)?;
     WebPValidateConfig(&options.codec)?;
     if options.is_first_frame && !options.is_key_frame {
         return Err(AnimationCandidateError::InvalidFirstFrame);
@@ -354,6 +397,7 @@ pub fn SetFrameLossless(
             none.rect_ll,
             FrameDispose::None,
             options,
+            near_lossless,
             &mut best,
         )?;
     }
@@ -364,6 +408,7 @@ pub fn SetFrameLossless(
             background.rect_ll,
             FrameDispose::Background,
             options,
+            near_lossless,
             &mut best,
         )?;
     }

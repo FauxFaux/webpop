@@ -6,6 +6,7 @@ pub mod animation_cache;
 pub mod animation_carryover;
 pub mod animation_lossless;
 pub mod animation_mux;
+pub mod animation_near_lossless;
 pub mod animation_subframes;
 pub mod clustering;
 pub mod cross_color;
@@ -79,6 +80,9 @@ impl Case {
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),
             "AnimationCache" => animation_cache::evaluate(self),
+            "AnimationNearLossless" | "AnimationNearLosslessCache" => {
+                animation_near_lossless::evaluate(self)
+            }
             "AnimationSubframes" => animation_subframes::evaluate(self),
             "AnimationLossless" => animation_lossless::evaluate(self),
             "AnimationCarryover" | "AnimationCarryoverSequence" => {

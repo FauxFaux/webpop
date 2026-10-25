@@ -2,7 +2,7 @@
 // Derived from upstream/src/mux/anim_encode.c at
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
-//! Lossless CacheFrame/FlushFrames with keyframe insertion disabled. This is
+//! VP8L CacheFrame/FlushFrames with keyframe insertion disabled. This is
 //! separate from the public RGBA policy until the remaining optimizer gates land.
 
 use super::*;
@@ -33,11 +33,15 @@ pub struct LosslessCacheStatus {
     pub pending_duration_ms: Option<u32>,
 }
 
-/// Low-level lossless animation cache using checked ARGB word views. Only the
-/// first accepted frame is a keyframe; later inputs use SetFrameLossless.
-/// Repeats merge, changed frames can have zero duration, and overflow inserts the pin's
-/// fixed transparent hold payload. Methods 0–6 and codec-level `exact` work;
-/// near-lossless, lossy, mixed mode and keyframe intervals are not accepted here.
+/// Low-level VP8L animation cache using checked ARGB word views. Only the first
+/// accepted frame is a keyframe. `add_argb` selects strength 100;
+/// `add_near_lossless_argb` accepts per-frame strength with the still codec's
+/// RGB/intermediate-alpha caveat.
+/// Repeats merge, changed frames can have zero duration, and overflow inserts the
+/// pin's fixed transparent hold. Methods 0–6 and codec-level `exact` work;
+/// lossy, mixed mode and keyframe intervals are not accepted here.
+/// Switching to strength 100 does not re-encode unchanged pixels carried from
+/// earlier near-lossless inputs. A wholly lossless sequence uses 100 throughout.
 ///
 /// Owns two raw canvases and buffered encoded output. Input is borrowed only
 /// during `add_argb`. Explicit final timing, validation recovery and terminal
@@ -149,15 +153,36 @@ impl LosslessAnimationCache {
     /// Validate dimensions, codec options and the preceding interval before
     /// mutation. Their errors permit retry. Allocation/encoding/container errors
     /// after validation are terminal. Timestamps have arbitrary u64 origin.
+    /// Selects codec strength 100; earlier near-lossless decoded pixels can remain
+    /// on the canvas when their original inputs have not changed.
     pub fn add_argb(
         &mut self,
         current: ArgbView<'_>,
         timestamp_ms: u64,
         codec: &LosslessOptions,
     ) -> Result<(), AnimationError> {
+        self.add_near_lossless_argb(current, timestamp_ms, 100, codec)
+    }
+
+    /// Submit VP8L with near-lossless strength 0–100, validated before mutation.
+    /// Strength 100 is identical to `add_argb`. Each candidate runs the existing
+    /// codec on its selected rectangle after transparency substitution. RGB and
+    /// intermediate alpha can change; even `exact` cannot promise lossless
+    /// composited pixels. Original inputs, rather than decodes, drive carryover.
+    pub fn add_near_lossless_argb(
+        &mut self,
+        current: ArgbView<'_>,
+        timestamp_ms: u64,
+        strength: i32,
+        codec: &LosslessOptions,
+    ) -> Result<(), AnimationError> {
         self.check_active()?;
         let frame_index = self.status.submitted_frames;
         let duration = self.interval(timestamp_ms)?;
+        lossless::checked_strength(strength).map_err(|source| AnimationError::Encoding {
+            frame_index,
+            source,
+        })?;
         if (current.width, current.height)
             != (self.container.width as i32, self.container.height as i32)
         {
@@ -179,7 +204,7 @@ impl LosslessAnimationCache {
             // In particular, a hold insertion filled both cache slots.
             self.FlushFrames(self.cached.len() - 1)?;
         }
-        self.CacheFrame(current, codec)?;
+        self.CacheFrame(current, codec, strength)?;
         self.status.submitted_frames = submitted_frames;
         self.last_timestamp_ms = Some(timestamp_ms);
         self.active = true;
@@ -232,6 +257,7 @@ impl LosslessAnimationCache {
         &mut self,
         current: ArgbView<'_>,
         codec: &LosslessOptions,
+        strength: i32,
     ) -> Result<(), AnimationError> {
         debug_assert!(self.cached.len() < 2);
         let frame_index = self.status.submitted_frames;
@@ -245,7 +271,7 @@ impl LosslessAnimationCache {
                     &mut ArgbViewMut::new(&mut self.carryover, w, h, stride)?,
                 )?;
             }
-            let candidate = SetFrameLossless(
+            let candidate = set_frame_near_lossless(
                 ArgbView::new(&self.carryover, w, h, stride)?,
                 current,
                 self.status.previous_rect,
@@ -256,6 +282,7 @@ impl LosslessAnimationCache {
                     minimize_size: self.minimize_size,
                     ..Default::default()
                 },
+                strength,
             )?;
             if let Some(candidate) = candidate {
                 candidate.update_canvases(

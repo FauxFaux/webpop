@@ -135,9 +135,12 @@ and 15 exact all-frame decoder checks. The low-level lossless ARGB cache now
 merges durations and inserts overflow holds with keyframes disabled: 32 cache
 fixtures and 1,680 live cases cover 13,440 submitted inputs, including 1,470
 complete public animation files, 210 cases before single-frame reconstruction
-and 29 timed all-frame decoder checks. Near-lossless/lossy/mixed candidates,
-keyframe controls, single-frame reconstruction and the RGBA Optimized policy
-remain open.
+and 29 timed all-frame decoder checks. Near-lossless VP8L candidates and the same
+cache now support strength 0–100, with 64 fixtures, 4,893 live C cases (3,773
+candidates and 1,120 cached sequences) and 24 exact all-frame decoder checks.
+Per-rectangle codec routing follows transparency substitution and retains the
+near-lossless RGB/intermediate-alpha caveat. Lossy/mixed candidates, keyframe
+controls, single-frame reconstruction and the RGBA Optimized policy remain open.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared

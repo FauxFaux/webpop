@@ -7,6 +7,14 @@ per-candidate routing and the checked public Rust wrapper match pinned C.
 Existing lossless callers continue to select strength 100. This record retains
 the original leaf provenance and adds the integration evidence below.
 
+Animation now reuses this codec after rectangle selection and transparency
+substitution, including palette/predictor/standalone routing, original-word
+carryover and per-frame strength changes. See the
+[animation reference record](ANIMATION.md#near-lossless-vp8l-animation-2026-10-25)
+for 64 animation fixtures, 4,893 live candidate/cache comparisons and exact
+all-frame decoding evidence. Codec-level `exact` and strength 100 cannot restore
+pixels carried from earlier near-lossless animation frames.
+
 `VP8ApplyNearLossless(argb, width, height, stride, quality)` takes an immutable
 ARGB slice and a stride in pixels and returns owned, tightly packed pixels.
 It checks dimensions, stride, minimum source length, arithmetic overflow, and

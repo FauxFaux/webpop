@@ -111,9 +111,9 @@ selection or minimize-size trials, preserves the earlier candidate on equal
 byte size and returns the winning encoded rectangle, blend control,
 preceding-frame disposal and carryover mask. Independent candidate copies
 prevent transparency/codec cleanup from contaminating later trials. Lossless
-methods 0–6 and codec-level `exact` are supported; near-lossless, lossy and
-mixed candidates remain deferred. `exact` does not preserve invisible RGB
-discarded by transparency substitution during blending.
+methods 0–6 and codec-level `exact` are supported. Near-lossless is extended
+below; lossy and mixed candidates remain deferred. `exact` does not preserve
+invisible RGB discarded by transparency substitution during blending.
 
 There are 79 committed C fixtures and 3,120 live comparisons of mutations,
 candidate controls/masks and complete payload bytes against original C helpers
@@ -157,7 +157,8 @@ terminal. Frame indexes count submitted inputs, including skips.
 settings. `LosslessCacheStatus` reports cache counters, preceding rectangle and
 pending duration for intermediate comparisons; flushing still buffers encoded
 output and does not stream bytes. The RGBA sequence API continues to reject
-`Optimized`; near-lossless/lossy/mixed routes and keyframe settings remain open.
+`Optimized`; lossy/mixed routes and keyframe settings remain open. Near-lossless
+uses the same cache with the extension below.
 
 There are 32 cache fixtures and 1,680 live timing/cache/file comparisons across
 13,440 submitted frames: 1,470 compare complete files to public
@@ -167,6 +168,29 @@ independent compositor and pinned all-frame decoder. A separate native gate
 merges eight transparent inputs into one 90-byte cropped animation; C's decode
 and re-encode optimization reduces it to a 34-byte still. Rust preserves the
 90-byte pre-optimization representation, keeping this parity branch open.
+
+Near-lossless VP8L candidates and cached sequences are implemented (2026-10-25).
+`encode_near_lossless_candidate`, `set_frame_near_lossless` and
+`LosslessAnimationCache::add_near_lossless_argb` accept signed strength 0–100
+alongside existing lossless effort/method/exact options. Strength 100 preserves
+the existing candidate and cache entry points byte-for-byte. Validation precedes
+cache mutation. Rectangles, eligibility and masks use original input words;
+transparency substitution precedes the existing codec's palette/predictor/
+standalone routing on each selected rectangle. Raw canvases are never globally
+preprocessed. Original input, rather than decoded pixels, still drives carryover
+and repeat merging, even when a later input changes strength to 100.
+
+There are 64 new C fixtures and 4,893 live near-lossless comparisons: 3,773
+candidate selections and 1,120 eight-frame cache sequences (8,960 submitted
+inputs). Of the sequence cases, 980 compare full public animation assembly and
+140 explicitly stop before single-frame reconstruction. Twenty-four timed
+fixture animations match the independent compositor and pinned all-frame
+decoder exactly. Portable tests establish actual RGB/intermediate-alpha changes,
+palette bypass, exact predictor bypass versus active standalone preprocessing,
+the crop-size shortcut and transparency-induced palette routing. Strength below
+100 has no lossless canvas guarantee; switching to 100 does not force unchanged
+pixels from earlier near-lossless frames to be encoded again. The decode-based
+single-frame gate and public RGBA `Optimized` policy remain open.
 
 ## Scope and delivery order
 
@@ -445,8 +469,11 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
   public animation files and 210 before single-frame reconstruction), 13,440
   submitted-frame cache snapshots and 29 timed all-frame decoder checks. The
   decode-dependent single-frame completion gate remains explicitly open.
-- [ ] Add near-lossless with its actual routing and decoded-pixel evidence;
+- [x] Add near-lossless with its actual routing and decoded-pixel evidence;
   do not apply an independent lossless pixel guarantee below strength 100.
+  Per-candidate strength and the shared cache match 64 fixtures, 4,893 live C
+  cases and 24 all-frame decoder checks. Original-word carryover and strength
+  changes on repeats are covered; strength-100 output is unchanged.
 
 ### 4. Lossy, mixed mode and keyframes
 

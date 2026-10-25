@@ -6,6 +6,7 @@ pub struct Frame<'a> {
     pub duration: u32,
     pub stride: usize,
     pub codec: LosslessOptions,
+    pub strength: i32,
     pub words: &'a [u32],
 }
 
@@ -13,6 +14,8 @@ pub fn frames(case: &Case) -> Vec<Frame<'_>> {
     let a = &case.input;
     let mut at = 8;
     let mut result = Vec::new();
+    let near_lossless = case.function == "AnimationNearLosslessCache";
+    let header = if near_lossless { 6 } else { 5 };
     for _ in 0..a[4] {
         let size = ((a[1] - 1) * a[at + 1] + a[0]) as usize;
         result.push(Frame {
@@ -23,9 +26,10 @@ pub fn frames(case: &Case) -> Vec<Frame<'_>> {
                 method: a[at + 3],
                 exact: a[at + 4] != 0,
             },
-            words: &a[at + 5..at + 5 + size],
+            strength: if near_lossless { a[at + 5] as i32 } else { 100 },
+            words: &a[at + header..at + header + size],
         });
-        at += 5 + size;
+        at += header + size;
     }
     assert_eq!(at, a.len());
     result
@@ -79,13 +83,14 @@ pub fn encode(case: &Case) -> (Vec<u32>, Vec<u8>) {
     let mut timestamp = u64::from(a[6]) | (u64::from(a[7]) << 32);
     let mut states = Vec::new();
     for f in frames(case) {
-        encoder
-            .add_argb(
-                ArgbView::new(f.words, a[0] as i32, a[1] as i32, f.stride).unwrap(),
-                timestamp,
-                &f.codec,
-            )
-            .unwrap();
+        let view = ArgbView::new(f.words, a[0] as i32, a[1] as i32, f.stride).unwrap();
+        if case.function == "AnimationNearLosslessCache" {
+            encoder
+                .add_near_lossless_argb(view, timestamp, f.strength, &f.codec)
+                .unwrap();
+        } else {
+            encoder.add_argb(view, timestamp, &f.codec).unwrap();
+        }
         states.extend(status_words(encoder.status()));
         timestamp = timestamp.checked_add(u64::from(f.duration)).unwrap();
     }

@@ -236,7 +236,8 @@ static unsigned AnimationCandidateOutput(const FrameRectangle* rect,
   return at;
 }
 
-unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) {
+static unsigned AnimationLossless(const uint32_t* in, unsigned n, uint32_t* out,
+                                  unsigned near_lossless) {
   WebPPicture src, dst, view;
   FrameRectangle rect;
   WebPConfig config;
@@ -246,7 +247,7 @@ unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) 
   unsigned op, flags;
   if (n < 18) abort();
   op = in[0]; flags = in[9];
-  if (!in[1] || !in[2] || in[1] > 64 || in[2] > 64 ||
+  if (!in[1] || !in[2] || in[1] > 96 || in[2] > 64 ||
       in[3] < in[1] || in[4] < in[1] || in[3] > 128 || in[4] > 128 ||
       flags > 63 || in[10] > 100 || in[11] > 6 || in[12] > 1) abort();
   src_size = (in[2] - 1) * in[3] + in[1];
@@ -268,6 +269,7 @@ unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) 
       (int64_t)rect.x_offset + rect.width > src.width ||
       (int64_t)rect.y_offset + rect.height > src.height) abort();
   config.lossless = 1; config.quality = in[10]; config.method = in[11]; config.exact = in[12];
+  config.near_lossless = near_lossless;
   if (op == 0) {
     if (in[17] < (unsigned)(rect.width * rect.height)) abort();
     out[at++] = IncreaseTransparency(&src, &rect, &dst, mask);
@@ -327,6 +329,15 @@ unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) 
   WebPPictureFree(&view);
   free(mask); free(pixels);
   return at;
+}
+
+unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) {
+  return AnimationLossless(in, n, out, 100);
+}
+
+unsigned WebpopAnimationNearLossless(const uint32_t* in, unsigned n, uint32_t* out) {
+  if (!n || in[0] > 100) abort();
+  return AnimationLossless(in + 1, n - 1, out, in[0]);
 }
 
 // Three separately strided canvases, including destination padding, and a
@@ -443,13 +454,14 @@ static unsigned AnimationFileOutput(const WebPData* data, uint32_t* out) {
 // Original public adds exercise timing and the capacity flush before CacheFrame.
 // Mode 0 stops before decode-dependent OptimizeSingleFrame. Mode 1 runs the
 // full public assemble. Mode 2 records both for a reference-only completion gate.
-unsigned WebpopAnimationCache(const uint32_t* in, unsigned n, uint32_t* out) {
+static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
+                               int near_lossless) {
   WebPAnimEncoderOptions options;
   WebPAnimEncoder* enc;
   WebPData data;
   uint32_t timestamp;
   unsigned frame, duration = 0, at = 8, written = 0;
-  if (n < 8 || !in[0] || !in[1] || in[0] > 32 || in[1] > 32 ||
+  if (n < 8 || !in[0] || !in[1] || in[0] > 96 || in[1] > 32 ||
       in[2] > 1 || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
       !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
   options.minimize_size = in[2];
@@ -470,13 +482,18 @@ unsigned WebpopAnimationCache(const uint32_t* in, unsigned n, uint32_t* out) {
     WebPConfig config;
     unsigned size;
     int signed_timestamp;
-    if (n - at < 5 || in[at] >= (1u << 24) || in[at + 1] < in[0] || in[at + 1] > 64 ||
+    const unsigned header = near_lossless ? 6 : 5;
+    if (n - at < header || in[at] >= (1u << 24) || in[at + 1] < in[0] || in[at + 1] > 128 ||
         in[at + 2] > 100 || in[at + 3] > 6 || in[at + 4] > 1 ||
         !WebPPictureInit(&current) || !WebPConfigInit(&config)) abort();
     duration = in[at]; current.argb_stride = in[at + 1];
     config.lossless = 1; config.quality = in[at + 2]; config.method = in[at + 3]; config.exact = in[at + 4];
+    if (near_lossless) {
+      if (in[at + 5] > 100) abort();
+      config.near_lossless = in[at + 5];
+    }
     current.use_argb = 1; current.width = in[0]; current.height = in[1];
-    at += 5; size = (current.height - 1) * current.argb_stride + current.width;
+    at += header; size = (current.height - 1) * current.argb_stride + current.width;
     if (size > n - at) abort();
     current.argb = (uint32_t*)(in + at); at += size;
     memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
@@ -508,6 +525,14 @@ unsigned WebpopAnimationCache(const uint32_t* in, unsigned n, uint32_t* out) {
   }
   WebpopIncludedAnimDelete(enc);
   return written;
+}
+
+unsigned WebpopAnimationCache(const uint32_t* in, unsigned n, uint32_t* out) {
+  return AnimationCache(in, n, out, 0);
+}
+
+unsigned WebpopAnimationNearLosslessCache(const uint32_t* in, unsigned n, uint32_t* out) {
+  return AnimationCache(in, n, out, 1);
 }
 
 // Output-only mux oracle: use exactly the supplied still payloads. Raw pixels

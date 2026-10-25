@@ -103,8 +103,11 @@ including 5,376 original CacheFrame transitions and 15 exact all-frame decoder
 comparisons. The keyframe-disabled lossless cache adds 32 fixtures and 1,680
 live cases: 1,470 full public animation files and 210 before single-frame
 reconstruction, 13,440 submitted-frame snapshots and 29 timed all-frame decoder
-comparisons. Deferred-keyframe caching, other codecs and decode-dependent
-single-frame parity remain open; the public RGBA Optimized policy is rejected.
+comparisons. Near-lossless VP8L adds 64 fixtures and 4,893 live candidate/cache
+cases, including 980 public animation files, 140 pre-reconstruction files and
+24 exact all-frame decoder comparisons. Deferred-keyframe caching, lossy/mixed
+codecs and decode-dependent single-frame parity remain open; the public RGBA
+Optimized policy is rejected.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

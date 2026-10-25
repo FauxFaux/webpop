@@ -16,7 +16,7 @@ mod lossless;
 pub use cache::{LosslessAnimationCache, LosslessAnimationCacheOptions, LosslessCacheStatus};
 pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
-    PickBestCandidate, SetFrameLossless,
+    PickBestCandidate, SetFrameLossless, encode_near_lossless_candidate, set_frame_near_lossless,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

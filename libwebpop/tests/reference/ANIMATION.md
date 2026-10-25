@@ -373,9 +373,9 @@ does not change preceding disposal. An absent carryover mask means no pixels
 carry over; a present mask covers the entire selected rectangle.
 
 Codec-level `exact` does not promise invisible RGB after transparency
-substitution. Near-lossless/lossy/mixed candidate selection and filter overrides
-are not exposed. There is still no optimized raw sequence policy, carryover
-canvas update, duration/cache transition or deferred keyframe decision.
+substitution. Near-lossless, carryover and cache updates are added below;
+lossy/mixed selection, filter overrides, the optimized RGBA policy and deferred
+keyframe decisions remain open.
 
 ### Candidate and mutation protocol
 
@@ -694,7 +694,135 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-Near-lossless/lossy/mixed candidate routing, bounded/all-keyframe policies and
-deferred cache selection, decode-dependent single-frame reconstruction and the
-public RGBA Optimized policy remain open. The lossless cache is a low-level
-supported subset, not a claim of complete `WebPAnimEncoder` parity.
+The following milestone adds near-lossless routing. Lossy/mixed candidates,
+bounded/all-keyframe policies and deferred cache selection, decode-dependent
+single-frame reconstruction and the public RGBA Optimized policy remain open.
+The VP8L cache is a supported subset, not a claim of complete animation parity.
+
+## Near-lossless VP8L animation (2026-10-25)
+
+`encode_near_lossless_candidate`, `set_frame_near_lossless` and
+`LosslessAnimationCache::add_near_lossless_argb` accept signed strength 0–100
+with the existing `LosslessOptions`. The original `EncodeCandidate`,
+`SetFrameLossless` and `add_argb` call the same implementations at strength 100;
+their APIs and committed output fixtures are unchanged. The shared VP8L
+candidate types retain their names. Strength validation happens before cache
+duration/canvas/state changes, with the existing invalid-strength encoding
+error and submitted frame indexes.
+
+The original animation path passes `WebPConfig.near_lossless` into each codec
+trial. Rectangle refinement, blend eligibility, transparency substitution and
+mask selection still compare original ARGB words. Only then does the existing
+VP8L encoder route the selected rectangle through palette bypass, predictor
+quantization or standalone preprocessing. The Rust port follows that order and
+does not preprocess the full canvas in advance. Disposal alternatives each get
+an independent candidate copy, preserving masks and the first winner on ties.
+
+Near-lossless reconstruction is intentionally absent from carryover tracking:
+accepted frames save original input words, masked pixels retain earlier
+original words, and `CopyIdenticalPixels` restores repeated input words before
+selection. Thus an unchanged source can merge even though its last decode
+differs. Changing its codec strength to 100 does not force those pixels to be
+re-encoded. Strength 100 remains the lossless codec route, not a promise to
+restore loss from previously carried near-lossless frames. `exact` is still
+codec-level: it disables predictor quantization/transparent cleanup while
+standalone preprocessing and animation transparency substitution can alter
+pixels. Intermediate alpha and visible RGB can change below 100.
+
+### Protocol and fixture provenance
+
+`AnimationNearLossless` prefixes the existing 18-word `AnimationLossless`
+request with one strength word. Operations 2/3 call original `EncodeCandidate`
+or `SetFrame`, respectively, with `config.near_lossless` set. Candidate records,
+disposal tags, mask and full-payload serialization are unchanged. The original
+lossless request still selects strength 100 through the same C adapter.
+
+`AnimationNearLosslessCache` uses the eight-word `AnimationCache` global header
+and output layout, extending each frame header from five words to six:
+
+```text
+duration_ms, ARGB stride, lossless effort quality, method, exact, strength
+```
+
+Strided original ARGB words follow. Strength and other codec options can change
+on every input. The wrapper sets the original config field before public
+`WebPAnimEncoderAdd` and retains explicit final NULL-frame timing, the same
+metadata conventions, low-word wrapping C timestamps and mode 0/1/2 assembly
+boundaries. Shared C adapters preserve the old request layouts; no upstream
+code, selection algorithm or near-lossless implementation is copied or edited.
+The test geometry cap was widened to cover 63/64/65-pixel preprocessing cases.
+
+`fixtures/animation_near_lossless.txt` contains 64 C-generated cases: 40 isolated
+candidate cases (including eight direct EncodeCandidate cases) and 24 cached
+eight-frame sequences. They record strengths 0/60/100, exact on/off, palette
+and non-palette inputs, masks and disposal alternatives, direct cropped
+payloads, transparent sequences, zero/max intervals and overflow holds.
+All previous lossless and standalone near-lossless fixtures remain unchanged.
+
+Source pin and scalar toolchain were reviewed before generation: clean revision
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake Release
+`-O3 -DNDEBUG`, SIMD/threading off, near-lossless enabled. Actual compiler and
+build flags remain recorded in `target/native-oracle/provenance.txt`. Regenerate
+only this fixture file after reviewing those records:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_near_lossless animation_near_lossless_fixtures_match_pinned_reference -- --nocapture
+```
+
+### Routing and decoded-pixel evidence
+
+The 4,893 live C comparisons contain 3,773 candidate selections across 1x1,
+skinny, 19x17 and 63/64/65x5 canvases, methods 0–6 and strengths
+0/19/20/39/40/59/60/79/80/99/100. Another 1,120 eight-frame sequences compare
+8,960 submitted-frame states and final output, including 980 complete public
+animation files and 140 explicitly before single-frame reconstruction.
+Original comparisons, disposal controls, strict candidate selection, winning
+masks, complete payloads, cache counters and output bytes match exactly.
+
+Portable candidate checks rebuild the selected rectangle from original pixels
+and the winning transparency mask, then compare its complete payload and decode
+to the already validated prepared near-lossless RGBA API. They assert alpha
+endpoint preservation and establish active RGB/intermediate-alpha changes.
+Strength-100 payloads retain the independent lossless pixel checks.
+
+Routing regressions separately establish:
+
+- Palette candidates bypass quantization, with identical 0/100 bytes.
+- A predictor-selected image with `exact` has identical 0/100 bytes; analysis
+  confirms every trial uses prediction. Predictor quantization is bypassed.
+- A non-palette, non-predictor 65x5 noisy image changes visible RGB and
+  intermediate alpha even with `exact`, proving active standalone processing.
+- Its 63x5 cropped view has identical 0/100 bytes because the standalone small
+  image shortcut sees the selected rectangle's dimensions.
+- An opaque noisy 65x5 rectangle becomes a three-color palette after unchanged
+  interior pixels become transparent holds. The 323 mask bytes and 0/100
+  identity establish substitution before codec routing.
+- A noisy original repeat merges while its earlier decoded alpha differs;
+  a later strength-100 repeat still merges. Original words drive the history.
+
+All 24 cached fixture animations are independently traversed as RIFF/ANMF,
+decoded as VP8L still rectangles and composited with preceding disposal and
+exact endpoint-alpha blending. Eligible VP8L blend inputs have alpha 0/255;
+near-lossless preserves those endpoints. Replacement frames can contain
+quantized intermediate alpha. Every composited canvas and cumulative timestamp
+matches pinned `WebPAnimDecoder` exactly, without pixel tolerances. Stored total
+timing is checked independently, including transparent overflow holds. The
+tests deliberately do not compare near-lossless composited pixels to original
+inputs as if they were lossless. Wholly strength-100 cache cases instead compare
+complete states and files to the existing lossless cache.
+
+Validation commands:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_near_lossless -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+Lossy/mixed candidates, filtering overrides, deferred/bounded/all-keyframe
+selection and decode-dependent single-frame reconstruction remain open. The
+public RGBA Optimized policy remains rejected. This extends the supported VP8L
+subset without claiming complete pinned animation parity.
