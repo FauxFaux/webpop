@@ -98,6 +98,9 @@ cases, plus 48 all-frame compositing comparisons. The oracle now also links
 test-only pinned `webpdemux` for `WebPAnimDecoder`; production has no decoder
 or C dependency. See the animation record for the `image-webp` blending
 limitation and exact portable/native compositing checks.
+Lossless carryover updates add 32 fixtures and 768 live helper/sequence cases,
+including 5,376 original CacheFrame transitions and 15 exact all-frame decoder
+comparisons. Rust cache/timing policy and optimized full-file parity remain open.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

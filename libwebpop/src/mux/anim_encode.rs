@@ -237,6 +237,67 @@ pub fn IncreaseTransparency(
     Ok(modified)
 }
 
+/// Copy complete ARGB words equal in both original inputs into the carryover
+/// canvas before selecting a later frame. Other pixels and padding stay intact.
+/// This includes invisible RGB and does not compare decoded codec output.
+pub fn CopyIdenticalPixels(
+    a: ArgbView<'_>,
+    b: ArgbView<'_>,
+    dst: &mut ArgbViewMut<'_>,
+) -> Result<(), AnimationLeafError> {
+    if (a.width, a.height) != (b.width, b.height) || (a.width, a.height) != (dst.width, dst.height)
+    {
+        return Err(AnimationLeafError::InvalidDimensions);
+    }
+    for y in 0..a.height as usize {
+        let row_a = a.row(y).unwrap();
+        let row_b = b.row(y).unwrap();
+        let row_dst = dst.row_mut(y).unwrap();
+        for x in 0..a.width as usize {
+            if row_a[x] == row_b[x] {
+                row_dst[x] = row_a[x];
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copy pixels with a zero mask byte; every nonzero byte retains the old
+/// destination pixel. The mask is packed with the view width, independently
+/// of either pixel stride. Extra mask bytes and row padding are untouched.
+pub fn CopyMaskedPixels(
+    src: ArgbView<'_>,
+    mask: &[u8],
+    dst: &mut ArgbViewMut<'_>,
+) -> Result<(), AnimationLeafError> {
+    if (src.width, src.height) != (dst.width, dst.height) {
+        return Err(AnimationLeafError::InvalidDimensions);
+    }
+    let area = (src.width as usize)
+        .checked_mul(src.height as usize)
+        .ok_or(AnimationLeafError::SizeOverflow)?;
+    if mask.len() < area {
+        return Err(AnimationLeafError::MaskTooShort);
+    }
+    for y in 0..src.height as usize {
+        let source = src.row(y).unwrap();
+        let target = dst.row_mut(y).unwrap();
+        for x in 0..src.width as usize {
+            if mask[y * src.width as usize + x] == 0 {
+                target[x] = source[x];
+            }
+        }
+    }
+    Ok(())
+}
+
+fn copy_pixels(src: ArgbView<'_>, dst: &mut ArgbViewMut<'_>) {
+    debug_assert_eq!((src.width, src.height), (dst.width, dst.height));
+    for y in 0..src.height as usize {
+        dst.row_mut(y).unwrap().copy_from_slice(src.row(y).unwrap());
+    }
+}
+
 fn validate_rectangle(
     canvas: ArgbView<'_>,
     rect: &FrameRectangle,

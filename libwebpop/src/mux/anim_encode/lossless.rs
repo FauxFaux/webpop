@@ -3,7 +3,8 @@
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
 //! Lossless subset of SetFrame/GenerateCandidates. Sequence caching, keyframe
-//! decisions and carryover canvas updates are deliberately separate.
+//! decisions remain separate. Winning candidates supply the canvas updates
+//! extracted from CacheFrame, without implementing its timing/cache policy.
 
 use super::*;
 use crate::enc::config_enc::{EncoderConfig, WebPValidateConfig};
@@ -64,6 +65,61 @@ impl LosslessCandidate {
 
     pub fn carries_over(&self) -> bool {
         !self.carryover_mask.is_empty()
+    }
+
+    /// Apply CacheFrame's canvas updates after selecting this candidate.
+    /// `current` is the original input, before codec cleanup/transparency.
+    /// Keyframes replace the entire carryover canvas. Subframes first clear
+    /// the preceding rectangle if selected, then update explicitly encoded
+    /// pixels within this rectangle, preserving carried pixels and its exterior.
+    /// Finally save the original input in `previous`, including invisible RGB.
+    /// `previous_dispose == None` identifies the keyframe branch; callers using
+    /// `EncodeCandidate` directly must set this field for a subframe update.
+    ///
+    /// Before selecting a later frame, call `CopyIdenticalPixels(previous,
+    /// current, carryover)` and pass that carryover to `SetFrameLossless`.
+    /// A skipped frame has no candidate and must not advance `previous` or
+    /// the previous rectangle. Timing and preceding-frame controls belong to
+    /// the caller. All validation precedes mutations of either destination.
+    pub fn update_canvases(
+        &self,
+        current: ArgbView<'_>,
+        previous_rect: FrameRectangle,
+        previous: &mut ArgbViewMut<'_>,
+        carryover: &mut ArgbViewMut<'_>,
+    ) -> Result<(), AnimationLeafError> {
+        if (current.width, current.height) != (previous.width, previous.height)
+            || (current.width, current.height) != (carryover.width, carryover.height)
+        {
+            return Err(AnimationLeafError::InvalidDimensions);
+        }
+        validate_rectangle(current, &self.rect)?;
+        if IsEmptyRect(&self.rect) {
+            return Err(AnimationLeafError::InvalidRectangle);
+        }
+        if self.previous_dispose.is_some() {
+            validate_rectangle(current, &previous_rect)?;
+            let area = (self.rect.width as usize)
+                .checked_mul(self.rect.height as usize)
+                .ok_or(AnimationLeafError::SizeOverflow)?;
+            if self.carries_over() && self.carryover_mask.len() < area {
+                return Err(AnimationLeafError::MaskTooShort);
+            }
+        }
+        if let Some(dispose) = self.previous_dispose {
+            DisposeFrameRectangle(dispose, &previous_rect, carryover)?;
+            let source = current.sub_view(self.rect)?;
+            let mut target = carryover.sub_view(self.rect)?;
+            if self.carries_over() {
+                CopyMaskedPixels(source, &self.carryover_mask, &mut target)?;
+            } else {
+                copy_pixels(source, &mut target);
+            }
+        } else {
+            copy_pixels(current, carryover);
+        }
+        copy_pixels(current, previous);
+        Ok(())
     }
 }
 

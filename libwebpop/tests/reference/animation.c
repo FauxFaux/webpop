@@ -329,6 +329,99 @@ unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) 
   return at;
 }
 
+// Three separately strided canvases, including destination padding, and a
+// packed byte mask. Call the original helpers; do not replicate their loops.
+unsigned WebpopAnimationCarryover(const uint32_t* in, unsigned n, uint32_t* out) {
+  WebPPicture a, b, dst;
+  unsigned sizes[3], i, at = 7;
+  uint32_t* pixels;
+  uint8_t* mask;
+  if (n < 7 || in[0] > 1 || !in[1] || !in[2] || in[1] > 64 || in[2] > 64 ||
+      in[3] < in[1] || in[4] < in[1] || in[5] < in[1] ||
+      in[3] > 128 || in[4] > 128 || in[5] > 128 || in[6] < in[1] * in[2]) abort();
+  for (i = 0; i < 3; ++i) sizes[i] = (in[2] - 1) * in[3 + i] + in[1];
+  if (n != at + sizes[0] + sizes[1] + sizes[2] + in[6] ||
+      !WebPPictureInit(&a) || !WebPPictureInit(&b) || !WebPPictureInit(&dst)) abort();
+  a.use_argb = b.use_argb = dst.use_argb = 1;
+  a.width = b.width = dst.width = in[1]; a.height = b.height = dst.height = in[2];
+  a.argb_stride = in[3]; b.argb_stride = in[4]; dst.argb_stride = in[5];
+  a.argb = (uint32_t*)(in + at); at += sizes[0];
+  b.argb = (uint32_t*)(in + at); at += sizes[1];
+  pixels = (uint32_t*)malloc(sizes[2] * sizeof(*pixels));
+  mask = (uint8_t*)malloc(in[6]);
+  if (!pixels || !mask) abort();
+  memcpy(pixels, in + at, sizes[2] * sizeof(*pixels)); at += sizes[2];
+  for (i = 0; i < in[6]; ++i) {
+    if (in[at + i] > 255) abort();
+    mask[i] = in[at + i];
+  }
+  dst.argb = pixels;
+  if (in[0] == 0) CopyIdenticalPixels(&a, &b, &dst);
+  else CopyMaskedPixels(&a, mask, &dst);
+  memcpy(out, pixels, sizes[2] * sizeof(*out));
+  free(mask); free(pixels);
+  return sizes[2];
+}
+
+static unsigned AnimationCanvasOutput(const WebPPicture* pic, uint32_t* out) {
+  int x, y;
+  unsigned at = 0;
+  for (y = 0; y < pic->height; ++y) {
+    for (x = 0; x < pic->width; ++x) out[at++] = pic->argb[y * pic->argb_stride + x];
+  }
+  return at;
+}
+
+// Observe original CacheFrame canvas updates and selected candidates, then
+// FlushFrames to retain its normal one-frame lookbehind. Durations remain zero:
+// timing/merging and final assembly parity are outside this request's contract.
+unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32_t* out) {
+  WebPAnimEncoderOptions options;
+  WebPAnimEncoder* enc;
+  unsigned frame, at = 4, written = 0;
+  if (n < 4 || !in[0] || !in[1] || in[0] > 32 || in[1] > 32 ||
+      in[2] > 1 || !in[3] || in[3] > 16 ||
+      !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
+  options.minimize_size = in[2];
+  enc = WebpopIncludedAnimNew(in[0], in[1], &options, WEBP_MUX_ABI_VERSION);
+  if (!enc) abort();
+  for (frame = 0; frame < in[3]; ++frame) {
+    WebPPicture current;
+    WebPConfig config;
+    unsigned size, count = enc->count;
+    if (n - at < 4 || in[at] < in[0] || in[at] > 64 || in[at + 1] > 100 ||
+        in[at + 2] > 6 || in[at + 3] > 1 || !WebPPictureInit(&current) ||
+        !WebPConfigInit(&config)) abort();
+    current.use_argb = 1; current.width = in[0]; current.height = in[1];
+    current.argb_stride = in[at];
+    config.lossless = 1; config.quality = in[at + 1];
+    config.method = in[at + 2]; config.exact = in[at + 3];
+    at += 4; size = (current.height - 1) * current.argb_stride + current.width;
+    if (size > n - at) abort();
+    current.argb = (uint32_t*)(in + at); at += size;
+    enc->curr_canvas = &current; enc->curr_canvas_copy_modified = 1;
+    CopyCurrentCanvas(enc);
+    if (!CacheFrame(enc, &config)) abort();
+    out[written++] = enc->count > count;
+    if (enc->count > count) {
+      EncodedFrame* encoded = GetFrame(enc, enc->count - 1);
+      const WebPMuxFrameInfo* info = encoded->is_key_frame ? &encoded->key_frame : &encoded->sub_frame;
+      written += AnimationCandidateOutput(&enc->prev_rect, info,
+          encoded->is_key_frame ? 0 : 1 + GetPreviousDisposeMethod(enc),
+          !encoded->is_key_frame && enc->best_candidate_carries_over,
+          enc->best_candidate_carryover_mask, out + written);
+    }
+    out[written++] = enc->prev_rect.x_offset; out[written++] = enc->prev_rect.y_offset;
+    out[written++] = enc->prev_rect.width; out[written++] = enc->prev_rect.height;
+    written += AnimationCanvasOutput(&enc->prev_canvas, out + written);
+    written += AnimationCanvasOutput(&enc->canvas_carryover, out + written);
+    if (!FlushFrames(enc)) abort();
+  }
+  if (at != n) abort();
+  WebpopIncludedAnimDelete(enc);
+  return written;
+}
+
 // Output-only mux oracle: use exactly the supplied still payloads. Raw pixels
 // are carried in the logical request solely for the Rust evaluator; C does not
 // encode them, so this comparison isolates the mux from codec differences.

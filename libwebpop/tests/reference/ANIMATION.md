@@ -469,6 +469,99 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-The lossless blend/disposal/candidate-selection item is complete. Carryover
-canvas updates (`CopyIdenticalPixels`/`CopyMaskedPixels`), CacheFrame/FlushFrames,
-timing merging/splitting and all lossy/mixed/keyframe selection remain open.
+The lossless blend/disposal/candidate-selection item is complete. Its canvas
+updates are covered below; Rust CacheFrame/FlushFrames, timing merging/splitting
+and all lossy/mixed/keyframe selection remain open.
+
+## Lossless carryover canvas updates (2026-10-25)
+
+`CopyIdenticalPixels` and `CopyMaskedPixels` are direct ports of the original
+static helpers. `LosslessCandidate::update_canvases` extracts the accepted
+candidate's canvas-update branches from `CacheFrame`: full-copy for keyframes;
+otherwise preceding disposal, rectangle-local masked or full copy, then save
+the original input in `prev_canvas`. Validation precedes either destination's
+mutation. Pixel strides are independent, final padding is optional, and all
+copies preserve invisible RGB. Nonzero mask bytes hold pixels; only zero copies.
+
+Before selection, `CopyIdenticalPixels` restores words identical in the previous
+and current originals into `canvas_carryover`. On a skipped frame the original
+and preceding rectangle do not advance. The carried canvas is an optimization
+history, not a decoded canvas; it retains original input values, even if codec
+cleanup or encoding altered the corresponding output. These low-level helpers
+do not own timestamps, cache entries or preceding-frame output controls.
+
+### Protocol and corpus
+
+`AnimationCarryover` has the seven-word header `(opcode, width, height,
+a_stride, b_stride, destination_stride, mask_byte_count)`, followed by three
+ARGB canvases and one word per mask byte. Each canvas contains exactly
+`(height - 1) * stride + width` words. Opcode 0 calls original
+`CopyIdenticalPixels(a, b, destination)`; opcode 1 calls original
+`CopyMaskedPixels(a, mask, destination)`. Both return complete destination
+storage including untouched padding. Mask tails include sentinel bytes.
+
+`AnimationCarryoverSequence` takes `(width, height, minimize_size, frame_count)`,
+then for each input `(ARGB stride, lossless effort quality, method, exact)` and
+its strided ARGB words without final padding. Default keyframe insertion stays
+disabled. The C adapter performs the original pre-cache `CopyCurrentCanvas`,
+calls original `CacheFrame`, serializes the selected candidate, preceding
+rectangle and both canvases, then calls original `FlushFrames` to retain its
+normal lookbehind. It does not duplicate selection or canvas-update algorithms.
+
+For each submitted input the output is a candidate-present flag, the candidate
+record described above if present, preceding rectangle x/y/width/height, packed
+`prev_canvas` and packed `canvas_carryover`. Duration is zero and current-frame
+disposal NONE; timing is deliberately absent from this protocol. Complete
+payload and mask bytes are compared, including after earlier masks, disposal
+and codec changes. Rust invokes the ported leaves, `SetFrameLossless` and the
+winning candidate's canvas updates in the same order.
+
+The 768 live cases contain 96 separately strided copy-helper cases and 672
+eight-frame sequences (5,376 transitions). They cover 1x1, skinny, odd,
+16x16/32x17 canvases, methods 0–6, effort 0/70/100, exact on/off, minimize-size,
+empty/constant/repeated inputs, moving/erased sprites, semitransparent fades,
+hidden RGB, opposite corners and random colors. Codec options and stride change
+within sequences. Coverage assertions require skips (1,456), BACKGROUND
+selection (246), carrying candidates (784) and BACKGROUND with carryover (28).
+
+`fixtures/animation_carryover.txt` records 12 helper cases and 20 sequences
+(32 fixtures), generated exclusively from C. Portable checks enumerate exact
+word equality and mask values 0/1/7/255. Deliberately distinct synthetic
+previous/carryover canvases independently check disposal-before-mask order,
+held pixels, rectangle exteriors, full-canvas keyframe copies, original-input
+preservation and validation rollback of both destinations. Pure lossless
+sequences often have matching original/carryover values, so those synthetic
+histories exercise retention explicitly.
+
+Fifteen multi-frame fixture sequences are assembled with unit durations for
+accepted candidates and the selected disposal on the preceding accepted frame.
+The shared independent RIFF/VP8L compositor checks every canvas against its
+original input and exact stored timing. All 15 also match pinned
+`WebPAnimDecoder`. Single-accepted-frame sequences remain in the state/payload
+corpus; the all-frame checks here require at least two accepted frames.
+
+Source pin, scalar CMake settings and compiler remain unchanged: GCC
+15.2.0-16ubuntu1, Release `-O3 -DNDEBUG`, SIMD/threading off. The upstream
+checkout was verified clean before generation; provenance remains in
+`target/native-oracle/provenance.txt`. After reviewing those records, regenerate
+only this fixture file with:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_carryover animation_carryover_fixtures_match_pinned_reference -- --nocapture
+```
+
+Validation commands (all passed):
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_carryover -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+Carryover state/payload parity does not establish optimized full-file parity:
+Rust caching, duration merging/splitting, keyframe selection,
+near-lossless/lossy/mixed candidates and decode-dependent single-frame
+reconstruction remain open. The public sequence API still rejects `Optimized`.

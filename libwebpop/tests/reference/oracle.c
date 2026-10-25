@@ -135,6 +135,8 @@ unsigned WebpopSharpYuvEncoder(const uint32_t*, unsigned, int, uint32_t*);
 unsigned WebpopAnimationLeaves(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationSubframes(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationLossless(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationCarryover(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationCarryoverSequence(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationDecode(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationMux(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationSingleFrame(const uint32_t*, unsigned, uint32_t*);
@@ -190,6 +192,10 @@ int main(void) {
       count = WebpopAnimationSubframes(in, n, out);
     } else if (IS(AnimationLossless)) {
       count = WebpopAnimationLossless(in, n, out);
+    } else if (IS(AnimationCarryover)) {
+      count = WebpopAnimationCarryover(in, n, out);
+    } else if (IS(AnimationCarryoverSequence)) {
+      count = WebpopAnimationCarryoverSequence(in, n, out);
     } else if (IS(AnimationDecode)) {
       count = WebpopAnimationDecode(in, n, out);
     } else if (!strncmp(name, "SharpYuv", 8)) {

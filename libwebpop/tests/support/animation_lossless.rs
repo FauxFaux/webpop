@@ -272,3 +272,98 @@ pub fn fixture_cases() -> Vec<Case> {
     cases.push(background_carry);
     cases
 }
+
+fn le24(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0])
+}
+
+fn chunks(mut bytes: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let mut result = Vec::new();
+    while !bytes.is_empty() {
+        assert!(bytes.len() >= 8);
+        let len = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        result.push((&bytes[..4], &bytes[8..8 + len]));
+        if len & 1 != 0 {
+            assert_eq!(bytes[8 + len], 0);
+        }
+        bytes = &bytes[8 + len + (len & 1)..];
+    }
+    result
+}
+
+// Independent RIFF/ANMF traversal plus image's VP8L still decoder. Eligible
+// lossless blended candidates contain only alpha 0 (hold) or 255 (copy).
+pub fn composite_lossless(bytes: &[u8]) -> Vec<u32> {
+    assert_eq!(&bytes[..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WEBP");
+    assert_eq!(
+        u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize + 8,
+        bytes.len()
+    );
+    let all = chunks(&bytes[12..]);
+    let vp8x = all.iter().find(|c| c.0 == b"VP8X").unwrap().1;
+    let (w, h) = (le24(&vp8x[4..]) + 1, le24(&vp8x[7..]) + 1);
+    let anim = all.iter().find(|c| c.0 == b"ANIM").unwrap().1;
+    let frames: Vec<_> = all.iter().filter(|c| c.0 == b"ANMF").collect();
+    let mut result = vec![
+        w,
+        h,
+        frames.len() as u32,
+        u16::from_le_bytes(anim[4..6].try_into().unwrap()) as u32,
+    ];
+    let mut canvas = vec![0u8; w as usize * h as usize * 4];
+    let mut dispose = false;
+    let mut previous = (0, 0, 0, 0);
+    let mut timestamp = 0;
+    for (_, data) in frames {
+        if dispose {
+            let (x, y, pw, ph) = previous;
+            for cy in y..y + ph {
+                for cx in x..x + pw {
+                    canvas[(cy * w + cx) as usize * 4..][..4].fill(0);
+                }
+            }
+        }
+        let (x, y, fw, fh) = (
+            le24(data) * 2,
+            le24(&data[3..]) * 2,
+            le24(&data[6..]) + 1,
+            le24(&data[9..]) + 1,
+        );
+        assert!(x + fw <= w && y + fh <= h);
+        let nested = chunks(&data[16..]);
+        assert_eq!(nested.len(), 1);
+        assert_eq!(nested[0].0, b"VP8L");
+        let mut still = b"RIFF".to_vec();
+        still.extend_from_slice(&((data.len() - 16 + 4) as u32).to_le_bytes());
+        still.extend_from_slice(b"WEBP");
+        still.extend_from_slice(&data[16..]);
+        let image = image::load_from_memory_with_format(&still, image::ImageFormat::WebP)
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(image.dimensions(), (fw, fh));
+        for cy in 0..fh {
+            for cx in 0..fw {
+                let p = image.get_pixel(cx, cy).0;
+                let dst = &mut canvas[((cy + y) * w + cx + x) as usize * 4..][..4];
+                if data[15] & 2 != 0 || p[3] == 255 {
+                    dst.copy_from_slice(&p);
+                } else {
+                    assert_eq!(p[3], 0, "eligible lossless blend uses endpoint alpha");
+                }
+            }
+        }
+        timestamp += le24(&data[12..]);
+        result.push(timestamp);
+        for p in canvas.chunks_exact(4) {
+            result.extend(if p[3] == 0 {
+                [0u32; 4]
+            } else {
+                p.try_into().map(|v: [u8; 4]| v.map(u32::from)).unwrap()
+            });
+        }
+        dispose = data[15] & 1 != 0;
+        previous = (x, y, fw, fh);
+    }
+    result
+}

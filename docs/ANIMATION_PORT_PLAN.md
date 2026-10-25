@@ -124,9 +124,27 @@ by one; it remains suitable for full-frame replacements, while candidate tests
 use its still decoder plus the independent compositor and pinned decoder.
 This decoder limitation is documented, not hidden behind pixel tolerances.
 
-Carryover canvas updates, caching and timing merging remain open. Full-frame
-`WebPMux` and isolated candidate parity do not establish optimized sequence
-`WebPAnimEncoder` parity; the sequence API still rejects `Optimized`.
+Lossless carryover canvas updates are implemented (2026-10-25):
+`CopyIdenticalPixels`, `CopyMaskedPixels` and
+`LosslessCandidate::update_canvases` port the canvas-update branches extracted
+from `CacheFrame`. Unchanged original words restore the carryover canvas before
+selection; accepted candidates apply the selected preceding disposal, preserve
+masked pixels and the rectangle exterior, then save the original input as
+`prev_canvas`. Keyframes copy the full original canvas, including invisible RGB;
+skipped frames leave the previous original and rectangle unchanged. Checked
+separately strided destinations preserve padding and validate before mutation.
+
+There are 32 committed C fixtures and 768 live comparisons: 96 copy-helper
+cases and 672 eight-frame sequences (5,376 transitions) against original
+`CacheFrame`/`FlushFrames` snapshots. Every selected rectangle, blend, preceding
+disposal, winning mask, complete payload and both resulting canvases match.
+Fifteen assembled sequences also match the independent compositor and native
+all-frame decoder exactly. Synthetic carryover histories independently check
+disposal-before-mask order, retained pixels and validation rollback.
+
+Rust caching and timing merging remain open. Canvas-state/candidate parity
+against C does not establish optimized full-file `WebPAnimEncoder` parity;
+the sequence API still rejects `Optimized`.
 
 ## Scope and delivery order
 
@@ -332,14 +350,15 @@ Implement and test these output rules against the pinned sources:
   wrapper convention without duplicate linked definitions. Leaves, output mux
   and the reference-only decode-dependent single-frame path now have wrappers
   and provenance; lossless candidate selection and all-frame decoding now have
-  wrappers too. Cache/keyframe protocols and lossy/mixed candidates remain open.
+  wrappers too. Carryover sequences now observe original CacheFrame/FlushFrames;
+  timing/cache-control/keyframe protocols and lossy/mixed candidates remain open.
 - [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
   default and explicit keyframe options, duration merging/splitting and both
   single-frame cleanup paths. Capture the decode-dependent case as an open
   completion requirement, not an ignored mismatch in a passing parity corpus.
-  Raw mux assembly, both single-frame paths and isolated lossless candidate
-  selection are now recorded. Optimized sequences, keyframe options and
-  duration merging/splitting remain open.
+  Raw mux assembly, both single-frame paths, isolated lossless candidate
+  selection and carryover-state sequences are now recorded. Optimized full
+  files, keyframe options and duration merging/splitting remain open.
 
 ### 1. Container assembly and metadata
 
@@ -384,9 +403,12 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
   Lossless subset: 79 fixtures, 3,120 live C comparisons, selected masks and
   previous disposal, 48 exact all-frame decoder comparisons. Lossy/mixed
   extensions belong to milestone 4; cache integration remains below.
-- [ ] Port the pin's `prev_canvas`, `canvas_carryover`, candidate/best carryover
+- [x] Port the pin's `prev_canvas`, `canvas_carryover`, candidate/best carryover
   masks, `CopyIdenticalPixels` and `CopyMaskedPixels` updates. Comparing only
   adjacent original inputs is insufficient after earlier pixels are carried.
+  Lossless canvas updates match 32 fixtures and 768 live helper/sequence cases,
+  including 5,376 frame transitions and 15 exact all-frame decoder checks.
+  These low-level updates do not yet implement Rust cache/timing policy.
 - [ ] Port `SetFrame`, `CacheFrame`, `FlushFrames` and duration accumulation.
   Isolated lossless `SetFrame` selection is implemented as `SetFrameLossless`;
   cache integration and the sequence state transitions remain open.

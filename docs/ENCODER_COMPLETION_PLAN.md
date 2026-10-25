@@ -129,8 +129,10 @@ Checked borrowed subframe views and `GetSubRect`/`GetSubRects` now match 47
 committed fixtures and 17,340 live scalar C cases. Isolated lossless candidate
 encoding/selection now has 79 fixtures and 3,120 live C comparisons, including
 winning carryover masks and preceding disposal, with 48 exact all-frame
-decoder checks. Carryover canvas updates, caching, keyframe selection and
-lossy/mixed candidates remain optimizer work.
+decoder checks. Lossless carryover canvas updates now match 32 committed
+fixtures and 768 live helper/sequence cases, including 5,376 frame transitions
+and 15 exact all-frame decoder checks. Caching, timing merging, keyframe
+selection and lossy/mixed candidates remain optimizer work.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared

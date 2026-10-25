@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod animation;
+pub mod animation_carryover;
 pub mod animation_lossless;
 pub mod animation_mux;
 pub mod animation_subframes;
@@ -78,6 +79,9 @@ impl Case {
             "AnimationLeaves" => animation::evaluate(self),
             "AnimationSubframes" => animation_subframes::evaluate(self),
             "AnimationLossless" => animation_lossless::evaluate(self),
+            "AnimationCarryover" | "AnimationCarryoverSequence" => {
+                animation_carryover::evaluate(self)
+            }
             "AnimationMux" => animation_mux::evaluate(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),
