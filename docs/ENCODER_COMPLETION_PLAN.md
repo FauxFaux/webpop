@@ -116,7 +116,8 @@ work is complete; optimized lossy blending needs a filter-control integration.
 Isolated animation pixel comparisons, rectangle refinement/even snapping and
 blend-eligibility leaves now have portable fixtures and pinned C comparisons
 under `src/mux/`. Checked prepared-frame container assembly now matches pinned
-`WebPMux`; the stateful raw-frame sequence API and optimizer remain open.
+`WebPMux`. The stateful raw-frame sequence API now supports full-canvas
+replacement encoding with explicit timestamps; the optimizer remains open.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared
@@ -128,6 +129,12 @@ under `src/mux/`. Checked prepared-frame container assembly now matches pinned
   disposal, ANIM/ANMF chunks and validation. There are 33 committed mux fixtures
   and 193 live complete-byte comparisons to pinned `WebPMux`, plus independent
   field/padding/size checks. Timestamp handling belongs to the sequence API.
+- [x] Encode raw full-canvas RGBA sequences with explicit final timing, preserving
+  repeats and zero durations. `AnimationEncoder` supports per-frame lossless,
+  near-lossless and method-4 lossy settings plus supplied metadata. There are
+  26 committed/live pinned WebPMux sequence comparisons and independent
+  all-frame canvas/timing decodes. The explicit full-frame policy does not
+  claim optimized `WebPAnimEncoder` parity; the CLI remains open.
 - [ ] Port animation encoding from raw frames (`WebPAnimEncoder`): changed-frame
   rectangles, keyframe/subframe selection, frame caching, minimize-size mode,
   keyframe interval controls, mixed lossy/lossless trials and final assembly.
@@ -168,8 +175,8 @@ Also extend `--lossy -m` beyond 4 and permit lossy `--exact` when implemented.
 `--noasm` is accepted and is
 currently a no-op because there is no explicit accelerated backend. `--short`
 currently prints the byte count; upstream's richer statistics depend on the
-reporting work above. Animation requires a new raw-frame API/frontend; it is
-not a missing mode of upstream `cwebp` itself.
+reporting work above. Animation now has a full-frame library API and still
+needs a sequence frontend; it is not a missing mode of upstream `cwebp` itself.
 
 ## Known performance gaps
 

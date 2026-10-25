@@ -60,6 +60,21 @@ libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
 // The encoded size is output.len(); reuse output for the next image.
 ```
 
+The library also encodes full-canvas RGBA sequences with explicit millisecond
+timestamps. Each frame can select lossless, near-lossless or method-4 lossy
+settings. Repeats and zero durations are preserved; encoded frames stay in
+memory until `finish`. This full-frame policy has pinned WebPMux parity;
+animation optimization and a sequence CLI remain future work.
+
+```rust
+use libwebpop::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
+let mut encoder = AnimationEncoder::new(1, 1, AnimationOptions::default())?;
+encoder.add_rgba(&[255, 0, 0, 255], 4, 500, &AnimationFrameOptions::default())?;
+encoder.add_rgba(&[0, 0, 255, 128], 4, 600, &AnimationFrameOptions::default())?;
+let mut output = Vec::new();
+encoder.finish(640, &mut output)?; // 100 ms, then 40 ms.
+```
+
 
 ### Docs
 

@@ -24,6 +24,17 @@ fn lossy_options(mode: u32) -> LossyOptions {
 }
 
 impl Frame {
+    pub fn options(&self) -> AnimationFrameOptions {
+        match self.mode {
+            0 => AnimationFrameOptions::Lossless(lossless_options()),
+            3 => AnimationFrameOptions::NearLossless {
+                strength: 60,
+                options: lossless_options(),
+            },
+            mode => AnimationFrameOptions::Lossy(lossy_options(mode)),
+        }
+    }
+
     pub fn encoded(&self) -> EncodedFrame {
         match self.mode {
             0 => EncodedFrame::encode_lossless_rgba(

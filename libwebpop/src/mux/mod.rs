@@ -1,10 +1,16 @@
-//! Checked output containers for internally encoded rectangles. This builder
-//! preserves frame order and durations; it does not optimize a sequence of
-//! display canvases. Pixel/rectangle optimizer leaves are in [`anim_encode`].
+//! Checked raw RGBA sequences and output containers for encoded rectangles.
+//! Both preserve frame order and durations. Pixel/rectangle optimizer leaves
+//! are in [`anim_encode`]; optimized sequence encoding is not yet available.
 
 pub mod anim_encode;
 mod muxedit;
 pub(crate) mod muxinternal;
+mod sequence;
+
+pub use sequence::{
+    AnimationEncoder, AnimationEncodingPolicy, AnimationError, AnimationFrameOptions,
+    AnimationOptions,
+};
 
 use crate::{LosslessOptions, LossyOptions, WebPEncodingError};
 use muxinternal::FramePayload;

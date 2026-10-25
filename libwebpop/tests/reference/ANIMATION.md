@@ -159,3 +159,75 @@ cargo test -p libwebpop --features native-oracle --test lossy_public --test near
 cargo test --workspace
 cargo fmt --all -- --check
 ```
+
+## Raw RGBA full-frame sequences (milestone 2, 2026-10-25)
+
+`AnimationEncoder` fixes the canvas in `new(width, height, AnimationOptions)`.
+Global options contain an explicit `FullFrame` policy and existing owned
+`AnimationContainerOptions`; the reserved `Optimized` policy is rejected.
+`AnimationFrameOptions` selects `Lossless(LosslessOptions)`,
+`NearLossless { strength, options }` or `Lossy(LossyOptions)` for each add.
+Only the current method-4 lossy route is advertised. There is no mixed-candidate
+heuristic; callers may explicitly change codecs between submitted frames.
+
+`add_rgba` takes a complete immutable canvas, byte stride and `u64` start
+timestamp. The first timestamp is an arbitrary origin. Consecutive timestamps
+may be equal; every difference must fit 24 bits. `finish` requires the final
+end timestamp. Empty input, descending timestamps, oversized intervals and
+invalid layout/settings are recoverable validation errors. Runtime failures
+after validation permanently fail the encoder; success permanently finishes it.
+Both states reject further adds/finishes. All finish errors preserve output.
+Only encoded frames are retained; finish releases payloads after assembly.
+A single full-canvas frame follows ordinary mux cleanup into a still image.
+
+`animation_sequence.rs` reuses the existing `AnimationMux` logical request,
+wrapper and payload preparation. Its evaluator submits raw full-canvas pixels
+to the sequence API and accumulates the request's durations from a `2^40` ms
+origin. C receives exactly the same still-encoded payloads, (0,0) replacements,
+no disposal and explicit durations. This deliberately compares against WebPMux,
+not WebPAnimEncoder. Existing still-codec oracle suites establish codec parity.
+No new native wrapper, decoder dependency or production C code is added.
+
+`fixtures/animation_sequence.txt` contains 26 C-generated requests/outputs:
+four odd/skinny geometries across all five existing codec configurations,
+per-frame codec changes, repeated images, opaque/transparent pixels, omitted
+final-row padding, zero/one/maximum durations, supplied odd/empty metadata,
+explicit BGRA and loop count 65535; five single-frame cleanup cases; and a
+40-frame repeated transparent sequence with zero intervals.
+
+The existing `image` 0.25.10 / `image-webp` 0.2.4 decoder was inspected and
+exercised through `AnimationDecoder::into_frames`. It returns every composited
+canvas and exact stored millisecond delay, including zero; tests assert count,
+dimensions, order and cumulative timing. Both Rust and C files pass through
+that decoder. Every decoded frame compares to its corresponding still-codec
+decode, and lossless visible RGB/alpha also compare to original input.
+Full-canvas replacement makes decoder background conventions irrelevant.
+Portable additional checks cover `u64::MAX`, arbitrary timestamp origins,
+24-bit interval boundaries, empty/invalid state, validation recovery and output
+preservation, stride arithmetic overflow, exact hidden RGB with all lossless
+methods, near-lossless strengths 0/60/100 with exact on/off, color qualities
+0/42.5/100, alpha qualities 0/100 and both SharpYUV settings.
+
+The pin remains clean at `1844042d1ca751e62e61df7617dba19c98588339`.
+Provenance reviewed before generating this new fixture file: Ubuntu x86_64,
+GCC 15.2.0-16ubuntu1, CMake 4.2.3, Release `-O3 -DNDEBUG`, SIMD/threading off.
+Existing fixture files are unchanged. Regenerate only the new sequence file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_sequence animation_sequence_matches_pinned_mux_reference -- --nocapture
+```
+
+Validation commands for this milestone:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle animation -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+Full-frame raw sequence support is complete. Candidate selection, carryover,
+merging/splitting, keyframes, optimized lossy filtering and decode-dependent
+single-subrectangle re-encoding remain explicit optimizer completion gates.

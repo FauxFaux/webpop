@@ -2,8 +2,8 @@
 
 Planned 2026-10-24 against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339`. Isolated pixel/rectangle leaves,
-checked prepared-frame container assembly and their native oracles are
-implemented; the raw-frame sequence API and optimizer remain open.
+checked prepared-frame container assembly, full-frame raw RGBA sequences and
+their native oracles are implemented; the animation optimizer remains open.
 This expands the container/animation work in the
 [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building on the completed
 [lossless](LOSSLESS_PORT_PLAN.md), [near-lossless](NEAR_LOSSLESS_PORT_PLAN.md)
@@ -18,8 +18,8 @@ and [lossy](LOSSY_PORT_PLAN.md) ports.
 `IsLosslessBlendingPossible` and `IsLossyBlendingPossible`. Checked borrowed
 ARGB views accept separate pixel strides without final-row padding. Refinement
 clips signed guesses using wide arithmetic and leaves them unchanged on
-validation failure. These are low-level helpers under `mux::anim_encode`, not
-the proposed public sequence API.
+validation failure. These are low-level helpers under `mux::anim_encode`,
+separate from the public sequence API.
 
 The existing native oracle now links pinned scalar `libwebpmux` and includes
 the original animation source in an external wrapper with renamed exports.
@@ -46,8 +46,8 @@ RGBA channels and BGRA serialization. Metadata is owned supplied bytes;
 builder owns only encoded rectangles, so valid canvases larger than codec
 limits need no raw canvas allocation. Adds validate before mutation;
 `assemble(&self, &mut Vec<u8>)` is repeatable and preserves output on errors.
-This output-only builder accepts durations directly; the proposed stateful
-sequence API's timestamps, finish transitions and encoding policies remain open.
+This output-only builder accepts durations directly; the stateful sequence
+layer below supplies timestamps, finish transitions and encoding policy.
 A public rustdoc example demonstrates two prepared lossless frames.
 
 There are 33 committed mux fixtures and 193 live complete-byte comparisons to
@@ -61,9 +61,37 @@ ANMF representation with a 44-byte full-canvas still. Rust reproduces the before
 representation; the recorded after result is independently decoded, outside
 the Rust parity corpus. Exact reconstruction remains an open completion gate.
 
+The public raw-frame layer (2026-10-25) exposes `AnimationEncoder`,
+`AnimationOptions`, `AnimationEncodingPolicy`, `AnimationFrameOptions` and
+`AnimationError`. `new(width, height, options)` fixes the canvas;
+`add_rgba(rgba, stride, timestamp_ms, frame_options)` immediately encodes each
+full canvas as a replacement at (0,0), without disposal. Frame options select
+lossless, near-lossless or method-4 lossy using the existing still settings.
+Global options reuse `AnimationContainerOptions` for loop/background/metadata.
+`FullFrame` is the default policy; `Optimized` is explicitly rejected before
+encoding. Repeats and zero durations remain separate submitted frames.
+
+Timestamps are `u64`, non-decreasing with arbitrary origin; each interval must
+fit 24 bits. `finish(end_timestamp_ms, output)` always requires explicit final
+timing. Validation errors permit retry; encoding/allocation/assembly failures
+after validation mark the encoder failed. Successful finish releases buffered
+payloads and rejects subsequent operations. Finish errors preserve output.
+No raw inputs are retained; encoded output remains buffered until assembly.
+One submitted frame becomes a still and loses playback timing/loop settings.
+
+There are 26 new committed C mux fixtures and live complete-byte sequence
+comparisons. The existing independent `image`/`image-webp` animation decoder
+returns every composited canvas and exact stored delay, including zero.
+Both Rust and C output are decoded and compared to the corresponding still
+codec decode; lossless alpha and visible RGB also compare directly to input.
+Portable tests cover wide timestamps through `u64::MAX`, maximum/zero intervals,
+validation recovery, terminal state, exact hidden RGB, all lossless methods,
+near-lossless strengths and lossy color/alpha/SharpYUV settings. The reference
+record documents the supported contract and fixture provenance.
+
 Subframe views, transparency/carryover mutation, candidate encoding and caching
-remain open. Prepared-frame `WebPMux` parity does not establish optimized
-`WebPAnimEncoder` parity or complete raw-frame sequence support.
+remain open. Full-frame `WebPMux` parity does not establish optimized
+`WebPAnimEncoder` parity.
 
 ## Scope and delivery order
 
@@ -149,15 +177,16 @@ Two upstream behaviors need special treatment:
 
 ## Rust API and ownership
 
-Proposed names below describe the boundary; finalize signatures in milestone 0.
+The full-frame contract is implemented below. Optimizer-specific settings and
+normalization remain future work in milestone 0 and milestones 3–4.
 
 | Surface | Contract |
 | --- | --- |
-| `AnimationOptions` | Canvas dimensions, loop count, explicit background color, encoding policy and optional supplied ICC/EXIF/XMP |
-| `AnimationFrameOptions` | Per-frame codec/fidelity/effort settings limited to implemented still routes |
+| `AnimationOptions` | Encoding policy and owned `container: AnimationContainerOptions` for loop/background/metadata; canvas dimensions are arguments to `AnimationEncoder::new` |
+| `AnimationFrameOptions` | Enum: `Lossless(LosslessOptions)`, `NearLossless { strength, options: LosslessOptions }`, `Lossy(LossyOptions)` |
 | `AnimationEncoder::add_rgba` | Immutable full-canvas RGBA view, positive byte stride, start timestamp in integer milliseconds, frame options |
 | `AnimationEncoder::finish` | Explicit end timestamp and final `&mut Vec<u8>`; determines the last duration and assembles one file |
-| `AnimationError` | Geometry, layout, options, timing, state, size/allocation and wrapped still-encoder errors, with frame context |
+| `AnimationError` | Canvas/policy/state/empty errors; encoding, timing and container errors carry zero-based frame indexes (finish refers to the final frame) |
 
 Start with full-canvas straight-alpha RGBA input. Borrow input only during
 `add_rgba`; own every canvas, mask and encoded candidate needed afterward. Use
@@ -167,7 +196,7 @@ complete display frames. A separate container builder can take explicit encoded
 rectangles and blend/dispose controls; the optimizer chooses those controls
 from complete display frames.
 
-Use integer timestamps with a wide cumulative range (proposed `u64`) and checked
+Use integer timestamps with a wide cumulative range (`u64`) and checked
 differences. Accept non-decreasing timestamps, including zero durations; never
 invent a minimum browser delay or convert through floating point. Require each
 supplied interval to fit `0..=0x00ff_ffff` milliseconds. A duration convenience
@@ -255,6 +284,8 @@ Implement and test these output rules against the pinned sources:
 ### 0. Contract and native oracle
 
 - [ ] Finalize the types, timing/state rules and supported codec matrix above.
+  Full-frame types, timing/state and lossless/near-lossless/method-4 lossy settings
+  are finalized and tested. Optimizer settings/keyframe normalization remain open.
 - [x] Extend the existing `native-oracle` CMake build: enable
   `WEBP_BUILD_LIBWEBPMUX` and link `libwebpmux` for animation wrappers. Link
   `webpdemux` only if needed for test inspection/decoding. Preserve scalar,
@@ -284,21 +315,24 @@ Implement and test these output rules against the pinned sources:
 
 ### 2. Usable raw-frame encoding
 
-- [ ] Implement the stateful RGBA API and explicit final timestamp, initially
+- [x] Implement the stateful RGBA API and explicit final timestamp, initially
   encoding every submitted canvas at (0,0), no blend, no disposal. Use current
   lossless, near-lossless and method-4 lossy codecs, including alpha quality.
-- [ ] Preserve submitted timing, including repeated images and zero durations.
+- [x] Preserve submitted timing, including repeated images and zero durations.
   Full-frame mode does not merge repeats; optimized mode will.
-- [ ] Decode all output frames with an independent animation decoder, checking
+- [x] Decode all output frames with an independent animation decoder, checking
   sequence, canvas and cumulative timing. Compare lossless visible pixels and
   alpha to input; compare lossy/near-lossless to the corresponding reference
   codec decode. Byte comparison uses the matching C mux assembly route.
-- [ ] Add a public usage example and document supported settings, memory and
+- [x] Add a public usage example and document supported settings, memory and
   the distinction from optimized `WebPAnimEncoder` output.
 
 This is the minimum useful release. A sequence iterator can feed it without
 retaining every raw input image. Encoded frames remain buffered until assembly;
 neither this API nor cache flushing promises constant-memory output streaming.
+The implementation is `src/mux/sequence.rs`, with a compiled public usage
+example. Tests live in `tests/animation_sequence.rs`; see the milestone-2
+section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
 
 ### 3. Lossless animation optimizer
 

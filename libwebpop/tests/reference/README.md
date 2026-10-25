@@ -88,7 +88,9 @@ eligibility leaves from `anim_encode.c`, 81 portable fixtures and 80,287 live
 comparisons. The same scalar executable also links pinned `libwebpmux` and
 checks 193 complete prepared-frame mux outputs, including 33 portable fixtures.
 A separate reference-only fixture records the decode-dependent single-frame
-optimization; optimized-animation Rust parity remains future work.
+optimization. Raw full-canvas sequences add 26 committed/live WebPMux byte
+comparisons with independent all-frame canvas/timing decodes;
+optimized-animation Rust parity remains future work.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

@@ -11,7 +11,10 @@
 //! encoder's configuration trials.
 //! [`encode_near_lossless_rgba`] also exposes compression effort and exact handling.
 //!
-//! All RGBA entry points take a final `output: &mut Vec<u8>` and return
+//! [`AnimationEncoder`] accepts full-canvas RGBA sequences with explicit
+//! timestamps, per-frame codec settings and supplied metadata.
+//!
+//! The still RGBA entry points take a final `output: &mut Vec<u8>` and return
 //! `Result<(), _>`. Success replaces the output with a complete WebP file,
 //! reusing its capacity; errors leave its contents unchanged.
 //!
@@ -43,6 +46,7 @@ pub use encode::{
 pub type WebPEncodingError = LosslessEncodeError;
 
 pub use mux::{
-    AnimationContainer, AnimationContainerOptions, BackgroundColor, ContainerFrameOptions,
-    EncodedFrame, FrameBlend, FrameDispose, MuxError,
+    AnimationContainer, AnimationContainerOptions, AnimationEncoder, AnimationEncodingPolicy,
+    AnimationError, AnimationFrameOptions, AnimationOptions, BackgroundColor,
+    ContainerFrameOptions, EncodedFrame, FrameBlend, FrameDispose, MuxError,
 };
