@@ -2302,3 +2302,98 @@ Validation passed: full workspace `cargo test` and
 `git diff --check`. All inherited method-4, lossless, near-lossless, alpha,
 SharpYUV and merged animation fixtures remain unchanged. The upstream checkout
 is clean.
+
+## Remaining lossy methods: milestone 7
+
+Completed 2026-10-25 after rebased revision `9ca7a08` (milestone 6 at
+`8fa6c3a`). The internal validated method now propagates through
+`WebPEncodeLossy`, `VP8EncStartAlpha`, `EncodeAlpha`, `ApplyFiltersAndEncode`,
+`EncodeAlphaInternal` and `EncodeLossless`. Alpha effort is distinct from the
+ALPH compression-method field, which remains 1 unless raw fallback wins.
+Headerless VP8L keeps exact mode and near-lossless strength 100, using the
+selected method and quality `8 * method`; method 6 with requested alpha quality
+100 instead uses VP8L quality 100. That exception depends on the request even
+when centroid quantization would leave all input samples unchanged.
+
+Fast filtering now receives the selected effort: <=16 colors selects NONE;
+otherwise effort >3 or >192 colors adds NONE to the estimated filter. Trials
+retain ascending filter order and the first equal-size winner. A compressed
+payload exactly as large as the raw plane remains compressed. Quantization,
+preprocessing flags and transparent-area cleanup retain their existing behavior.
+The public API, CLI and animation options still select method 4; their method
+selection boundary and final baseline remain milestone 8.
+
+`AlphaMethodOps` adds an effort word in `0..=6` before the existing nine-word
+`AlphaOps` header and plane. The old request and all old fixture bytes remain
+unchanged. New requests support operations 5–10:
+
+- Operation 5 retains the old explicit filter-map parameters.
+- Operation 6 returns original headerless `EncodeLossless` bytes, using the
+  prefix effort and `!reduce_levels` (old header word 6) for the quality-100
+  eligibility flag. The original method-4 operation still uses quality 32.
+- Operations 7/8/9 retain the original trial/filter-search/full-alpha layouts
+  and outputs, replacing fixed effort 4 with the supplied effort. Operation 9
+  includes success and the two-word convergence SSE before ALPH bytes.
+- Operation 10 takes the same parameters as operation 8. Its output starts
+  with the filter map, then `(filter, byte_count, ALPH bytes...)` for each set
+  bit in ascending order, and ends with `(selected_byte_count, selected ALPH
+  bytes...)`. The wrapper calls the included original `EncodeAlphaInternal`
+  for each leaf trial and separately calls original `ApplyFiltersAndEncode`
+  for the selected result. This is a logical trial listing, not an interception
+  of calls made inside the filter search. No compression/filter algorithm is
+  copied. Complete-file references still call the normally linked public C
+  encoder through the existing `WebPEncodeLossyMethod` request.
+
+The new `fixtures/lossy_alpha_methods.txt` contains 77 original C references:
+14 headerless streams, 14 filtered trials, 14 fast-filter color-boundary searches,
+14 strided alpha jobs, 14 complete files and seven forced filter-size ties.
+The live suite checks 2,982 exact leaf/trial requests: 672 headerless streams,
+1,064 filtered trials, 329 filter-map/trial/selection listings and 917 full alpha
+jobs. It covers every method, every alpha quality on a seeded plane, all four
+filters, raw/compressed output, 16/17 and 192/193 color counts, effort 3/4,
+method-6 alpha quality 99/100, odd/padded planes and maximum skinny dimensions.
+
+Another 4,137 complete files match normal public C and independently decode.
+These cover fully opaque/transparent, binary, sparse, smooth and noisy alpha,
+hidden RGB, color and alpha quality boundaries, SharpYUV selection, padded
+minimum buffers, skinny maximum dimensions, 193x129 images and the committed
+real image with varying alpha. Each method observes raw and compressed ALPH
+plus changed alpha at reduced quality. Alpha quality 100 decodes to exact
+source alpha, and opaque bytes ignore alpha quality for every method. An
+internal unit test also runs the production `WebPEncodeLossy` glue for all seven
+methods at alpha qualities 99/100 against the 14 C file fixtures.
+
+Independent checks wrap and decode all 672 headerless streams as green-only
+VP8L, construct expected stream settings without alpha dispatch, and invert
+all filtered trial payloads. The method-6 quality exception changes 32 of the
+48 eligible stream cases; one no-op-quantization plane produces different
+selected q99/q100 payloads beyond the preprocessing flag. Every method reaches
+compressed/raw equality: counts by method are `[1, 1, 1, 1, 1, 1, 3]`.
+First-filter equal-size winners occur `[1, 3, 3, 3, 3, 3, 4]` times. Additional
+NONE trials at 17..192 colors occur only above effort 3. Quantization checks
+preserve source/padding, extrema and preprocessing flags; reported SSE remains
+the pre-rounding convergence error, with the decoded integer-plane error bounded
+by centroid rounding. Existing centroid and method-4 alpha tests are retained;
+their independent inverse-filter and green-stream decoders are now shared.
+
+The reviewed source/toolchain is unchanged: clean pin
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, scalar dispatch, threading off, token buffering enabled,
+Rust 1.101.0-nightly `7189d39d9` (2026-10-22). Review provenance before
+regenerating only the new fixture file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_alpha_methods alpha_method_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_alpha_methods --test lossy_alpha
+cargo test -p libwebpop --features native-oracle \
+  --test lossy_alpha_methods --test lossy_alpha --lib -- --nocapture
+```
+
+Validation passed: full workspace `cargo test`,
+`cargo test --features native-oracle -- --nocapture` and
+`cargo test --release --features native-oracle -- --nocapture`; the production
+library build; `cargo fmt --all -- --check`; and `git diff --check`.
+The final release run includes all 4,137 complete files and 2,982 new alpha
+requests. All inherited method-4, lossless, near-lossless, SharpYUV and merged
+animation fixtures remain unchanged. The upstream checkout is clean.

@@ -19,7 +19,7 @@ pub fn file(a: &[u32]) -> Vec<u8> {
     WebPCleanupTransparentArea(&mut pic);
     let mut enc = VP8Encoder::new(a[0], a[1], q <= 98.).unwrap();
     VP8EncAnalyze(&mut enc, &pic);
-    let alpha = VP8EncStartAlpha(&pic, a[4] as i32).unwrap();
+    let alpha = VP8EncStartAlpha(&pic, a[4] as i32, 4).unwrap();
     let tokens = VP8EncTokenLoop(&mut enc, &pic, q).unwrap();
     let mut output = Vec::new();
     VP8EncWriteWithAlpha(
@@ -38,7 +38,9 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
     if case.function == "VP8AlphaFile" {
         return file(&case.input).into_iter().map(u32::from).collect();
     }
-    let a = &case.input;
+    evaluate_with_method(&case.input, 4)
+}
+pub fn evaluate_with_method(a: &[u32], effort: u32) -> Vec<u32> {
     let (w, h, stride) = (a[1] as usize, a[2] as usize, a[3] as usize);
     let data: Vec<_> = a[9..].iter().map(|&v| v as u8).collect();
     match a[0] {
@@ -73,7 +75,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
         5 => vec![GetFilterMap(&data, w, h, a[4] as usize, a[5])],
         6 => {
             let mut bw = VP8LBitWriterInit(0).unwrap();
-            EncodeLossless(&data, w, h, &mut bw).unwrap();
+            EncodeLossless(&data, w, h, effort, a[6] == 0, &mut bw).unwrap();
             VP8LBitWriterFinish(&mut bw)
                 .unwrap()
                 .iter()
@@ -82,18 +84,36 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
         }
         7 => {
             let mut tmp = vec![0; w * h];
-            EncodeAlphaInternal(&data, w, h, a[4] as u8, a[5] as usize, a[6] != 0, &mut tmp)
-                .unwrap()
-                .into_iter()
-                .map(u32::from)
-                .collect()
+            EncodeAlphaInternal(
+                &data,
+                w,
+                h,
+                a[4] as u8,
+                a[5] as usize,
+                a[6] != 0,
+                effort,
+                &mut tmp,
+            )
+            .unwrap()
+            .into_iter()
+            .map(u32::from)
+            .collect()
         }
-        8 => ApplyFiltersAndEncode(&data, w, h, a[4] as u8, a[5] as usize, a[6] != 0)
+        8 => ApplyFiltersAndEncode(&data, w, h, a[4] as u8, a[5] as usize, a[6] != 0, effort)
             .unwrap()
             .into_iter()
             .map(u32::from)
             .collect(),
-        9 => match EncodeAlpha(&data, w, h, stride, a[4] as i32, a[5] as u8, a[6] as usize) {
+        9 => match EncodeAlpha(
+            &data,
+            w,
+            h,
+            stride,
+            a[4] as i32,
+            a[5] as u8,
+            a[6] as usize,
+            effort,
+        ) {
             Ok(result) => {
                 let mut out = vec![1, result.sse as u32, (result.sse >> 32) as u32];
                 out.extend(result.data.into_iter().map(u32::from));
@@ -342,4 +362,47 @@ pub fn fixture_cases() -> Vec<Case> {
     ));
     out.push(request(9, 3, 5, 6, [70, 1, WEBP_FILTER_FAST as u32, 0], 8));
     out
+}
+
+pub fn inverse(filtered: &[u8], w: usize, h: usize, stride: usize, filter: usize) -> Vec<u8> {
+    let mut out = vec![0; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let pred = if filter == 0 || (x == 0 && y == 0) {
+                0
+            } else if y == 0 || (filter == 1 && x > 0) {
+                out[y * w + x - 1]
+            } else if x == 0 || filter == 2 {
+                out[(y - 1) * w + x]
+            } else {
+                let sum = u16::from(out[y * w + x - 1]) + u16::from(out[(y - 1) * w + x]);
+                sum.saturating_sub(u16::from(out[(y - 1) * w + x - 1]))
+                    .min(255) as u8
+            };
+            out[y * w + x] = filtered[y * stride + x].wrapping_add(pred);
+        }
+    }
+    out
+}
+pub fn green_decode(bytes: &[u8], w: usize, h: usize) -> Vec<u8> {
+    use libwebpop::enc::vp8l_enc::WriteRiffHeader;
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&((w as u32 - 1) | ((h as u32 - 1) << 14) | (1 << 28)).to_le_bytes());
+    payload.extend_from_slice(bytes);
+    let mut file = WriteRiffHeader(payload.len()).unwrap().to_vec();
+    file.extend_from_slice(&payload);
+    if (payload.len() + 1) & 1 != 0 {
+        file.push(0);
+    }
+    let decoded = image::load_from_memory_with_format(&file, image::ImageFormat::WebP)
+        .unwrap()
+        .to_rgba8();
+    assert_eq!(decoded.dimensions(), (w as u32, h as u32));
+    decoded
+        .pixels()
+        .map(|p| {
+            assert_eq!([p.0[0], p.0[2], p.0[3]], [0, 0, 0]);
+            p.0[1]
+        })
+        .collect()
 }

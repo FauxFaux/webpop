@@ -57,22 +57,23 @@ needed. Preserve their behavior and reference fixtures.
 
 | Rust location | Existing behavior | Additional work |
 | --- | --- | --- |
-| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` now validates and carries method too | Expose method in existing public options after the algorithms compose; finish method propagation into alpha effort |
-| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches direct/token frames from the mapped tools for all methods | Method-dependent alpha remains before public method selection |
+| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` validates and carries method through color and alpha jobs | Expose method in existing public options |
+| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches frames and alpha effort for all methods | Public method selection remains |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
 | [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD/distortion refinement, trellis reconstruction/quantization and selected-mode requantization | No additional RD algorithms for this scope |
 | [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct coding/statistics for methods 0–2, token drivers for methods 3–6, skip fitting/reset, refresh/retry and deterministic filter finalization | No additional frame algorithms for this scope |
-| [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, filters, VP8L and raw fallback | Replace fixed effort 4/q32 throughout with method-dependent effort and quality |
+| [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, method-dependent filters/VP8L effort and quality, raw fallback | No additional alpha algorithms for this scope |
 | [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including composed direct residuals and fitted skip state | No additional syntax for this scope |
 | [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Parses methods 0–6 but rejects lossy methods other than 4 | Route every valid method to the checked configurable lossy API |
 
 `VP8Decimate` now accepts all four RD levels;
 `VP8EncTokenLoopWithObserver` accepts methods 3–6, and luma reconstruction
-uses the mapped trellis policy. Public APIs/CLI still select method 4 until
-method-dependent alpha is integrated. Matrix setup already contains the
+uses the mapped trellis policy. Alpha effort/quality and complete transparent
+files now compose for every method internally. Public APIs/CLI still select
+method 4 until milestone 8. Matrix setup already contains the
 method threshold for texture-distortion weighting and the trellis lambdas;
-extend its coverage instead of porting it again. `GetFilterMap` already accepts
-alpha effort, but its caller fixes it at 4.
+extend its coverage instead of porting it again. `GetFilterMap` and headerless
+VP8L encoding now receive the selected method's alpha effort.
 
 ## Method behavior at the pin
 
@@ -218,7 +219,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–6 are complete; milestones 7–8 remain pending. Integrate callers after
+Milestones 0–7 are complete; milestone 8 remains pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -232,7 +233,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | 4 (complete) | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | 27 portable fixtures, 1,335 exact C driver traces and 1,384 normal-public-C opaque files; probe boundaries, skip on/off, retries, borders, probabilities and final filter state match |
 | 5 (complete) | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | 72 portable fixtures and 19,646 live C requests match scores, levels, dequantized coefficients, nonzero returns and candidate cost traces; independent exhaustive short-path checks cover terminal/predecessor/skip ties |
 | 6 (complete) | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | 56 portable fixtures, 17,424 reconstruction/search requests, 662 frame traces and 692 opaque files match C; invocation order, refreshed costs and selected-mode preservation checked; method 4 unchanged |
-| 7 | Method-dependent alpha effort, quality and filter trials | 1, existing ALPH/VP8L; 4 and 6 for complete files | Exact headerless streams, filter maps, winning payloads and complete transparent files across all methods/alpha qualities |
+| 7 (complete) | Method-dependent alpha effort, quality and filter trials | 1, existing ALPH/VP8L; 4 and 6 for complete files | 77 portable fixtures, 2,982 exact C leaf/trial requests and 4,137 complete files; independent decoding, effort/color thresholds, request-dependent method-6 exception and strict size ties pass |
 | 8 | Public `LossyOptions`/`encode_lossy_rgba`, CLI routing, full regression and baseline record | 4, 6, 7 | Checked API and CLI support methods 0–6; portable/live full-file parity, independent decode, validation and benchmark record pass |
 
 ### 0. Oracle and baseline
@@ -484,6 +485,25 @@ header-budget retries and no-skip syntax. Confirm trellis sees refreshed level
 costs after a mid-frame probability update.
 
 ### 7. Alpha effort is part of method selection
+
+Completed 2026-10-25 after rebased revision `9ca7a08` (milestone 6 at
+`8fa6c3a`). The validated internal method now reaches every synchronous alpha
+stage, including filter-map selection and headerless VP8L effort/quality.
+Method 6 uses VP8L quality 100 exactly when alpha quality is 100; lower alpha
+requests use quality 48 even when quantization leaves every sample unchanged.
+The ALPH compression bit remains independent of encoder effort. Existing
+method-4 streams and public/animation defaults are unchanged.
+
+The new suite stores 77 C fixtures and compares 2,982 method-dependent alpha
+leaf/trial requests plus 4,137 complete files against normal public C. Complete
+files independently decode across all methods, alpha/color quality boundaries,
+SharpYUV selection, padded strides, odd/skinny/maximum dimensions and real
+images. Independent checks decode headerless green planes, invert all filters,
+compose stream settings, exercise color-count/effort thresholds and preserve
+first-filter and compressed/raw size ties. An internal production-glue test
+compares all seven methods at alpha qualities 99/100 with C file fixtures.
+Public method selection and its final baseline remain milestone 8. See the
+[reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-7).
 
 Propagate `effort_level=method` through `VP8EncStartAlpha`, `EncodeAlpha`,
 `ApplyFiltersAndEncode`, `EncodeAlphaInternal` and `EncodeLossless`. Distinguish

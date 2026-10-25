@@ -98,48 +98,7 @@ use libwebpop::{
 };
 use support::vp8_alpha as alpha;
 
-fn inverse(filtered: &[u8], w: usize, h: usize, stride: usize, filter: usize) -> Vec<u8> {
-    let mut out = vec![0; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let pred = if filter == 0 || (x == 0 && y == 0) {
-                0
-            } else if y == 0 || (filter == 1 && x > 0) {
-                out[y * w + x - 1]
-            } else if x == 0 || filter == 2 {
-                out[(y - 1) * w + x]
-            } else {
-                let sum = u16::from(out[y * w + x - 1]) + u16::from(out[(y - 1) * w + x]);
-                sum.saturating_sub(u16::from(out[(y - 1) * w + x - 1]))
-                    .min(255) as u8
-            };
-            out[y * w + x] = filtered[y * stride + x].wrapping_add(pred);
-        }
-    }
-    out
-}
-fn green_decode(bytes: &[u8], w: usize, h: usize) -> Vec<u8> {
-    use libwebpop::enc::vp8l_enc::WriteRiffHeader;
-    let mut payload = Vec::new();
-    payload.extend_from_slice(&((w as u32 - 1) | ((h as u32 - 1) << 14) | (1 << 28)).to_le_bytes());
-    payload.extend_from_slice(bytes);
-    let mut file = WriteRiffHeader(payload.len()).unwrap().to_vec();
-    file.extend_from_slice(&payload);
-    if (payload.len() + 1) & 1 != 0 {
-        file.push(0);
-    }
-    let decoded = image::load_from_memory_with_format(&file, image::ImageFormat::WebP)
-        .unwrap()
-        .to_rgba8();
-    assert_eq!(decoded.dimensions(), (w as u32, h as u32));
-    decoded
-        .pixels()
-        .map(|p| {
-            assert_eq!([p.0[0], p.0[2], p.0[3]], [0, 0, 0]);
-            p.0[1]
-        })
-        .collect()
-}
+use alpha::{green_decode, inverse};
 #[test]
 fn scalar_filters_invert_with_minimum_buffers_and_preserve_padding() {
     for case in alpha::leaf_cases().into_iter().filter(|c| c.input[0] <= 1) {
@@ -329,7 +288,7 @@ fn trial_payloads_invert_and_preserve_compressed_raw_size_ties() {
             let mut scratch = vec![0; w * h];
             WebPFilter(&data, w, h, w, a[5] as usize, &mut scratch);
             let mut bw = VP8LBitWriterInit(0).unwrap();
-            EncodeLossless(&scratch, w, h, &mut bw).unwrap();
+            EncodeLossless(&scratch, w, h, 4, true, &mut bw).unwrap();
             let size = VP8LBitWriterFinish(&mut bw).unwrap().len();
             assert_eq!(header & 1, u32::from(size <= w * h));
             ties += usize::from(size == w * h);
@@ -357,8 +316,17 @@ fn selected_filters_use_strict_size_order_and_quantization_flags() {
         for f in 0..4 {
             if map & (1 << f) != 0 {
                 trials.push(
-                    EncodeAlphaInternal(&data, w, h, a[4] as u8, f, a[6] != 0, &mut vec![0; w * h])
-                        .unwrap(),
+                    EncodeAlphaInternal(
+                        &data,
+                        w,
+                        h,
+                        a[4] as u8,
+                        f,
+                        a[6] != 0,
+                        4,
+                        &mut vec![0; w * h],
+                    )
+                    .unwrap(),
                 );
             }
         }
@@ -373,7 +341,7 @@ fn selected_filters_use_strict_size_order_and_quantization_flags() {
     assert!(ties > 0);
     eprintln!("{ties} equal-size selected-filter comparisons");
     for q in [0, 70, 100] {
-        let result = EncodeAlpha(&[37; 15], 3, 5, 3, q, 0, WEBP_FILTER_BEST).unwrap();
+        let result = EncodeAlpha(&[37; 15], 3, 5, 3, q, 0, WEBP_FILTER_BEST, 4).unwrap();
         assert_eq!(result.data[0], if q < 100 { 16 } else { 0 });
         assert_eq!(&result.data[1..], &[37; 15]);
         assert_eq!(result.sse, 0);
@@ -391,18 +359,18 @@ fn alpha_errors_are_checked_before_allocating_and_container_sizes_are_checked() 
         (2, 1, 2),
     ] {
         assert!(matches!(
-            EncodeAlpha(&[0], w, h, s, 100, 1, 6),
+            EncodeAlpha(&[0], w, h, s, 100, 1, 6, 4),
             Err(AlphaEncodeError::InvalidInput)
         ));
     }
     for q in [-1, 101, i32::MIN, i32::MAX] {
         assert!(matches!(
-            EncodeAlpha(&[0], 1, 1, 1, q, 1, 6),
+            EncodeAlpha(&[0], 1, 1, 1, q, 1, 6, 4),
             Err(AlphaEncodeError::InvalidQuality)
         ));
     }
     assert!(matches!(
-        EncodeAlpha(&[0], 1, 1, 1, 100, 2, 6),
+        EncodeAlpha(&[0], 1, 1, 1, 100, 2, 6, 4),
         Err(AlphaEncodeError::InvalidConfiguration)
     ));
     assert!(matches!(

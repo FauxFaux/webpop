@@ -59,7 +59,7 @@ pub(crate) fn WebPEncodeLossy<T>(
     )?;
     enc.config.quality = config.quality;
     VP8EncAnalyze(&mut enc, picture);
-    let alpha = VP8EncStartAlpha(picture, config.alpha_quality)?;
+    let alpha = VP8EncStartAlpha(picture, config.alpha_quality, config.method as u32)?;
     let residuals = if enc.use_tokens {
         VP8EncTokenLoop(&mut enc, picture, config.quality)?
     } else {
@@ -75,4 +75,38 @@ pub(crate) fn WebPEncodeLossy<T>(
         residuals: VP8BitWriterBuf(&residuals),
         alpha: alpha.as_ref().map(|a| a.data.as_slice()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::enc::picture_csp_enc::import_rgba_to_yuva;
+
+    #[test]
+    fn internal_method_config_reaches_color_and_alpha_jobs() {
+        let mut counts = [0; 7];
+        for line in include_str!("../../tests/fixtures/lossy_alpha_methods.txt").lines() {
+            let Some(line) = line.strip_prefix("WebPEncodeLossyMethod ") else {
+                continue;
+            };
+            let (input, expected) = line.split_once('|').unwrap();
+            let words = |s: &str| {
+                s.split_whitespace()
+                    .map(|s| u32::from_str_radix(s, 16).unwrap())
+                    .collect::<Vec<_>>()
+            };
+            let a = words(input);
+            let rgba: Vec<_> = a[7..].iter().map(|&v| v as u8).collect();
+            let mut pic = import_rgba_to_yuva(&rgba, a[0], a[1], a[2] as usize).unwrap();
+            let config = LossyConfig::new(f32::from_bits(a[3]), a[4] as i32, a[5] as i32).unwrap();
+            let mut output = Vec::new();
+            WebPEncodeLossy(&config, &mut pic, |image| image.write_still(&mut output)).unwrap();
+            assert_eq!(
+                output.into_iter().map(u32::from).collect::<Vec<_>>(),
+                words(expected)
+            );
+            counts[a[5] as usize] += 1;
+        }
+        assert_eq!(counts, [2; 7]);
+    }
 }

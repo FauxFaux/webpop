@@ -54,6 +54,7 @@ unsigned WebpopFlat(const uint32_t*, uint32_t*);
 unsigned WebpopModeCost(const uint32_t*, uint32_t*);
 unsigned WebpopScoreOps(const uint32_t*, uint32_t*);
 unsigned WebpopAlphaOps(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAlphaMethodOps(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopLoopFrame(const uint32_t*, uint32_t*);
 unsigned WebpopMethodLoopFrame(const uint32_t*, uint32_t*);
 unsigned WebpopMethodLoopTrace(const uint32_t*, uint32_t*);
@@ -654,6 +655,21 @@ int main(void) {
         for (i = 0; i < 256; i += 16) REQUIRE((int32_t)in[i] >= -2048 && (int32_t)in[i] <= 2047);
       }
       count = WebpopLossyWHT(in, inverse, out);
+    } else if (IS(AlphaMethodOps)) {
+      uint64_t len;
+      REQUIRE(n>=10 && in[0]<=6 && in[1]>=5 && in[1]<=10);
+      REQUIRE(in[2]>0 && in[2]<=16383 && in[3]>0 && in[3]<=16383);
+      REQUIRE(in[4]>=in[2] && in[4]<=in[2]+64);
+      len=(uint64_t)(in[3]-1)*in[4]+in[2];
+      REQUIRE(n==10+len && len<=65536 && 5*(len+1)+16<=LIMIT);
+      if(in[1]!=9) REQUIRE(in[4]==in[2]);
+      if(in[1]==5) REQUIRE((in[5]==0 || in[5]==5 || in[5]==6) && in[6]<=6);
+      if(in[1]==6) REQUIRE(in[7]<=1);
+      if(in[1]==7) REQUIRE(in[5]<=1 && in[6]<4 && in[7]<=1);
+      if(in[1]==8 || in[1]==10) REQUIRE(in[5]<=1 && (in[6]==0 || in[6]==5 || in[6]==6) && in[7]<=1);
+      if(in[1]==9) REQUIRE(in[6]<=6 && (in[7]==0 || in[7]==5 || in[7]==6));
+      for(i=10;i<n;++i) REQUIRE(in[i]<=255);
+      count=WebpopAlphaMethodOps(in,n,out);
     } else if (IS(AlphaOps)) {
       uint64_t len;
       REQUIRE(n>=9 && in[0]<=9 && in[1]<=16383 && in[2]<=16383);

@@ -6,7 +6,8 @@
 #define VP8EncDeleteAlpha WebpopIncludedDeleteAlpha
 #include "src/enc/alpha_enc.c"
 
-unsigned WebpopAlphaOps(const uint32_t* in, unsigned count, uint32_t* out) {
+static unsigned AlphaOps(const uint32_t* in, unsigned count, int effort,
+                         int configurable, uint32_t* out) {
   const unsigned op=in[0],w=in[1],h=in[2],stride=in[3];
   const unsigned len=count-9;
   uint8_t* allocation=(uint8_t*)malloc(len+1);
@@ -36,25 +37,47 @@ unsigned WebpopAlphaOps(const uint32_t* in, unsigned count, uint32_t* out) {
   } else if(op==5) {out[n++]=GetFilterMap(data,w,h,in[4],in[5]);
   } else if(op==6) {
     VP8LBitWriter bw;
-    if(!VP8LBitWriterInit(&bw,0)||!EncodeLossless(data,w,h,4,1,&bw,NULL)) abort();
+    if(!VP8LBitWriterInit(&bw,0)||!EncodeLossless(data,w,h,effort,configurable ? !in[6] : 1,&bw,NULL)) abort();
     VP8LBitWriterFinish(&bw);if(bw.error) abort();
     for(i=0;i<VP8LBitWriterNumBytes(&bw);++i) out[n++]=bw.buf[i];VP8LBitWriterWipeOut(&bw);
   } else if(op==7) {
     FilterTrial result;uint8_t* tmp=(uint8_t*)malloc(w*h);if(!tmp) abort();
-    if(!EncodeAlphaInternal(data,w,h,in[4],in[5],in[6],4,tmp,&result)) abort();
+    if(!EncodeAlphaInternal(data,w,h,in[4],in[5],in[6],effort,tmp,&result)) abort();
     for(i=0;i<VP8BitWriterSize(&result.bw);++i) out[n++]=result.bw.buf[i];
     VP8BitWriterWipeOut(&result.bw);free(tmp);
   } else if(op==8) {
     uint8_t* bytes=NULL;size_t size=0;
-    if(!ApplyFiltersAndEncode(data,w,h,w*h,in[4],in[5],in[6],4,&bytes,&size,NULL)) abort();
+    if(!ApplyFiltersAndEncode(data,w,h,w*h,in[4],in[5],in[6],effort,&bytes,&size,NULL)) abort();
     for(i=0;i<size;++i) out[n++]=bytes[i];WebPSafeFree(bytes);
   } else if(op==9) {
     VP8Encoder enc={0};WebPPicture pic;WebPAuxStats stats={0};uint8_t* bytes=NULL;size_t size=0;int ok;
     if(!WebPPictureInit(&pic)) abort();pic.width=w;pic.height=h;pic.a=data;pic.a_stride=stride;pic.stats=&stats;enc.pic=&pic;
-    ok=EncodeAlpha(&enc,(int32_t)in[4],in[5],in[6],4,&bytes,&size);
+    ok=EncodeAlpha(&enc,(int32_t)in[4],in[5],in[6],effort,&bytes,&size);
     out[n++]=ok;out[n++]=(uint32_t)enc.sse[3];out[n++]=(uint32_t)(enc.sse[3]>>32);
     for(i=0;i<size;++i) out[n++]=bytes[i];WebPSafeFree(bytes);
+  } else if(op==10) {
+    uint32_t map=GetFilterMap(data,w,h,in[5],effort);
+    uint8_t* tmp=(uint8_t*)malloc(w*h);if(!tmp) abort();
+    uint8_t* bytes=NULL;size_t size=0;unsigned filter;
+    out[n++]=map;
+    for(filter=0;filter<WEBP_FILTER_LAST;++filter) if(map&(1u<<filter)) {
+      FilterTrial trial;
+      if(!EncodeAlphaInternal(data,w,h,in[4],filter,in[6],effort,tmp,&trial)) abort();
+      out[n++]=filter;out[n++]=VP8BitWriterSize(&trial.bw);
+      for(i=0;i<VP8BitWriterSize(&trial.bw);++i) out[n++]=trial.bw.buf[i];
+      VP8BitWriterWipeOut(&trial.bw);
+    }
+    if(!ApplyFiltersAndEncode(data,w,h,w*h,in[4],in[5],in[6],effort,&bytes,&size,NULL)) abort();
+    out[n++]=size;for(i=0;i<size;++i) out[n++]=bytes[i];
+    WebPSafeFree(bytes);free(tmp);
   } else {abort();}
   free(allocation);
   return n;
+}
+
+unsigned WebpopAlphaOps(const uint32_t* in, unsigned count, uint32_t* out) {
+  return AlphaOps(in,count,4,0,out);
+}
+unsigned WebpopAlphaMethodOps(const uint32_t* in, unsigned count, uint32_t* out) {
+  return AlphaOps(in+1,count-1,in[0],1,out);
 }
