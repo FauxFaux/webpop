@@ -3,6 +3,7 @@
 pub mod analysis;
 pub mod animation;
 pub mod animation_mux;
+pub mod animation_subframes;
 pub mod clustering;
 pub mod cross_color;
 pub mod entropy_coding;
@@ -73,6 +74,7 @@ impl Case {
             "VP8TrellisScore" | "VP8TrellisBlock" => vp8_trellis::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),
+            "AnimationSubframes" => animation_subframes::evaluate(self),
             "AnimationMux" => animation_mux::evaluate(self),
             "WebPEncodeLossyOptions" | "YuvaSharpImport" => sharpyuv_enc::evaluate(self),
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),

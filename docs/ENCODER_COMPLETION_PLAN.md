@@ -118,6 +118,9 @@ blend-eligibility leaves now have portable fixtures and pinned C comparisons
 under `src/mux/`. Checked prepared-frame container assembly now matches pinned
 `WebPMux`. The stateful raw-frame sequence API now supports full-canvas
 replacement encoding with explicit timestamps; the optimizer remains open.
+Checked borrowed subframe views and `GetSubRect`/`GetSubRects` now match 47
+committed fixtures and 17,340 live scalar C cases. Candidate encoding,
+carryover, caching and keyframe selection remain optimizer work.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared

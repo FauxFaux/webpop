@@ -97,6 +97,85 @@ unsigned WebpopAnimationLeaves(const uint32_t* in, unsigned n, uint32_t* out) {
   abort();
 }
 
+// Serialize logical view contents only: no addresses or padding words.
+static unsigned AnimationSubFrameOutput(const FrameRectangle* rect,
+                                        const WebPPicture* view,
+                                        uint32_t* out) {
+  unsigned at = 0;
+  int x, y;
+  out[at++] = rect->x_offset; out[at++] = rect->y_offset;
+  out[at++] = rect->width; out[at++] = rect->height;
+  out[at++] = view->argb != NULL;
+  if (view->argb != NULL) {
+    out[at++] = view->width; out[at++] = view->height;
+    out[at++] = view->argb_stride;
+    for (y = 0; y < view->height; ++y) {
+      for (x = 0; x < view->width; ++x) {
+        out[at++] = view->argb[y * view->argb_stride + x];
+      }
+    }
+  }
+  return at;
+}
+
+unsigned WebpopAnimationSubframes(const uint32_t* in, unsigned n, uint32_t* out) {
+  WebPPicture src, dst, view;
+  FrameRectangle rect;
+  SubFrameParams params;
+  unsigned src_size, dst_size, at = 0, op;
+  float quality;
+  int ok;
+  if (n < 15 || !in[1] || !in[2] || in[1] > 64 || in[2] > 64 ||
+      in[3] < in[1] || in[4] < in[1] || in[3] > 128 || in[4] > 128 ||
+      in[5] > 1 || in[6] > 1 || in[7] > 1 || in[8] > 1 || in[10] > 1) abort();
+  op = in[0];
+  src_size = (in[2] - 1) * in[3] + in[1];
+  dst_size = (in[2] - 1) * in[4] + in[1];
+  if (n != 15 + src_size + dst_size || !WebPPictureInit(&src) ||
+      !WebPPictureInit(&dst) || !WebPPictureInit(&view)) abort();
+  src.use_argb = dst.use_argb = 1;
+  src.width = dst.width = in[1]; src.height = dst.height = in[2];
+  src.argb_stride = in[3]; dst.argb_stride = in[4];
+  src.argb = (uint32_t*)(in + 15);
+  dst.argb = (uint32_t*)(in + 15 + src_size);
+  memcpy(&quality, in + 9, sizeof(quality));
+  rect.x_offset = (int32_t)in[11]; rect.y_offset = (int32_t)in[12];
+  rect.width = (int32_t)in[13]; rect.height = (int32_t)in[14];
+  if (op == 0) {  // Raw ARGB view, including rejected rectangles.
+    ok = WebPPictureView(&dst, rect.x_offset, rect.y_offset,
+                         rect.width, rect.height, &view);
+    out[at++] = ok;
+    if (ok) at += AnimationSubFrameOutput(&rect, &view, out + at);
+  } else {
+    if (!(quality >= 0.f && quality <= 100.f)) abort();
+    if (op == 1) {
+      if (rect.x_offset < 0 || rect.y_offset < 0 || rect.width < 0 ||
+          rect.height < 0 ||
+          (int64_t)rect.x_offset + rect.width > src.width ||
+          (int64_t)rect.y_offset + rect.height > src.height) abort();
+      ok = GetSubRect(&src, &dst, in[5], in[6], in[7], in[8],
+                      quality, &rect, &view);
+      out[at++] = ok;
+      if (ok) at += AnimationSubFrameOutput(&rect, &view, out + at);
+    } else if (op == 2) {
+      if (!SubFrameParamsInit(&params, in[10], in[7])) abort();
+      ok = GetSubRects(&src, &dst, in[5], in[6], quality, &params);
+      out[at++] = ok;
+      if (ok) {
+        out[at++] = params.should_try;
+        out[at++] = params.empty_rect_allowed;
+        at += AnimationSubFrameOutput(&params.rect_ll, &params.sub_frame_ll, out + at);
+        at += AnimationSubFrameOutput(&params.rect_lossy, &params.sub_frame_lossy, out + at);
+      }
+      SubFrameParamsFree(&params);
+    } else {
+      abort();
+    }
+  }
+  WebPPictureFree(&view);
+  return at;
+}
+
 // Output-only mux oracle: use exactly the supplied still payloads. Raw pixels
 // are carried in the logical request solely for the Rust evaluator; C does not
 // encode them, so this comparison isolates the mux from codec differences.

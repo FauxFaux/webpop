@@ -5,8 +5,9 @@
 // See PATENTS for the additional intellectual property rights grant and
 // AUTHORS for the contributing project authors.
 
-//! Pixel comparisons, change rectangles and blend eligibility from the animation
-//! optimizer. Pixels are straight-alpha **ARGB words**, not RGBA byte buffers.
+//! Pixel comparisons, subframe views, change rectangles and blend eligibility
+//! from the animation optimizer. Pixels are straight-alpha **ARGB words**,
+//! not RGBA byte buffers.
 //! Lossless comparisons include invisible RGB. Lossy similarity requires equal
 //! alpha and weights RGB differences by that alpha.
 
@@ -28,7 +29,7 @@ pub enum AnimationLeafError {
     SizeOverflow,
     #[error("ARGB buffer is shorter than the last pixel")]
     InputTooShort,
-    #[error("rectangle width and height must be positive")]
+    #[error("rectangle has invalid extents or lies outside the canvas")]
     InvalidRectangle,
     #[error("quality must be finite and in 0..=100")]
     InvalidQuality,
@@ -75,6 +76,180 @@ impl<'a> ArgbView<'a> {
     fn offset(self, x: i32, y: i32) -> usize {
         y as usize * self.stride + x as usize
     }
+
+    pub fn width(self) -> i32 {
+        self.width
+    }
+
+    pub fn height(self) -> i32 {
+        self.height
+    }
+
+    /// Pixel stride inherited from the original canvas, including on subviews.
+    pub fn stride(self) -> usize {
+        self.stride
+    }
+
+    /// A visible row, excluding padding; out-of-range rows return `None`.
+    pub fn row(self, y: usize) -> Option<&'a [u32]> {
+        if y >= self.height as usize {
+            return None;
+        }
+        let start = y * self.stride;
+        Some(&self.pixels[start..start + self.width as usize])
+    }
+
+    /// Borrow a nonempty, contained ARGB rectangle without copying. Like the
+    /// ARGB branch of WebPPictureView, odd origins are preserved. Nested views
+    /// use coordinates relative to the parent and retain the canvas stride.
+    pub fn sub_view(self, rect: FrameRectangle) -> Result<Self, AnimationLeafError> {
+        validate_rectangle(self, &rect)?;
+        if IsEmptyRect(&rect) {
+            return Err(AnimationLeafError::InvalidRectangle);
+        }
+        let start = self.offset(rect.x_offset, rect.y_offset);
+        let end = self.offset(rect.x_offset, rect.y_offset + rect.height - 1) + rect.width as usize;
+        Self::new(
+            &self.pixels[start..end],
+            rect.width,
+            rect.height,
+            self.stride,
+        )
+    }
+}
+
+fn validate_rectangle(
+    canvas: ArgbView<'_>,
+    rect: &FrameRectangle,
+) -> Result<(), AnimationLeafError> {
+    if rect.x_offset < 0
+        || rect.y_offset < 0
+        || rect.width < 0
+        || rect.height < 0
+        || i64::from(rect.x_offset) + i64::from(rect.width) > i64::from(canvas.width)
+        || i64::from(rect.y_offset) + i64::from(rect.height) > i64::from(canvas.height)
+    {
+        return Err(AnimationLeafError::InvalidRectangle);
+    }
+    Ok(())
+}
+
+/// Parameters for one disposal alternative. Views borrow the current canvas;
+/// `None` represents an allowed empty rectangle, never a zero-sized picture.
+/// `should_try` is carried through rectangle routing for later candidate choice.
+#[derive(Clone, Copy, Debug)]
+pub struct SubFrameParams<'a> {
+    pub should_try: bool,
+    pub empty_rect_allowed: bool,
+    pub rect_ll: FrameRectangle,
+    pub sub_frame_ll: Option<ArgbView<'a>>,
+    pub rect_lossy: FrameRectangle,
+    pub sub_frame_lossy: Option<ArgbView<'a>>,
+}
+
+impl SubFrameParams<'_> {
+    /// Safe counterpart of SubFrameParamsInit; no allocation or explicit free
+    /// is needed for borrowed Rust views.
+    pub fn new(should_try: bool, empty_rect_allowed: bool) -> Self {
+        Self {
+            should_try,
+            empty_rect_allowed,
+            rect_ll: FrameRectangle::default(),
+            sub_frame_ll: None,
+            rect_lossy: FrameRectangle::default(),
+            sub_frame_lossy: None,
+        }
+    }
+}
+
+/// Refine a valid contained guess and borrow the resulting current-canvas view.
+/// Later keyframes keep the guess; first frames are minimized against the
+/// supplied previous canvas (transparent in the encoder). Empty changes may
+/// be skipped or forced to 1x1 at (0,0). Nonempty origins expand to even values.
+/// Errors leave `rect` unchanged. Unlike [`WebPAnimEncoderRefineRect`], this
+/// does not clip guesses.
+pub fn GetSubRect<'a>(
+    prev_canvas: ArgbView<'_>,
+    curr_canvas: ArgbView<'a>,
+    is_key_frame: bool,
+    is_first_frame: bool,
+    empty_rect_allowed: bool,
+    is_lossless: bool,
+    quality: f32,
+    rect: &mut FrameRectangle,
+) -> Result<Option<ArgbView<'a>>, AnimationLeafError> {
+    if (prev_canvas.width, prev_canvas.height) != (curr_canvas.width, curr_canvas.height) {
+        return Err(AnimationLeafError::InvalidDimensions);
+    }
+    if !(0.0..=100.0).contains(&quality) {
+        return Err(AnimationLeafError::InvalidQuality);
+    }
+    validate_rectangle(curr_canvas, rect)?;
+    let mut refined = *rect;
+    if !is_key_frame || is_first_frame {
+        MinimizeChangeRectangle(prev_canvas, curr_canvas, &mut refined, is_lossless, quality);
+    }
+    let view = if IsEmptyRect(&refined) && empty_rect_allowed {
+        None
+    } else {
+        if IsEmptyRect(&refined) {
+            // The pin requires a canonical empty rectangle for forced holds.
+            if refined.x_offset != 0 || refined.y_offset != 0 {
+                return Err(AnimationLeafError::InvalidRectangle);
+            }
+            refined.width = 1;
+            refined.height = 1;
+        }
+        SnapToEvenOffsets(&mut refined);
+        Some(curr_canvas.sub_view(refined)?)
+    };
+    *rect = refined;
+    Ok(view)
+}
+
+/// Route both codec rectangles in pinned order: full canvas -> lossless ->
+/// lossy seeded from the refined lossless rectangle. This only selects views;
+/// it does not encode candidates or enable optimized sequence output.
+/// Errors leave all parameters unchanged; successful empty results clear views.
+pub fn GetSubRects<'a>(
+    prev_canvas: ArgbView<'_>,
+    curr_canvas: ArgbView<'a>,
+    is_key_frame: bool,
+    is_first_frame: bool,
+    quality: f32,
+    params: &mut SubFrameParams<'a>,
+) -> Result<(), AnimationLeafError> {
+    let mut rect_ll = FrameRectangle {
+        width: curr_canvas.width,
+        height: curr_canvas.height,
+        ..Default::default()
+    };
+    let sub_frame_ll = GetSubRect(
+        prev_canvas,
+        curr_canvas,
+        is_key_frame,
+        is_first_frame,
+        params.empty_rect_allowed,
+        true,
+        quality,
+        &mut rect_ll,
+    )?;
+    let mut rect_lossy = rect_ll;
+    let sub_frame_lossy = GetSubRect(
+        prev_canvas,
+        curr_canvas,
+        is_key_frame,
+        is_first_frame,
+        params.empty_rect_allowed,
+        false,
+        quality,
+        &mut rect_lossy,
+    )?;
+    params.rect_ll = rect_ll;
+    params.sub_frame_ll = sub_frame_ll;
+    params.rect_lossy = rect_lossy;
+    params.sub_frame_lossy = sub_frame_lossy;
+    Ok(())
 }
 
 /// Compare a nonempty row or column; steps are in pixels.

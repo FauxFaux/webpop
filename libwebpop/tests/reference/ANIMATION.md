@@ -231,3 +231,105 @@ cargo fmt --all -- --check
 Full-frame raw sequence support is complete. Candidate selection, carryover,
 merging/splitting, keyframes, optimized lossy filtering and decode-dependent
 single-subrectangle re-encoding remain explicit optimizer completion gates.
+
+## Borrowed subframes and rectangle routing (milestone 3, first step)
+
+Recorded 2026-10-25 against the same clean pin, GCC 15.2.0-16ubuntu1 and
+CMake 4.2.3, Release `-O3 -DNDEBUG`, SIMD/threading disabled. The actual native
+build provenance was reviewed before generating the new
+`fixtures/animation_subframes.txt`; existing fixture files are unchanged.
+
+`ArgbView::sub_view` implements the ARGB branch of `WebPPictureView` without
+copying. Odd origins are retained, nested coordinates are relative to the
+parent view, and the original canvas stride is preserved. `row` returns only
+visible pixels and accepts no final-row padding requirement. Checked extents
+use wide arithmetic, rejecting negative, empty or out-of-canvas rectangles.
+These helpers do not impose codec dimension limits.
+
+`SubFrameParams::new` is the allocation-free counterpart of
+`SubFrameParamsInit`; Rust borrowed views need no explicit free.
+`GetSubRect` preserves later keyframe guesses while minimizing first frames,
+permits skipped empty rectangles or forces a 1x1 view at (0,0), then snaps
+nonempty origins to even coordinates before constructing the borrowed view.
+`GetSubRects` starts from the full canvas and seeds the lossy rectangle from
+the already refined lossless rectangle. `should_try` and `empty_rect_allowed`
+pass through unchanged. Empty views are represented by `None` and clear any
+earlier view on successful reuse. Validation failures leave the supplied
+rectangle/parameter object unchanged. Invalid qualities are rejected even
+when a later keyframe would bypass minimization. Unlike the checked
+`WebPAnimEncoderRefineRect` entry point, these routing helpers reject invalid
+initial guesses instead of clipping them. A forced empty keyframe guess must
+have (0,0) origin, matching the upstream assertion.
+
+The existing include-source `animation.c` wrapper now exports
+`WebpopAnimationSubframes`. It calls the original `WebPPictureView`,
+`SubFrameParamsInit`, `GetSubRect`, `GetSubRects` and `SubFrameParamsFree`;
+none of their algorithms are copied into the wrapper. `AnimationSubframes`
+is registered in the existing Rust logical evaluator and C dispatcher.
+
+The word protocol uses this fixed 15-word header, followed by source and
+destination ARGB canvases:
+
+```text
+opcode, canvas width/height, source/destination pixel stride,
+key flag, first flag, empty-allowed flag, lossless flag, quality f32 bits,
+should-try flag, guess x/y/width/height
+```
+
+Each canvas has `(height - 1) * stride + width` words; there is no final-row
+padding. Canvases use independent strides with unrelated padding. Signed
+guess fields use two's-complement i32 words. Opcodes are:
+
+| Opcode | Original operation | Output |
+| --- | --- | --- |
+| 0 | ARGB `WebPPictureView` | success, then view record if successful |
+| 1 | `GetSubRect` | success, then view record if successful |
+| 2 | `GetSubRects` | success, should-try, empty-allowed, lossless and lossy view records |
+
+A view record contains rectangle x/y/width/height, view-present flag and,
+when present, view width/height/stride followed by visible pixels in row order.
+No addresses, padding or C object internals enter the protocol. Opcode 0 also
+exercises invalid guesses through the original view validator; routing uses
+valid guesses and qualities. Rust-only validation/rollback checks cover
+unsupported routing input without invoking C assertions.
+
+The 17,340 live cases cover direct views, every key/first/empty flag combination,
+both should-try values, lossless and lossy single-rectangle routes, full and
+partial initial guesses, empty guesses, first-frame forced holds, later
+keyframes, qualities 0/24.5/75/98.5/100, hidden RGB, alpha-only changes,
+nearly equal channels, odd centers, last pixels, border/opposite-corner changes,
+unrelated opaque pixels and transparent initial canvases. Geometries include
+1x1, skinny rows/columns and odd 17x19 canvases. Every rectangle, view dimension,
+stride and visible pixel matches scalar C. The 47 compact committed fixtures
+cover all routing flags, similarity and forced/skipped frames, odd-origin views
+and direct-view rejection.
+
+Portable independent checks enumerate every 3x3 change mask for small/large RGB
+and alpha differences, both endpoint qualities, and all eight key/first/empty
+combinations (24,576 cases). Bounding boxes come from independently enumerated
+changed points and alpha-weighted channel bounds. Views are checked against
+the original canvas pixel by pixel, including pointer identity to establish
+borrowing. Additional tests cover nested views through the final pixel,
+omitted last-row padding, a one-row `usize::MAX` stride, signed-extreme guesses,
+invalid quality/geometry rollback and clearing previous views on skipped frames.
+
+Regenerate only this new fixture file after reviewing pin/toolchain provenance:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_subframes animation_subframe_fixtures_match_pinned_reference -- --nocapture
+```
+
+Validation:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle animation -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+Only the subframe-view/routing item of milestone 3 is complete. No candidate
+encoding, disposal selection, carryover masks, cache/duration merging or
+keyframe selection is enabled; the public optimized policy remains rejected.

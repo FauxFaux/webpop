@@ -89,9 +89,20 @@ validation recovery, terminal state, exact hidden RGB, all lossless methods,
 near-lossless strengths and lossy color/alpha/SharpYUV settings. The reference
 record documents the supported contract and fixture provenance.
 
-Subframe views, transparency/carryover mutation, candidate encoding and caching
-remain open. Full-frame `WebPMux` parity does not establish optimized
-`WebPAnimEncoder` parity.
+Checked borrowed ARGB subframe views and `GetSubRect`/`GetSubRects` routing are
+now implemented (2026-10-25). Views preserve the canvas stride without copying,
+support nested rectangles and omit final-row padding. `SubFrameParams` owns
+only rectangle controls and optional borrowed views. Routing preserves first
+frame versus later keyframe behavior, empty skipping versus forced 1x1 frames,
+even-offset expansion and lossless-first seeding of the lossy rectangle.
+There are 47 committed scalar C fixtures and 17,340 live comparisons of
+rectangles, view dimensions/strides and every visible view pixel. Independent
+checks cover all 3x3 change masks and 24,576 flag/quality/difference combinations,
+plus checked nested views, validation rollback and clearing stale skipped views.
+
+Transparency/carryover mutation, candidate encoding and caching remain open.
+Full-frame `WebPMux` and isolated routing parity do not establish optimized
+`WebPAnimEncoder` parity; the sequence API still rejects `Optimized`.
 
 ## Scope and delivery order
 
@@ -338,7 +349,10 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
 
 - [x] Port pixel comparison, change-rectangle minimization/refinement, empty
   rectangle handling and even-offset expansion as isolated leaves.
-- [ ] Port subframe views and `GetSubRect`/`GetSubRects` routing.
+- [x] Port subframe views and `GetSubRect`/`GetSubRects` routing. Checked borrowed
+  ARGB views, `SubFrameParams` and both routing helpers match 47 committed
+  fixtures and 17,340 live scalar C comparisons; independent exhaustive bounds
+  and borrowed/nested-view tests verify geometry, stride and visible pixels.
 - [ ] Port blend eligibility, `IncreaseTransparency`, disposal alternatives,
   candidate encoding and strict size/tie selection in upstream evaluation order.
 - [ ] Port the pin's `prev_canvas`, `canvas_carryover`, candidate/best carryover

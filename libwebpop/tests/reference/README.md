@@ -91,6 +91,8 @@ A separate reference-only fixture records the decode-dependent single-frame
 optimization. Raw full-canvas sequences add 26 committed/live WebPMux byte
 comparisons with independent all-frame canvas/timing decodes;
 optimized-animation Rust parity remains future work.
+Checked ARGB subframe views and lossless/lossy rectangle routing add 47
+portable fixtures and 17,340 live cases against the original C helpers.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been
