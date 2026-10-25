@@ -223,6 +223,21 @@ fn GenerateCandidates(
     near_lossless: u32,
     best: &mut Option<LosslessCandidate>,
 ) -> Result<(), AnimationCandidateError> {
+    PickBestCandidate(
+        best,
+        generate_candidate(previous, current, rect, dispose, options, near_lossless)?,
+    );
+    Ok(())
+}
+
+pub(super) fn generate_candidate(
+    previous: ArgbView<'_>,
+    current: ArgbView<'_>,
+    rect: FrameRectangle,
+    dispose: FrameDispose,
+    options: &LosslessCandidateOptions,
+    near_lossless: u32,
+) -> Result<LosslessCandidate, AnimationCandidateError> {
     let use_blending =
         !options.is_key_frame && IsLosslessBlendingPossible(previous, current, &rect);
     // A fresh copy for each alternative is the safe counterpart of
@@ -257,8 +272,7 @@ fn GenerateCandidates(
     if !options.is_key_frame {
         candidate.previous_dispose = Some(dispose);
     }
-    PickBestCandidate(best, candidate);
-    Ok(())
+    Ok(candidate)
 }
 
 /// Lossless-only port of SetFrame. `previous` is the optimizer's carryover

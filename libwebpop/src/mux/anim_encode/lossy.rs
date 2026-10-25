@@ -91,7 +91,18 @@ pub fn encode_lossy_candidate(
     options: &LossyOptions,
     use_blending: bool,
 ) -> Result<LossyCandidate, AnimationCandidateError> {
-    let config = LossyConfig::for_animation(options, use_blending)?;
+    encode_candidate_with_exact(sub_frame, rect, options, use_blending, false)
+}
+
+pub(super) fn encode_candidate_with_exact(
+    sub_frame: ArgbView<'_>,
+    rect: FrameRectangle,
+    options: &LossyOptions,
+    use_blending: bool,
+    exact: bool,
+) -> Result<LossyCandidate, AnimationCandidateError> {
+    let mut config = LossyConfig::for_animation(options, use_blending)?;
+    config.exact = exact;
     validate_candidate_rectangle(sub_frame, rect)?;
     if sub_frame.width > 16383 || sub_frame.height > 16383 {
         return Err(WebPEncodingError::from(RgbaInputError::InvalidDimensions).into());
@@ -144,6 +155,25 @@ fn GenerateCandidates(
     options: &LossyCandidateOptions,
     best: &mut Option<LossyCandidate>,
 ) -> Result<(), AnimationCandidateError> {
+    let candidate = generate_candidate(previous, current, rect, dispose, options, false)?;
+    // Equal byte sizes retain the first candidate's disposal and mask.
+    if best
+        .as_ref()
+        .is_none_or(|old| candidate.encoded_size() < old.encoded_size())
+    {
+        *best = Some(candidate);
+    }
+    Ok(())
+}
+
+pub(super) fn generate_candidate(
+    previous: ArgbView<'_>,
+    current: ArgbView<'_>,
+    rect: FrameRectangle,
+    dispose: FrameDispose,
+    options: &LossyCandidateOptions,
+    exact: bool,
+) -> Result<LossyCandidate, AnimationCandidateError> {
     let blending = !options.is_key_frame
         && IsLossyBlendingPossible(previous, current, &rect, options.codec.quality);
     // FlattenSimilarBlocks uses the original canvas grid, not a crop-local grid.
@@ -179,22 +209,14 @@ fn GenerateCandidates(
         current.width as usize,
     )?;
     let mut candidate =
-        encode_lossy_candidate(view.sub_view(rect)?, rect, &options.codec, blending)?;
+        encode_candidate_with_exact(view.sub_view(rect)?, rect, &options.codec, blending, exact)?;
     if carries {
         candidate.carryover_mask = mask;
     }
     if !options.is_key_frame {
         candidate.previous_dispose = Some(dispose);
     }
-    // Pinned evaluation order is NONE then BACKGROUND; equal byte sizes retain
-    // the first candidate, including its disposal and mask.
-    if best
-        .as_ref()
-        .is_none_or(|old| candidate.encoded_size() < old.encoded_size())
-    {
-        *best = Some(candidate);
-    }
-    Ok(())
+    Ok(candidate)
 }
 
 /// Lossy-only SetFrame. `previous` is the carryover canvas, restored with

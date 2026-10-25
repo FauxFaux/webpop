@@ -1,5 +1,8 @@
 // Access the original animation leaves. Rename all external definitions so the
 // normally linked webpmux encoder remains available for future file comparisons.
+#include "src/webp/encode.h"
+static int AnimationObservedEncode(const WebPConfig*, WebPPicture*);
+#define WebPEncode AnimationObservedEncode
 #define WebPAnimEncoderOptionsInitInternal WebpopIncludedAnimOptionsInit
 #define WebPAnimEncoderNewInternal WebpopIncludedAnimNew
 #define WebPAnimEncoderDelete WebpopIncludedAnimDelete
@@ -11,7 +14,68 @@
 #define WebPAnimEncoderGetChunk WebpopIncludedAnimGetChunk
 #define WebPAnimEncoderDeleteChunk WebpopIncludedAnimDeleteChunk
 #include "src/mux/anim_encode.c"
+#undef WebPEncode
 #include "src/webp/demux.h"
+
+// Observe actual codec invocations from the original GenerateCandidates. No
+// selection/eligibility algorithm is duplicated in this test instrumentation.
+static int animation_observe;
+static unsigned animation_trial_count;
+static uint32_t animation_trials[4][12];
+static WebPData animation_trial_data[4];
+
+static void AnimationObserveBegin(int enabled) {
+  unsigned i;
+  for (i = 0; i < 4; ++i) WebPDataClear(&animation_trial_data[i]);
+  animation_trial_count = 0; animation_observe = enabled;
+}
+
+static unsigned AnimationConfigOutput(const WebPConfig* config, uint32_t* out) {
+  out[0] = config->lossless;
+  memcpy(out + 1, &config->quality, sizeof(config->quality));
+  out[2] = config->method; out[3] = config->near_lossless;
+  out[4] = config->exact; out[5] = config->alpha_quality;
+  out[6] = config->use_sharp_yuv;
+  return 7;
+}
+
+static int AnimationObservedEncode(const WebPConfig* config, WebPPicture* pic) {
+  const int ok = WebPEncode(config, pic);
+  if (animation_observe) {
+    uint32_t* out;
+    const WebPMemoryWriter* writer = (const WebPMemoryWriter*)pic->custom_ptr;
+    if (!ok || animation_trial_count >= 4 || writer->size > (1u << 19)) abort();
+    {
+      const WebPData data = {writer->mem, writer->size};
+      if (!WebPDataCopy(&data, &animation_trial_data[animation_trial_count])) abort();
+    }
+    out = animation_trials[animation_trial_count++];
+    out[0] = config->lossless; out[1] = pic->width; out[2] = pic->height;
+    memcpy(out + 3, &config->quality, sizeof(config->quality));
+    out[4] = config->method; out[5] = config->near_lossless;
+    out[6] = config->exact; out[7] = config->alpha_quality;
+    out[8] = config->use_sharp_yuv; out[9] = config->filter_strength;
+    out[10] = config->autofilter; out[11] = writer->size;
+  }
+  return ok;
+}
+
+static unsigned AnimationMixedState(const WebPAnimEncoder* enc, uint32_t* out,
+                                    unsigned available) {
+  unsigned i, j, at = 0;
+  uint64_t needed = 15;
+  for (i = 0; i < animation_trial_count; ++i) needed += 12 + animation_trial_data[i].size;
+  if (needed > available) abort();
+  at += AnimationConfigOutput(&enc->last_config, out + at);
+  at += AnimationConfigOutput(&enc->last_config_reversed, out + at);
+  out[at++] = animation_trial_count;
+  for (i = 0; i < animation_trial_count; ++i) {
+    for (j = 0; j < 12; ++j) out[at++] = animation_trials[i][j];
+    for (j = 0; j < animation_trial_data[i].size; ++j) out[at++] = animation_trial_data[i].bytes[j];
+    WebPDataClear(&animation_trial_data[i]);
+  }
+  return at;
+}
 
 // Original EncodeCandidate: exercise its filter override without duplicating it.
 // Input: width, height, ARGB stride, x, y, quality bits, method,
@@ -285,7 +349,7 @@ static unsigned AnimationCandidateOutput(const FrameRectangle* rect,
 
 static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* out,
                                     unsigned near_lossless, int lossy,
-                                    unsigned alpha_quality, unsigned sharp) {
+                                    unsigned alpha_quality, unsigned sharp, int mixed) {
   WebPPicture src, dst, view;
   FrameRectangle rect;
   WebPConfig config;
@@ -297,7 +361,7 @@ static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* ou
   op = in[0]; flags = in[9];
   if (!in[1] || !in[2] || in[1] > 96 || in[2] > 64 ||
       in[3] < in[1] || in[4] < in[1] || in[3] > 128 || in[4] > 128 ||
-      flags > 63 || (!lossy && in[10] > 100) || in[11] > 6 || in[12] > 1) abort();
+      flags > 63 || (!lossy && !mixed && in[10] > 100) || in[11] > 6 || in[12] > 1) abort();
   src_size = (in[2] - 1) * in[3] + in[1];
   dst_size = (in[2] - 1) * in[4] + in[1];
   if (n != 18 + src_size + dst_size + in[17] ||
@@ -320,7 +384,7 @@ static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* ou
       (int64_t)rect.x_offset + rect.width > src.width ||
       (int64_t)rect.y_offset + rect.height > src.height) abort();
   config.lossless = !lossy; config.method = in[11]; config.exact = in[12];
-  if (lossy) memcpy(&config.quality, in + 10, sizeof(config.quality));
+  if (lossy || mixed) memcpy(&config.quality, in + 10, sizeof(config.quality));
   else config.quality = in[10];
   config.alpha_quality = alpha_quality; config.use_sharp_yuv = sharp;
   config.near_lossless = near_lossless;
@@ -354,6 +418,7 @@ static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* ou
     const int key = flags & 1;
     if (!WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
     options.minimize_size = (flags & 8) != 0;
+    options.allow_mixed = mixed;
     enc = WebpopIncludedAnimNew(src.width, src.height, &options, WEBP_MUX_ABI_VERSION);
     if (!enc || ((flags & 2) && !key)) abort();
     enc->count = 2;  // Provide the preceding frame whose disposal is selected.
@@ -371,7 +436,20 @@ static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* ou
     memset(enc->candidate_carryover_mask, 0, src.width * src.height);
     memset(enc->best_candidate_carryover_mask, 0, src.width * src.height);
     encoded = GetFrame(enc, 1);
+    AnimationObserveBegin(mixed);
     if (SetFrame(enc, &config, key, &best_rect, encoded, &skipped) != VP8_ENC_OK) abort();
+    animation_observe = 0;
+    if (mixed) {
+      unsigned future = 1;
+      if (!skipped) {
+        info = key ? &encoded->key_frame : &encoded->sub_frame;
+        if (info->bitstream.size > (1u << 19)) abort();
+        future += 9 + info->bitstream.size;
+        if (!key && enc->best_candidate_carries_over) future += best_rect.width * best_rect.height;
+      }
+      if (future > (1u << 20) - at) abort();
+      at += AnimationMixedState(enc, out + at, (1u << 20) - at - future);
+    }
     out[at++] = !skipped;
     if (!skipped) {
       info = key ? &encoded->key_frame : &encoded->sub_frame;
@@ -388,19 +466,25 @@ static unsigned AnimationCandidates(const uint32_t* in, unsigned n, uint32_t* ou
 }
 
 unsigned WebpopAnimationLossless(const uint32_t* in, unsigned n, uint32_t* out) {
-  return AnimationCandidates(in, n, out, 100, 0, 100, 0);
+  return AnimationCandidates(in, n, out, 100, 0, 100, 0, 0);
 }
 
 unsigned WebpopAnimationNearLossless(const uint32_t* in, unsigned n, uint32_t* out) {
   if (!n || in[0] > 100) abort();
-  return AnimationCandidates(in + 1, n - 1, out, in[0], 0, 100, 0);
+  return AnimationCandidates(in + 1, n - 1, out, in[0], 0, 100, 0, 0);
 }
 
 // Lossy requests prefix the existing candidate layout with alpha quality and
 // SharpYUV; color quality occupies the existing quality word as f32 bits.
 unsigned WebpopAnimationLossy(const uint32_t* in, unsigned n, uint32_t* out) {
   if (n < 2 || in[0] > 100 || in[1] > 1) abort();
-  return AnimationCandidates(in + 2, n - 2, out, 100, 1, in[0], in[1]);
+  return AnimationCandidates(in + 2, n - 2, out, 100, 1, in[0], in[1], 0);
+}
+
+// Prefix: primary lossless flag, near-lossless strength, alpha quality, SharpYUV.
+unsigned WebpopAnimationMixed(const uint32_t* in, unsigned n, uint32_t* out) {
+  if (n < 4 || in[0] > 1 || in[1] > 100 || in[2] > 100 || in[3] > 1) abort();
+  return AnimationCandidates(in + 4, n - 4, out, in[1], !in[0], in[2], in[3], 1);
 }
 
 // Three separately strided canvases, including destination padding, and a
@@ -450,30 +534,37 @@ static unsigned AnimationCanvasOutput(const WebPPicture* pic, uint32_t* out) {
 // FlushFrames to retain its normal one-frame lookbehind. Durations remain zero:
 // timing/merging and final assembly parity are outside this request's contract.
 static unsigned AnimationCarryoverSequence(const uint32_t* in, unsigned n,
-                                             uint32_t* out, int lossy) {
+                                             uint32_t* out, int mode) {
+  const int mixed = mode == 2;
+  const int lossy = mode == 1;
   WebPAnimEncoderOptions options;
   WebPAnimEncoder* enc;
   unsigned frame, at = 4, written = 0;
   if (n < 4 || !in[0] || !in[1] || in[0] > 64 || in[1] > 64 ||
       in[2] > 1 || !in[3] || in[3] > 16 ||
       !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
-  options.minimize_size = in[2];
+  options.minimize_size = in[2]; options.allow_mixed = mixed;
   enc = WebpopIncludedAnimNew(in[0], in[1], &options, WEBP_MUX_ABI_VERSION);
   if (!enc) abort();
   for (frame = 0; frame < in[3]; ++frame) {
     WebPPicture current;
     WebPConfig config;
-    const unsigned header = lossy ? 5 : 4;
+    const unsigned header = mixed ? 8 : lossy ? 5 : 4;
     unsigned size, count = enc->count;
     if (n - at < header || in[at] < in[0] || in[at] > 128 ||
-        (!lossy && in[at + 1] > 100) || in[at + 2] > 6 ||
-        (!lossy && in[at + 3] > 1) ||
-        (lossy && (in[at + 3] > 100 || in[at + 4] > 1)) || !WebPPictureInit(&current) ||
+        (!lossy && !mixed && in[at + 1] > 100) || in[at + 2] > 6 ||
+        (!lossy && !mixed && in[at + 3] > 1) ||
+        (lossy && (in[at + 3] > 100 || in[at + 4] > 1)) ||
+        (mixed && (in[at + 3] > 1 || in[at + 4] > 100 || in[at + 5] > 1 || in[at + 6] > 100 || in[at + 7] > 1)) || !WebPPictureInit(&current) ||
         !WebPConfigInit(&config)) abort();
     current.use_argb = 1; current.width = in[0]; current.height = in[1];
     current.argb_stride = in[at];
     config.lossless = !lossy; config.method = in[at + 2];
-    if (lossy) {
+    if (mixed) {
+      memcpy(&config.quality, in + at + 1, sizeof(config.quality));
+      config.lossless = in[at + 3]; config.near_lossless = in[at + 4];
+      config.exact = in[at + 5]; config.alpha_quality = in[at + 6]; config.use_sharp_yuv = in[at + 7];
+    } else if (lossy) {
       memcpy(&config.quality, in + at + 1, sizeof(config.quality));
       config.alpha_quality = in[at + 3]; config.use_sharp_yuv = in[at + 4];
     } else {
@@ -485,7 +576,21 @@ static unsigned AnimationCarryoverSequence(const uint32_t* in, unsigned n,
     current.argb = (uint32_t*)(in + at); at += size;
     enc->curr_canvas = &current; enc->curr_canvas_copy_modified = 1;
     CopyCurrentCanvas(enc);
+    AnimationObserveBegin(mixed);
     if (!CacheFrame(enc, &config)) abort();
+    animation_observe = 0;
+    if (mixed) {
+      unsigned future = 5 + 2 * in[0] * in[1];
+      if (enc->count > count) {
+        const EncodedFrame* encoded = GetFrame(enc, enc->count - 1);
+        const WebPMuxFrameInfo* info = encoded->is_key_frame ? &encoded->key_frame : &encoded->sub_frame;
+        if (info->bitstream.size > (1u << 19)) abort();
+        future += 9 + info->bitstream.size;
+        if (!encoded->is_key_frame && enc->best_candidate_carries_over) future += enc->prev_rect.width * enc->prev_rect.height;
+      }
+      if (future > (1u << 20) - written) abort();
+      written += AnimationMixedState(enc, out + written, (1u << 20) - written - future);
+    }
     out[written++] = enc->count > count;
     if (enc->count > count) {
       EncodedFrame* encoded = GetFrame(enc, enc->count - 1);
@@ -512,6 +617,10 @@ unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32
 
 unsigned WebpopAnimationLossyCarryoverSequence(const uint32_t* in, unsigned n, uint32_t* out) {
   return AnimationCarryoverSequence(in, n, out, 1);
+}
+
+unsigned WebpopAnimationMixedCarryoverSequence(const uint32_t* in, unsigned n, uint32_t* out) {
+  return AnimationCarryoverSequence(in, n, out, 2);
 }
 
 static unsigned AnimationCacheStatus(const WebPAnimEncoder* enc, uint32_t* out) {

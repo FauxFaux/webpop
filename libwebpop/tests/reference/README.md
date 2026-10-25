@@ -110,8 +110,11 @@ cases, including 980 public animation files, 140 pre-reconstruction files and
 checking blended profile 2/zero filter levels through an independent VP8 reader.
 Lossy SetFrame/FlattenSimilarBlocks and carryover updates add 73 fixtures and
 5,088 live cases, including 7,392 frame transitions and 18 exact all-frame
-decoder comparisons. Lossy/mixed timestamp caching, deferred keyframes, mixed
-trials and decode-dependent single-frame parity remain open; the public RGBA
+decoder comparisons. Mixed selection/config reversal adds 75 fixtures and
+4,237 live cases, observing all 9,008 original C trial files, 52 distinct-stream
+ties and both saved configurations. There are 2,688 mixed carryover transitions
+and ten exact all-frame decoder comparisons. Lossy/mixed timestamp caching,
+deferred keyframes and decode-dependent single-frame parity remain open; the RGBA
 Optimized policy is rejected.
 
 This native backend was selected because it can expose internal/header leaves

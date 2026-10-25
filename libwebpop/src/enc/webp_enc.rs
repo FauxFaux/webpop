@@ -50,7 +50,9 @@ pub(crate) fn WebPEncodeLossy<T>(
     picture: &mut WebPYUVAPicture,
     write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, LosslessEncodeError>,
 ) -> Result<T, LosslessEncodeError> {
-    WebPCleanupTransparentArea(picture);
+    if !config.exact {
+        WebPCleanupTransparentArea(picture);
+    }
     let mut enc = VP8Encoder::new_with_method(
         picture.width,
         picture.height,

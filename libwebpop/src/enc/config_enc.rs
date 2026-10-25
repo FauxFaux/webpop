@@ -116,6 +116,7 @@ pub(crate) struct LossyConfig {
     pub alpha_quality: i32,
     pub method: i32,
     pub filter_strength: i32,
+    pub exact: bool,
 }
 
 impl LossyConfig {
@@ -151,6 +152,7 @@ impl LossyConfig {
             alpha_quality,
             method,
             filter_strength: VP8EncoderConfig::default().filter_strength,
+            exact: false,
         })
     }
 }

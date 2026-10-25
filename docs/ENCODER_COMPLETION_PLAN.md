@@ -147,9 +147,13 @@ Lossy SetFrame, globally aligned FlattenSimilarBlocks and original-word carryove
 updates now match 73 fixtures and 5,088 live cases: 1,392 flatten operations,
 2,772 selections and 924 eight-frame sequences (7,392 transitions). Eighteen
 assembled unit-duration sequences match independent compositing and the pinned
-all-frame decoder exactly. Lossy/mixed timestamp caching, mixed candidates,
-keyframe controls, single-frame reconstruction and the RGBA Optimized policy
-remain open.
+all-frame decoder exactly. Mixed selection/config reversal now matches 75
+fixtures and 4,237 live cases: 9,008 complete trial files, 52 distinct-stream
+size ties and 2,688 carryover transitions. Ten assembled mixed sequences match
+independent compositing and pinned all-frame decoding exactly. Private VP8 exact
+cleanup follows the shared configuration; still defaults remain unchanged.
+Lossy/mixed timestamp caching, keyframe controls, single-frame reconstruction
+and the RGBA Optimized policy remain open.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared

@@ -8,6 +8,7 @@ pub mod animation_lossless;
 pub mod animation_lossy;
 pub mod animation_lossy_carryover;
 pub mod animation_lossy_playback;
+pub mod animation_mixed;
 pub mod animation_mux;
 pub mod animation_near_lossless;
 pub mod animation_subframes;
@@ -89,6 +90,7 @@ impl Case {
             "AnimationSubframes" => animation_subframes::evaluate(self),
             "AnimationLossless" => animation_lossless::evaluate(self),
             "AnimationLossyCandidate" => animation_lossy::evaluate(self),
+            "AnimationMixed" | "AnimationMixedCarryoverSequence" => animation_mixed::evaluate(self),
             "AnimationLossy" | "AnimationLossyCarryoverSequence" => {
                 animation_lossy_carryover::evaluate(self)
             }

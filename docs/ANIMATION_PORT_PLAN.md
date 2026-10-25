@@ -239,8 +239,37 @@ Live sequences include 994 similar-but-different skips, 21 background-plus-mask
 selections and carried pixel drift/restoration. Eighteen assembled fixture
 sequences, with unit durations assigned to accepted candidates, match the
 independent still-decoder/compositor and pinned all-frame decoder exactly.
-Lossy/mixed timestamp caching, mixed trials, keyframe policy and single-frame
-reconstruction remain open; the VP8L cache and public RGBA policies are unchanged.
+Mixed trials follow below. Lossy/mixed timestamp caching, keyframe policy and
+single-frame reconstruction remain open; the VP8L cache and RGBA policies are unchanged.
+
+Mixed candidate selection is implemented (2026-10-25) as `SetFrameMixed`, with
+`MixedEncodingConfig`, `MixedCandidateOptions`, `MixedCandidate` and the isolated
+`encode_mixed_candidate`/`mixed_candidate_eligibility` helpers. Shared settings
+reuse `LossyOptions`; quality is retained as f32 for refinement and VP8, then
+truncated for VP8L effort as in the pin. Reversal flips only the primary codec,
+preserving method, quality, near-lossless strength, exact, alpha quality and
+SharpYUV. Both codecs validate before eligibility or skipping. Internal VP8
+`exact` now bypasses transparent-area cleanup when the shared configuration
+requests it; public still settings and default bytes remain unchanged.
+
+Ordinary mixed mode counts original ARGB colors in each lossless crop before
+transparency/cleanup: VP8L below 194 colors, VP8 from 31. Minimize-size tries both.
+The primary codec chooses the rectangle area used for disposal selection,
+independently of the eventual winning codec. Either empty change rectangle
+skips the input before palette eligibility, including merely similar changes
+with VP8L primary. Trial order is NONE VP8L/VP8, then BACKGROUND VP8L/VP8, with
+strict size ties retaining the first payload, disposal and mask. Candidate
+copies isolate every trial's pixel mutations; original-word carryover is shared.
+
+There are 75 new C fixtures and 4,237 live cases: 3,901 selections and 336
+eight-input sequences (2,688 transitions). Instrumentation observes original C
+codec calls without copying selection logic, recording all 9,008 trial files,
+including losers, plus both saved configurations and winning controls/masks.
+Fifty-two distinct-stream size ties, both winning codecs, exact VP8 cleanup,
+fractional geometry and palette thresholds are exercised. Ten assembled mixed
+fixture sequences match independent compositing and pinned all-frame decoding
+exactly. The low-level cache remains VP8L-only; lossy/mixed timestamp merging,
+overflow holds, keyframe policy and single-frame reconstruction remain open.
 
 ## Scope and delivery order
 
@@ -448,8 +477,9 @@ Implement and test these output rules against the pinned sources:
   and provenance; lossless candidate selection and all-frame decoding now have
   wrappers too. Carryover sequences observe original CacheFrame/FlushFrames;
   default lossless cache/timing and full-file protocols are now implemented.
-  Lossy selection/carryover now has wrappers too. Keyframe-control protocols,
-  mixed candidates and lossy/mixed timestamp-cache protocols remain open.
+  Lossy selection/carryover now has wrappers too, and mixed candidates/config
+  reversal have observed codec trials.
+  Keyframe-control and lossy/mixed timestamp-cache protocols remain open.
 - [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
   default and explicit keyframe options, duration merging/splitting and both
   single-frame cleanup paths. Capture the decode-dependent case as an open
@@ -541,9 +571,12 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
   and original-word CacheFrame updates match 73 fixtures and 5,088 live cases,
   including 7,392 submitted-frame transitions and 18 exact all-frame decoder
   checks. Lossy/mixed timestamp-cache integration remains below.
-- [ ] Port mixed candidate eligibility (palette thresholds, both codecs in
+- [x] Port mixed candidate eligibility (palette thresholds, both codecs in
   minimize-size mode), config reversal and winner selection. Ordinary mixed
   mode does not unconditionally try both codecs on every frame.
+  Seventy-five fixtures and 4,237 live cases compare all 9,008 trial files,
+  2,688 carryover transitions and both saved configurations. Ten independently
+  composited sequences match the pinned all-frame decoder exactly.
 - [ ] Extend timestamp caching to lossy/mixed candidates, including the pin's
   fixed lossy 1x1 overflow hold when lossless is disallowed. Compare cache
   counters, skip/duration merging, capacity flushing and complete files with

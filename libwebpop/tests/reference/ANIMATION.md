@@ -1023,6 +1023,134 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-The low-level LosslessAnimationCache remains VP8L-only. Lossy/mixed timestamp
-merging and overflow holds, mixed selection/config reversal, deferred keyframes,
-single-frame reconstruction and public RGBA Optimized remain open.
+At this milestone the low-level cache remained VP8L-only. Mixed selection/config
+reversal follows below; lossy/mixed timestamp merging and overflow holds,
+deferred keyframes, single-frame reconstruction and RGBA Optimized remain open.
+
+## Mixed candidates and shared configuration (2026-10-25)
+
+`SetFrameMixed` ports mixed SetFrame/GenerateCandidates using the existing VP8L
+and VP8 trial generators. `MixedEncodingConfig` reuses `LossyOptions` for method,
+quality and VP8 alpha/SharpYUV fields, with a primary codec selector, VP8L
+near-lossless strength and shared exact flag. `reversed` flips only the selector,
+retaining all other fields. Cache integration must save both submitted configs
+even on a skipped input; this stateless helper does not own timestamp history.
+`MixedCandidateOptions` adds the existing per-evaluation frame/disposal flags.
+The winner reports its actual codec independently of the submitted primary and
+keeps its complete payload, rectangle, preceding disposal and carryover mask.
+Original-word canvas updates reuse the existing validated implementation.
+
+The primary determines which codec's change-rectangle area selects disposal in
+ordinary mode. It does not change codec order or choose the winner. Each chosen
+disposal alternative counts colors in its original lossless crop, before either
+transparency operation or codec cleanup. VP8L is eligible below 194 colors and
+VP8 from 31; minimize-size bypasses extraction and tries both. Evaluation order
+is NONE VP8L, NONE VP8, BACKGROUND VP8L, BACKGROUND VP8, omitting excluded trials.
+An empty rectangle from either codec skips before any trials, including similar
+but different originals when primary is VP8L. Equal sizes retain the first trial
+and its mask/disposal. Fresh inputs isolate each trial's mutations and cleanup.
+
+Quality remains f32 for refinement, both saved configs and VP8. The VP8L stream
+converts it to integer effort; its preceding >=50 and ==100 analysis conditions
+also agree with truncation for validated 0–100 inputs. Shared exact bypasses
+transparent-area cleanup in VP8 as well as transparent cleanup/predictor
+quantization in VP8L. Animation substitution and standalone near-lossless still
+apply. A private VP8 exact flag carries this behavior without changing public
+LossyOptions or the default still output. Both codec configurations validate
+before palette or empty-frame shortcuts. Mixed encoding has no lossless canvas
+guarantee, regardless of primary codec or exact.
+
+### Original-code observation and protocols
+
+The external include-source wrapper redirects only anim_encode.c's WebPEncode
+calls through a test observer that invokes the normally linked original encoder.
+While mixed SetFrame/CacheFrame runs, it captures the actual invocation config,
+dimensions and complete memory-writer file, before loser buffers are released.
+No eligibility or candidate-selection algorithm is duplicated in the observer.
+Recording is disabled for existing requests and all other stages; the four-trial
+bound is specific to the current keyframe-policy-disabled contract.
+
+`AnimationMixed` prefixes the original 18-word candidate request with
+`(primary_lossless, near_lossless, alpha_quality, SharpYUV)`. The original quality
+word holds f32 bits, exact retains its original position, and opcode is 3.
+After original SetFrame, output starts with last_config and last_config_reversed,
+each seven words `(lossless, quality_f32_bits, method, near_lossless, exact,
+alpha_quality, SharpYUV)`, then trial_count and each trial:
+
+```text
+lossless width height quality_f32_bits method near_lossless exact alpha_quality SharpYUV filter_strength autofilter file_byte_count complete_still_bytes...
+```
+
+Each byte occupies one u32. The existing candidate-or-skip response follows,
+including winning mask, preceding disposal and complete winner file.
+
+`AnimationMixedCarryoverSequence` retains the four-word global carryover header
+`(width, height, minimize_size, input_count)`. Each input supplies eight words
+`(ARGB_stride, quality_f32_bits, method, primary_lossless, near_lossless, exact,
+alpha_quality, SharpYUV)` followed by strided ARGB without final-row padding.
+Original CopyCurrentCanvas/CacheFrame/FlushFrames produce, per submitted input,
+the mixed configs/trials/winner record above, then preceding rectangle and both
+complete original/carryover canvases. Config snapshots include skipped inputs.
+This protocol has no timestamps and does not claim complete mixed public
+WebPAnimEncoderAssemble parity. All older request layouts remain unchanged.
+
+### Fixtures, independent checks and results
+
+`fixtures/animation_mixed.txt` contains 75 C-generated cases: 65 selections and
+ten eight-input sequences. Pin and toolchain were reviewed before generation:
+clean `1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1,
+Release `-O3 -DNDEBUG`, SIMD/threading off, near-lossless enabled. Actual flags
+remain in `target/native-oracle/provenance.txt`; upstream is unmodified. Review
+those records before regenerating only this new file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_mixed animation_mixed_fixtures_match_pinned_reference -- --nocapture
+```
+
+The 4,237 live cases comprise 3,901 selections and 336 eight-input sequences
+(2,688 transitions). Every trial's config, size and file, including losers,
+matches C; all 9,008 files independently decode with expected dimensions. There
+are 5,219 VP8L and 3,789 VP8 invocations, 52 distinct-stream ties, 4,083 VP8L
+winners and 784 VP8 winners. Final masks/disposal and both raw canvases match.
+
+Portable independent checks cover:
+
+- Every palette size 1–260, including hidden RGB under zero alpha, distinct
+  strides/padding and minimize-size bypass. C fixtures straddle 30/31 and
+  193/194, and cover 256/257 colors, both primaries and both size policies.
+- A 194-color original crop becomes fewer than 31 colors after transparency;
+  observed original C still tries only VP8. Eligibility precedes mutation.
+- A transparent hidden-RGB exterior and a small opaque change make primary
+  VP8L choose BACKGROUND and primary VP8 choose NONE, although both winners
+  are VP8L. Area selection follows the primary, not the eventual codec.
+- Quality 61.5 keeps an eight-level change, while truncating to 61 would skip
+  it. The float survives geometry/reversal; only VP8L effort is truncated.
+- Shared exact changes VP8 bytes on transparent noisy regions with every
+  method and both SharpYUV settings, preserving alpha. Exact-false bytes match
+  the existing public still API. Explicit C fixtures capture both exact values.
+- Both codecs validate even if palette or skipping would avoid them. Reversal
+  round-trips every supported field. Original-word state transitions retain
+  masks, preceding disposal, restoration and skipped-original semantics.
+- A 30-color minimize-size trial at method 1, quality 3 produces distinct
+  118-byte VP8L/VP8 files. VP8L wins the equal size even with VP8 primary,
+  anchoring codec order and strict tie preservation in a committed C fixture.
+
+Accepted candidates in ten fixture sequences receive unit durations, then the
+existing independent still-decoder/compositor applies the selected preceding
+disposal and straight-alpha rounding. Every composited canvas and cumulative
+timestamp matches pinned WebPAnimDecoder exactly without tolerance, across VP8L,
+VP8 and codec switches. These unit-duration checks do not implement timestamp
+merging for skipped mixed inputs or single-frame reconstruction.
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_mixed -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+The low-level cache remains VP8L-only. Lossy/mixed timestamp caching, fixed
+overflow holds, deferred keyframes, decode-dependent single-frame reconstruction
+and public RGBA Optimized remain open.

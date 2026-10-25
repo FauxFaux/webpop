@@ -137,6 +137,8 @@ unsigned WebpopAnimationSubframes(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationLossless(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationLossyCandidate(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationLossy(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationMixed(const uint32_t*, unsigned, uint32_t*);
+unsigned WebpopAnimationMixedCarryoverSequence(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationLossyCarryoverSequence(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationNearLossless(const uint32_t*, unsigned, uint32_t*);
 unsigned WebpopAnimationCarryover(const uint32_t*, unsigned, uint32_t*);
@@ -202,6 +204,10 @@ int main(void) {
       count = WebpopAnimationLossyCandidate(in, n, out);
     } else if (IS(AnimationLossy)) {
       count = WebpopAnimationLossy(in, n, out);
+    } else if (IS(AnimationMixed)) {
+      count = WebpopAnimationMixed(in, n, out);
+    } else if (IS(AnimationMixedCarryoverSequence)) {
+      count = WebpopAnimationMixedCarryoverSequence(in, n, out);
     } else if (IS(AnimationLossyCarryoverSequence)) {
       count = WebpopAnimationLossyCarryoverSequence(in, n, out);
     } else if (IS(AnimationNearLossless)) {

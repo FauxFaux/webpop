@@ -14,12 +14,17 @@
 mod cache;
 mod lossless;
 mod lossy;
+mod mixed;
 pub use cache::{LosslessAnimationCache, LosslessAnimationCacheOptions, LosslessCacheStatus};
 pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
     PickBestCandidate, SetFrameLossless, encode_near_lossless_candidate, set_frame_near_lossless,
 };
 pub use lossy::{LossyCandidate, LossyCandidateOptions, SetFrameLossy, encode_lossy_candidate};
+pub use mixed::{
+    AnimationCandidateCodec, MixedCandidate, MixedCandidateEligibility, MixedCandidateOptions,
+    MixedEncodingConfig, SetFrameMixed, encode_mixed_candidate, mixed_candidate_eligibility,
+};
 
 fn validate_candidate_rectangle(
     sub_frame: ArgbView<'_>,
