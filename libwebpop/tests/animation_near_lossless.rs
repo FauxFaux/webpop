@@ -300,17 +300,20 @@ fn animation_near_lossless_repeats_compare_originals_despite_decoded_changes() {
 #[test]
 fn animation_near_lossless_matches_pinned_reference() {
     let cases = corpus::differential_cases();
-    let outputs = native::run("animation-near-lossless", &cases);
-    let mut candidates = 0;
-    let mut caches = 0;
-    for (case, expected) in cases.iter().zip(&outputs) {
+    let stats = native::parallel_cases("animation-near-lossless", &cases, |case, expected| {
+        let mut candidates = 0;
+        let mut caches = 0;
         native::compare(case, expected, &case.rust());
         if case.function == "AnimationNearLossless" {
             candidates += 1;
         } else {
             caches += 1;
         }
-    }
+        [candidates, caches]
+    });
+    let candidates: usize = stats.iter().map(|counts| counts[0]).sum();
+    let caches: usize = stats.iter().map(|counts| counts[1]).sum();
+
     eprintln!(
         "{} near-lossless animation cases match scalar C; candidates={candidates}, caches={caches}",
         cases.len()

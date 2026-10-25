@@ -407,10 +407,15 @@ fn animation_candidates_committed_bytes_and_compositing() {
 #[test]
 fn animation_candidates_match_pinned_reference() {
     let cases = corpus::differential_cases();
-    let outputs = native::run("animation-candidates", &cases);
-    let (mut skipped, mut blended, mut replaced, mut background, mut carries, mut background_carry) =
-        (0, 0, 0, 0, 0, 0);
-    for (case, expected) in cases.iter().zip(&outputs) {
+    let stats = native::parallel_cases("animation-candidates", &cases, |case, expected| {
+        let (
+            mut skipped,
+            mut blended,
+            mut replaced,
+            mut background,
+            mut carries,
+            mut background_carry,
+        ) = (0, 0, 0, 0, 0, 0);
         native::compare(case, expected, &case.rust());
         if case.input[0] == 3 {
             if expected[0] == 0 {
@@ -426,7 +431,22 @@ fn animation_candidates_match_pinned_reference() {
                 background_carry += usize::from(expected[6] == 2 && expected[7] == 1);
             }
         }
-    }
+        [
+            skipped,
+            blended,
+            replaced,
+            background,
+            carries,
+            background_carry,
+        ]
+    });
+    let skipped: usize = stats.iter().map(|counts| counts[0]).sum();
+    let blended: usize = stats.iter().map(|counts| counts[1]).sum();
+    let replaced: usize = stats.iter().map(|counts| counts[2]).sum();
+    let background: usize = stats.iter().map(|counts| counts[3]).sum();
+    let carries: usize = stats.iter().map(|counts| counts[4]).sum();
+    let background_carry: usize = stats.iter().map(|counts| counts[5]).sum();
+
     assert!(
         skipped > 0
             && blended > 0

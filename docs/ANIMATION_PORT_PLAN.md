@@ -2,8 +2,8 @@
 
 Planned 2026-10-24; remaining work replanned 2026-10-25 against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339`. Prepared-frame containers and the
-full-frame RGBA sequence API are usable. Candidate selection supports all three
-codec routes; timestamp caching currently supports VP8L with keyframes disabled.
+full-frame RGBA sequence API are usable. Candidate selection and shared timestamp
+caching support all three codec routes with keyframes disabled.
 The public optimized RGBA policy, keyframes and sequence CLI remain open.
 
 This expands the [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building
@@ -25,14 +25,15 @@ Milestone numbers 0–5 retain their original meaning; remaining work is split b
 | 1. Container/metadata | Typed VP8L or VP8/ALPH payloads; checked RIFF assembly, supplied metadata and full-canvas single-frame cleanup; byte parity with matching WebPMux inputs | `src/mux/{mod,muxinternal,muxedit}.rs`, `tests/animation_mux.rs` |
 | 2. Full-frame RGBA | Per-frame lossless, near-lossless and lossy methods 0–6; explicit final timing; replacements without merging; checked state/error contract | `src/mux/sequence.rs`, `tests/animation_sequence.rs` |
 | 3. VP8L optimizer subset | Checked ARGB subviews, geometry/blend leaves, candidates, original-word carryover, near-lossless strengths and duration merging/overflow holds with keyframes disabled | `src/mux/anim_encode.rs`, `anim_encode/{lossless,cache}.rs`, `tests/animation{,_subframes,_candidates,_carryover,_cache,_near_lossless}.rs` |
-| 4. VP8/mixed candidate subset | Blended VP8 filter override, FlattenSimilarBlocks, lossy/mixed SetFrame, palette eligibility, config reversal, trial order/ties and original-word carryover; timestamp caching remains open | `anim_encode/{lossy,mixed}.rs`, `tests/animation{_lossy_candidates,_lossy_carryover,_mixed}.rs` |
+| 4/4a. VP8/mixed candidates and cache | Blended VP8 filter override, FlattenSimilarBlocks, lossy/mixed SetFrame, palette eligibility, config reversal, trial order/ties, original-word carryover and shared keyframe-disabled timestamp caching/holds | `anim_encode/{lossy,mixed}.rs`, `tests/animation{_lossy_candidates,_lossy_carryover,_mixed,_codec_cache}.rs` |
 
 Paths in the table are relative to `libwebpop/`; candidate module paths are
 relative to `libwebpop/src/mux/`. Existing candidate generators and canvas
-updates are shared. Keep that reuse when integrating caching. The current
-`LosslessAnimationCache` owns two original/carryover canvases and two cache slots;
-its fixed capacity and VP8L-only routing are intentional subset assumptions to
-revisit, not a general keyframe cache design.
+updates are shared by the cache. The shared
+`AnimationCache` owns two original/carryover canvases, saved submitted/reversed
+configs and two cache slots; `LosslessAnimationCache` adapts its established VP8L
+methods to that owner. Its fixed capacity remains a disabled-keyframe assumption,
+not a general keyframe cache design.
 
 There is no production decoder or C/Wasm dependency. The low-level cache stops
 before decode-dependent single-frame reconstruction. `AnimationEncoder::new`
@@ -170,7 +171,7 @@ that invalidate their results; avoid unchanged broad reruns within one package.
 
 | Package | Depends on | Delivery boundary |
 | --- | --- | --- |
-| 4a. Shared cache and codec integration | Existing candidate routes | VP8L/VP8/mixed timing and holds, keyframes disabled |
+| 4a. Shared cache and codec integration — complete | Existing candidate routes | VP8L/VP8/mixed timing and holds, keyframes disabled |
 | 4b. Keyframe normalization and storage | 4a | Effective options, bounded owned candidate slots and observer protocol |
 | 4c. Deferred selection | 4b | Candidate decisions and cache flushing without overflow interactions |
 | 4d. Keyframes plus duration overflow | 4c | Complete keyframe timing/cache branch integration |
@@ -186,30 +187,30 @@ support requires 4d. Neither release implies full pinned animation completion.
 
 ### 4a. Shared timestamp cache for lossy and mixed candidates
 
-Boundary: generalize the existing keyframe-disabled cache and preserve its
-supported VP8L behavior. Keep keyframe policy, public RGBA wiring and
-single-frame reconstruction outside this package. Use small reviewed increments:
-first shared state with VP8L adapters, then codec dispatch/saved configs, then
-hold/timing integration. Advertise new routes only after all their cases pass.
+Completed: generalized the keyframe-disabled cache while preserving its supported
+VP8L behavior. See the [4a reference record](../libwebpop/tests/reference/ANIMATION.md#4a-shared-cache-and-codec-integration-2026-10-25)
+for the protocol, named corpus, comparison boundaries and validation evidence.
+Keyframe policy, public RGBA wiring and single-frame reconstruction remain outside
+this package.
 
-- [ ] Define one internal cache owner for previous/carryover canvases, pending
+- [x] Define one internal cache owner for previous/carryover canvases, pending
   payload/controls, saved submitted/reversed configs, timestamps and counters.
   Candidate generators continue to own codec-specific trials and return their
   controls/masks. Preserve existing public LosslessAnimationCache methods,
   status, validation/state behavior and VP8L bytes through the integration.
-- [ ] Route VP8-only and mixed inputs through existing SetFrame helpers, with
+- [x] Route VP8-only and mixed inputs through existing SetFrame helpers, with
   per-input codec/method/quality/strength/exact/alpha/SharpYUV changes. Save both
   mixed configs even on a skipped input; saved primary is independent of the
   winning codec. Restore identical original words before selection and apply
   previous disposal before mask copying. Skips retain the accepted original
   canvas/rectangle while counting the submitted input and merging its timing.
-- [ ] Port the fixed VP8/ALPH 1x1 overflow hold alongside existing VP8L bytes.
+- [x] Port the fixed VP8/ALPH 1x1 overflow hold alongside existing VP8L bytes.
   Choose VP8L when the saved last config is lossless or mixed mode permits it;
   otherwise choose VP8. Duration accumulation precedes the next SetFrame, so
   the incoming codec must not replace the saved config used for this choice.
   Preserve the previous duration and assign the new interval to the hold;
   reset the preceding rectangle and flush before exceeding cache capacity.
-- [ ] Compare counters, pending controls/duration, both saved configs, both raw
+- [x] Compare counters, pending controls/duration, both saved configs, both raw
   canvases and complete files after adds/final timing. Extend AnimationCache's
   existing protocol rather than creating another oracle stack. Keep explicit
   reference-only reconstruction cases outside the public-assembly parity set.

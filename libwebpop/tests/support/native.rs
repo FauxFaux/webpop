@@ -164,46 +164,39 @@ pub fn compare(case: &Case, expected: &[u32], actual: &[u32]) {
     }
 }
 
-// Bound nested parallelism: both large sweeps can run at the same time.
-// Results retain input order for checks between adjacent cases.
-// Striding distributes expensive image sizes and encoder settings across workers.
+// Use several batches per worker so expensive cases do not hold up a fixed
+// shard. Keep every frame sequence within its case, and restore input order.
 pub fn parallel_cases<T: Send>(
     label: &str,
     cases: &[Case],
     check: impl Fn(&Case, &[u32]) -> T + Sync,
 ) -> Vec<T> {
+    if cases.is_empty() {
+        return Vec::new();
+    }
     let workers = std::thread::available_parallelism()
         .map_or(1, usize::from)
-        .min(8)
-        .min(cases.len().max(1));
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..workers)
-            .map(|worker| {
-                let check = &check;
-                scope.spawn(move || {
-                    let cases: Vec<_> = cases
-                        .iter()
-                        .skip(worker)
-                        .step_by(workers)
-                        .cloned()
-                        .collect();
-                    let outputs = run(&format!("{label}-{worker}"), &cases);
-                    cases
-                        .iter()
-                        .zip(outputs)
-                        .enumerate()
-                        .map(|(index, (case, expected))| {
-                            (worker + index * workers, check(case, &expected))
-                        })
-                        .collect::<Vec<_>>()
-                })
-            })
+        .min(8);
+    // Amortize process startup for small leaf operations, while giving each
+    // worker several batches to claim in the large encoder sweeps.
+    let batch_count = (workers * 4).min(cases.len().div_ceil(16));
+    let batches: Vec<_> = (0..batch_count).collect();
+    let results = crate::support::parallel::map(&batches, |&batch| {
+        let cases: Vec<_> = cases
+            .iter()
+            .skip(batch)
+            .step_by(batch_count)
+            .cloned()
             .collect();
-        let mut results: Vec<_> = handles
-            .into_iter()
-            .flat_map(|handle| handle.join().unwrap())
-            .collect();
-        results.sort_unstable_by_key(|(index, _)| *index);
-        results.into_iter().map(|(_, result)| result).collect()
-    })
+        let outputs = run(&format!("{label}-{batch}"), &cases);
+        cases
+            .iter()
+            .zip(outputs)
+            .enumerate()
+            .map(|(index, (case, expected))| (batch + index * batch_count, check(case, &expected)))
+            .collect::<Vec<_>>()
+    });
+    let mut results: Vec<_> = results.into_iter().flatten().collect();
+    results.sort_unstable_by_key(|(index, _)| *index);
+    results.into_iter().map(|(_, result)| result).collect()
 }

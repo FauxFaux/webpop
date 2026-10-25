@@ -7,6 +7,34 @@ use support::entropy_coding::{entropy_coding_cases, entropy_coding_fixture_cases
 use support::references::{foundation_cases, foundation_fixture_cases};
 
 #[test]
+fn parallel_oracle_batches_preserve_order_and_visit_each_case_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    for len in [0, 1, 137, 1025] {
+        let cases: Vec<_> = (0..len)
+            .map(|index| support::Case::new("VP8LSubPixels", vec![index as u32, 0]))
+            .collect();
+        let visits: Vec<_> = (0..len).map(|_| AtomicUsize::new(0)).collect();
+        let results = native::parallel_cases(
+            &format!("parallel-batches-{len}"),
+            &cases,
+            |case, expected| {
+                let index = case.input[0] as usize;
+                assert_eq!(visits[index].fetch_add(1, Ordering::Relaxed), 0);
+                assert_eq!(expected, [index as u32]);
+                index
+            },
+        );
+        assert_eq!(results, (0..len).collect::<Vec<_>>());
+        assert!(
+            visits
+                .iter()
+                .all(|count| count.load(Ordering::Relaxed) == 1)
+        );
+    }
+}
+
+#[test]
 fn public_rgba_encoders_match_pinned_reference() {
     let cases = support::public_images::cases();
     native::parallel_cases("public-rgba", &cases, |case, expected| {

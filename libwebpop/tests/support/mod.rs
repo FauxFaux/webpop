@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod animation;
 pub mod animation_cache;
 pub mod animation_carryover;
+pub mod animation_codec_cache;
 pub mod animation_lossless;
 pub mod animation_lossy;
 pub mod animation_lossy_carryover;

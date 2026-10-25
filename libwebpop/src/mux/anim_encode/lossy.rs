@@ -154,8 +154,9 @@ fn GenerateCandidates(
     dispose: FrameDispose,
     options: &LossyCandidateOptions,
     best: &mut Option<LossyCandidate>,
+    exact: bool,
 ) -> Result<(), AnimationCandidateError> {
-    let candidate = generate_candidate(previous, current, rect, dispose, options, false)?;
+    let candidate = generate_candidate(previous, current, rect, dispose, options, exact)?;
     // Equal byte sizes retain the first candidate's disposal and mask.
     if best
         .as_ref()
@@ -231,6 +232,16 @@ pub fn SetFrameLossy(
     current: ArgbView<'_>,
     previous_rect: FrameRectangle,
     options: &LossyCandidateOptions,
+) -> Result<Option<LossyCandidate>, AnimationCandidateError> {
+    set_frame_with_exact(previous, current, previous_rect, options, false)
+}
+
+pub(super) fn set_frame_with_exact(
+    previous: ArgbView<'_>,
+    current: ArgbView<'_>,
+    previous_rect: FrameRectangle,
+    options: &LossyCandidateOptions,
+    exact: bool,
 ) -> Result<Option<LossyCandidate>, AnimationCandidateError> {
     LossyConfig::from_options(&options.codec)?;
     if options.is_first_frame && !options.is_key_frame {
@@ -308,6 +319,7 @@ pub fn SetFrameLossy(
             FrameDispose::None,
             options,
             &mut best,
+            exact,
         )?;
     }
     if background.should_try {
@@ -318,6 +330,7 @@ pub fn SetFrameLossy(
             FrameDispose::Background,
             options,
             &mut best,
+            exact,
         )?;
     }
     Ok(best)

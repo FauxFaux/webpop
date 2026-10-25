@@ -15,7 +15,10 @@ mod cache;
 mod lossless;
 mod lossy;
 mod mixed;
-pub use cache::{LosslessAnimationCache, LosslessAnimationCacheOptions, LosslessCacheStatus};
+pub use cache::{
+    AnimationCache, AnimationCacheOptions, LosslessAnimationCache, LosslessAnimationCacheOptions,
+    LosslessCacheStatus,
+};
 pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
     PickBestCandidate, SetFrameLossless, encode_near_lossless_candidate, set_frame_near_lossless,

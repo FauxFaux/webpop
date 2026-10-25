@@ -233,9 +233,8 @@ fn animation_cache_validation_recovery_wide_timing_and_terminal_states() {
 #[test]
 fn animation_cache_matches_pinned_reference() {
     let cases = corpus::differential_cases();
-    let outputs = native::run("animation-cache", &cases);
-    let (mut full, mut before_decode, mut holds, mut merged) = (0, 0, 0, 0);
-    for (case, expected) in cases.iter().zip(&outputs) {
+    let stats = native::parallel_cases("animation-cache", &cases, |case, expected| {
+        let (mut full, mut before_decode, mut holds, mut merged) = (0, 0, 0, 0);
         native::compare(case, expected, &case.rust());
         if case.input[3] == 1 {
             full += 1;
@@ -254,7 +253,13 @@ fn animation_cache_matches_pinned_reference() {
             previous = accepted;
         }
         let _ = check_playback(case, &corpus::output_bytes(case, expected));
-    }
+        [full, before_decode, holds, merged]
+    });
+    let full: usize = stats.iter().map(|counts| counts[0]).sum();
+    let before_decode: usize = stats.iter().map(|counts| counts[1]).sum();
+    let holds: usize = stats.iter().map(|counts| counts[2]).sum();
+    let merged: usize = stats.iter().map(|counts| counts[3]).sum();
+
     assert!(full > 0 && before_decode > 0 && holds > 0 && merged > 0);
     eprintln!(
         "{} cache cases match scalar C; full={full}, before_decode={before_decode}, split-before-change={holds}, merged={merged}",

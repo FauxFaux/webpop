@@ -633,6 +633,33 @@ static unsigned AnimationCacheStatus(const WebPAnimEncoder* enc, uint32_t* out) 
   return 10;
 }
 
+// Extended v1 observations keep the original ten counter words as a prefix.
+// After final assembly Rust releases canvases; omit them on both sides when
+// no pending frame remains. Saved configs remain observable after finish.
+static unsigned AnimationCacheExtended(const WebPAnimEncoder* enc, uint32_t* out) {
+  unsigned at = 0, y, x;
+  const WebPMuxFrameInfo* info = NULL;
+  at += AnimationConfigOutput(&enc->last_config, out + at);
+  at += AnimationConfigOutput(&enc->last_config_reversed, out + at);
+  if (enc->count) {
+    const EncodedFrame* f = GetFrame(enc, enc->count - 1);
+    info = f->is_key_frame ? &f->key_frame : &f->sub_frame;
+  }
+  out[at++] = info ? info->x_offset : 0;
+  out[at++] = info ? info->y_offset : 0;
+  out[at++] = info ? info->dispose_method : 0;
+  out[at++] = info ? info->blend_method : 0;
+  out[at++] = enc->count ? enc->canvas_width * enc->canvas_height : 0;
+  if (enc->count) {
+    const WebPPicture* pictures[2] = {&enc->prev_canvas, &enc->canvas_carryover};
+    unsigned p;
+    for (p = 0; p < 2; ++p) for (y = 0; y < (unsigned)enc->canvas_height; ++y)
+      for (x = 0; x < (unsigned)enc->canvas_width; ++x)
+        out[at++] = pictures[p]->argb[y * pictures[p]->argb_stride + x];
+  }
+  return at;
+}
+
 static unsigned AnimationFileOutput(const WebPData* data, uint32_t* out) {
   unsigned i;
   if (data->size > (1u << 19)) abort();
@@ -651,10 +678,12 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
   WebPData data;
   uint32_t timestamp;
   unsigned frame, duration = 0, at = 8, written = 0;
+  const int extended = n >= 8 && (in[2] & 4);
   if (n < 8 || !in[0] || !in[1] || in[0] > 96 || in[1] > 32 ||
-      in[2] > 1 || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
+      in[2] > 7 || (!extended && in[2] > 1) || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
       !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
-  options.minimize_size = in[2];
+  options.minimize_size = in[2] & 1;
+  options.allow_mixed = extended && (in[2] & 2);
   if (in[5]) { options.anim_params.bgcolor = 0x4e0c2238; options.anim_params.loop_count = 65535; }
   enc = WebpopIncludedAnimNew(in[0], in[1], &options, WEBP_MUX_ABI_VERSION);
   if (!enc) abort();
@@ -672,13 +701,19 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
     WebPConfig config;
     unsigned size;
     int signed_timestamp;
-    const unsigned header = near_lossless ? 6 : 5;
+    const unsigned header = extended ? 9 : near_lossless ? 6 : 5;
     if (n - at < header || in[at] >= (1u << 24) || in[at + 1] < in[0] || in[at + 1] > 128 ||
-        in[at + 2] > 100 || in[at + 3] > 6 || in[at + 4] > 1 ||
+        (!extended && (in[at + 2] > 100 || in[at + 3] > 6 || in[at + 4] > 1)) ||
         !WebPPictureInit(&current) || !WebPConfigInit(&config)) abort();
     duration = in[at]; current.argb_stride = in[at + 1];
     config.lossless = 1; config.quality = in[at + 2]; config.method = in[at + 3]; config.exact = in[at + 4];
-    if (near_lossless) {
+    if (extended) {
+      config.lossless = in[at + 2];
+      memcpy(&config.quality, in + at + 3, sizeof(config.quality));
+      config.method = in[at + 4]; config.near_lossless = in[at + 5];
+      config.exact = in[at + 6]; config.alpha_quality = in[at + 7];
+      config.use_sharp_yuv = in[at + 8];
+    } else if (near_lossless) {
       if (in[at + 5] > 100) abort();
       config.near_lossless = in[at + 5];
     }
@@ -689,6 +724,7 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
     memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
     if (!WebpopIncludedAnimAdd(enc, &current, signed_timestamp, &config)) abort();
     written += AnimationCacheStatus(enc, out + written);
+    if (extended) written += AnimationCacheExtended(enc, out + written);
     timestamp += duration;
   }
   if (at != n) abort();
@@ -706,6 +742,7 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
         WebPMuxAssemble(enc->mux, &data) != WEBP_MUX_OK) abort();
   } else if (!WebpopIncludedAnimAssemble(enc, &data)) abort();
   written += AnimationCacheStatus(enc, out + written);
+  if (extended) written += AnimationCacheExtended(enc, out + written);
   written += AnimationFileOutput(&data, out + written);
   WebPDataClear(&data);
   if (in[3] == 2) {

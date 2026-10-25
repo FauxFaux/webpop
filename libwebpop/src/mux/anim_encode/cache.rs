@@ -2,16 +2,16 @@
 // Derived from upstream/src/mux/anim_encode.c at
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
-//! VP8L CacheFrame/FlushFrames with keyframe insertion disabled. This is
+//! Shared CacheFrame/FlushFrames with keyframe insertion disabled. This is
 //! separate from the public RGBA policy until the remaining optimizer gates land.
 
 use super::*;
-use crate::LosslessOptions;
 use crate::enc::config_enc::WebPValidateConfig;
 use crate::mux::{
     AnimationContainer, AnimationContainerOptions, AnimationError, ContainerFrameOptions,
     EncodedFrame, FrameBlend,
 };
+use crate::{LosslessOptions, LossyOptions};
 
 const MAX_DURATION: u32 = 1 << 24;
 
@@ -61,14 +61,7 @@ pub struct LosslessCacheStatus {
 /// ```
 #[derive(Debug)]
 pub struct LosslessAnimationCache {
-    container: AnimationContainer,
-    cached: Vec<(EncodedFrame, ContainerFrameOptions)>,
-    previous: Vec<u32>,
-    carryover: Vec<u32>,
-    minimize_size: bool,
-    last_timestamp_ms: Option<u64>,
-    status: LosslessCacheStatus,
-    active: bool,
+    inner: AnimationCache,
 }
 
 impl LosslessAnimationCache {
@@ -76,6 +69,115 @@ impl LosslessAnimationCache {
         width: u32,
         height: u32,
         options: LosslessAnimationCacheOptions,
+    ) -> Result<Self, AnimationError> {
+        Ok(Self {
+            inner: AnimationCache::new(
+                width,
+                height,
+                AnimationCacheOptions {
+                    minimize_size: options.minimize_size,
+                    allow_mixed: false,
+                    container: options.container,
+                },
+            )?,
+        })
+    }
+    pub fn status(&self) -> LosslessCacheStatus {
+        self.inner.status()
+    }
+    /// Submit strength-100 VP8L. Validation errors permit retry; failures after
+    /// validation are terminal. Unchanged near-lossless pixels remain carried.
+    pub fn add_argb(
+        &mut self,
+        current: ArgbView<'_>,
+        timestamp_ms: u64,
+        codec: &LosslessOptions,
+    ) -> Result<(), AnimationError> {
+        self.add_near_lossless_argb(current, timestamp_ms, 100, codec)
+    }
+    /// Submit VP8L strength 0–100 after transparency substitution. RGB and
+    /// intermediate alpha may change, including with `exact`. Original words
+    /// drive repeats and carryover. All validation precedes cache mutation.
+    pub fn add_near_lossless_argb(
+        &mut self,
+        current: ArgbView<'_>,
+        timestamp_ms: u64,
+        strength: i32,
+        codec: &LosslessOptions,
+    ) -> Result<(), AnimationError> {
+        self.inner.check_active()?;
+        let frame_index = self.inner.status.submitted_frames;
+        self.inner.interval(timestamp_ms)?;
+        lossless::checked_strength(strength).map_err(|source| AnimationError::Encoding {
+            frame_index,
+            source,
+        })?;
+        self.inner.validate_dimensions(current)?;
+        WebPValidateConfig(codec).map_err(|source| AnimationError::Encoding {
+            frame_index,
+            source,
+        })?;
+        self.inner.add_argb(
+            current,
+            timestamp_ms,
+            &MixedEncodingConfig {
+                primary: AnimationCandidateCodec::Vp8l,
+                codec: LossyOptions {
+                    quality: codec.quality as f32,
+                    method: codec.method,
+                    ..Default::default()
+                },
+                near_lossless: strength,
+                exact: codec.exact,
+            },
+        )
+    }
+    /// Supply explicit final timing. Errors preserve output; timing/empty errors
+    /// allow retry. Success releases buffers and permanently closes the cache.
+    pub fn finish(
+        &mut self,
+        end_timestamp_ms: u64,
+        output: &mut Vec<u8>,
+    ) -> Result<(), AnimationError> {
+        self.inner.finish(end_timestamp_ms, output)
+    }
+}
+
+/// Options for a keyframe-disabled cache. Defaults disable mixed trials and
+/// minimize-size; container defaults are white background and infinite looping.
+#[derive(Debug, Default)]
+pub struct AnimationCacheOptions {
+    pub minimize_size: bool,
+    pub allow_mixed: bool,
+    pub container: AnimationContainerOptions,
+}
+
+/// Low-level, keyframe-disabled ARGB cache. Codec selection may change on every
+/// input. Mixed mode tries eligible codecs with the supplied shared config.
+/// Owns original-word history and buffered output; skips save settings and merge
+/// timing. This does not enable the public RGBA Optimized policy or perform
+/// decode-dependent single-frame reconstruction. Validation errors allow retry;
+/// errors after validation are terminal. Explicit final timing is required.
+#[derive(Debug)]
+pub struct AnimationCache {
+    container: AnimationContainer,
+    cached: Vec<(EncodedFrame, ContainerFrameOptions)>,
+    previous: Vec<u32>,
+    carryover: Vec<u32>,
+    minimize_size: bool,
+    allow_mixed: bool,
+    last_config: Option<MixedEncodingConfig>,
+    last_config_reversed: Option<MixedEncodingConfig>,
+    last_timestamp_ms: Option<u64>,
+    status: LosslessCacheStatus,
+    active: bool,
+}
+
+impl AnimationCache {
+    pub fn new(
+        width: u32,
+        height: u32,
+        options: AnimationCacheOptions,
     ) -> Result<Self, AnimationError> {
         if !(1..=16383).contains(&width) || !(1..=16383).contains(&height) {
             return Err(AnimationError::InvalidCanvas);
@@ -110,6 +212,9 @@ impl LosslessAnimationCache {
             previous: allocate()?,
             carryover: allocate()?,
             minimize_size: options.minimize_size,
+            allow_mixed: options.allow_mixed,
+            last_config: None,
+            last_config_reversed: None,
             last_timestamp_ms: None,
             status: LosslessCacheStatus::default(),
             active: true,
@@ -150,61 +255,64 @@ impl LosslessAnimationCache {
         Ok(Some(duration_ms as u32))
     }
 
-    /// Validate dimensions, codec options and the preceding interval before
-    /// mutation. Their errors permit retry. Allocation/encoding/container errors
-    /// after validation are terminal. Timestamps have arbitrary u64 origin.
-    /// Selects codec strength 100; earlier near-lossless decoded pixels can remain
-    /// on the canvas when their original inputs have not changed.
-    pub fn add_argb(
-        &mut self,
-        current: ArgbView<'_>,
-        timestamp_ms: u64,
-        codec: &LosslessOptions,
-    ) -> Result<(), AnimationError> {
-        self.add_near_lossless_argb(current, timestamp_ms, 100, codec)
-    }
-
-    /// Submit VP8L with near-lossless strength 0–100, validated before mutation.
-    /// Strength 100 is identical to `add_argb`. Each candidate runs the existing
-    /// codec on its selected rectangle after transparency substitution. RGB and
-    /// intermediate alpha can change; even `exact` cannot promise lossless
-    /// composited pixels. Original inputs, rather than decodes, drive carryover.
-    pub fn add_near_lossless_argb(
-        &mut self,
-        current: ArgbView<'_>,
-        timestamp_ms: u64,
-        strength: i32,
-        codec: &LosslessOptions,
-    ) -> Result<(), AnimationError> {
-        self.check_active()?;
-        let frame_index = self.status.submitted_frames;
-        let duration = self.interval(timestamp_ms)?;
-        lossless::checked_strength(strength).map_err(|source| AnimationError::Encoding {
-            frame_index,
-            source,
-        })?;
+    fn validate_dimensions(&self, current: ArgbView<'_>) -> Result<(), AnimationError> {
         if (current.width, current.height)
             != (self.container.width as i32, self.container.height as i32)
         {
             return Err(candidate_error(
-                frame_index,
+                self.status.submitted_frames,
                 AnimationLeafError::InvalidDimensions.into(),
             ));
         }
-        WebPValidateConfig(codec).map_err(|source| AnimationError::Encoding {
-            frame_index,
-            source,
-        })?;
+        Ok(())
+    }
+
+    /// Saved submitted and reversed settings, including settings on skipped
+    /// inputs. The primary is independent of the selected candidate codec.
+    pub fn saved_configs(&self) -> Option<(MixedEncodingConfig, MixedEncodingConfig)> {
+        self.last_config.zip(self.last_config_reversed)
+    }
+
+    /// Accepted original canvas and carryover words, in packed row order.
+    pub fn canvases(&self) -> (&[u32], &[u32]) {
+        (&self.previous, &self.carryover)
+    }
+
+    /// Pending frame controls. Payloads and timing remain owned by this cache.
+    pub fn pending_control(&self) -> Option<ContainerFrameOptions> {
+        self.cached.last().map(|(_, c)| *c)
+    }
+
+    /// Validate all participating settings, dimensions and timing before mutation,
+    /// including on exact repeats and similarity skips. Fractional VP8 quality
+    /// is preserved; VP8L effort truncates only inside its codec adapter.
+    pub fn add_argb(
+        &mut self,
+        current: ArgbView<'_>,
+        timestamp_ms: u64,
+        codec: &MixedEncodingConfig,
+    ) -> Result<(), AnimationError> {
+        self.check_active()?;
+        let frame_index = self.status.submitted_frames;
+        let duration = self.interval(timestamp_ms)?;
+        codec
+            .validate()
+            .map_err(|source| AnimationError::Encoding {
+                frame_index,
+                source,
+            })?;
+        self.validate_dimensions(current)?;
         let submitted_frames = frame_index
             .checked_add(1)
             .ok_or_else(|| candidate_error(frame_index, AnimationLeafError::SizeOverflow.into()))?;
         self.active = false;
         if let Some(duration) = duration {
+            // Use the preceding submitted config for a hold, before saving the
+            // incoming config (even when the incoming candidate will skip).
             self.IncreasePreviousDuration(duration)?;
-            // In particular, a hold insertion filled both cache slots.
             self.FlushFrames(self.cached.len() - 1)?;
         }
-        self.CacheFrame(current, codec, strength)?;
+        self.CacheFrame(current, codec)?;
         self.status.submitted_frames = submitted_frames;
         self.last_timestamp_ms = Some(timestamp_ms);
         self.active = true;
@@ -218,23 +326,42 @@ impl LosslessAnimationCache {
             previous.duration_ms = new_duration;
         } else {
             debug_assert_eq!(self.cached.len(), 1);
-            // The pin supplies this VP8L payload verbatim. Preparing typed
-            // bytes here avoids parsing RIFF or re-encoding with current options.
-            const HOLD: &[u8] = &[0x2f, 0, 0, 0, 0x10, 0x88, 0x88, 0x08];
-            let mut payload = Vec::new();
-            payload.try_reserve_exact(HOLD.len()).map_err(|source| {
-                candidate_error(
-                    self.status.submitted_frames.saturating_sub(1),
-                    source.into(),
-                )
-            })?;
-            payload.extend_from_slice(HOLD);
+            // Typed payloads copied from the pin's fixed stills. These are
+            // nested payload bytes, not stripped headers or a fresh encode.
+            const VP8L: &[u8] = &[0x2f, 0, 0, 0, 0x10, 0x88, 0x88, 0x08];
+            const VP8: &[u8] = &[
+                0x30, 0x01, 0x00, 0x9d, 0x01, 0x2a, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x34, 0x25,
+                0xa4, 0x00, 0x03, 0x70, 0x00, 0xfe, 0xfb, 0xfd, 0x50, 0x00,
+            ];
+            let copy = |bytes: &[u8]| -> Result<Vec<u8>, AnimationError> {
+                let mut result = Vec::new();
+                result.try_reserve_exact(bytes.len()).map_err(|source| {
+                    candidate_error(
+                        self.status.submitted_frames.saturating_sub(1),
+                        source.into(),
+                    )
+                })?;
+                result.extend_from_slice(bytes);
+                Ok(result)
+            };
+            use crate::mux::muxinternal::FramePayload;
+            let payload = if self.allow_mixed
+                || self.last_config.expect("saved previous config").primary
+                    == AnimationCandidateCodec::Vp8l
+            {
+                FramePayload::Vp8l(copy(VP8L)?)
+            } else {
+                FramePayload::Vp8 {
+                    image: copy(VP8)?,
+                    alpha: Some(copy(&[0, 0])?),
+                }
+            };
             self.cached.push((
                 EncodedFrame {
                     width: 1,
                     height: 1,
                     has_alpha: true,
-                    payload: crate::mux::muxinternal::FramePayload::Vp8l(payload),
+                    payload,
                 },
                 ContainerFrameOptions {
                     duration_ms: duration,
@@ -256,8 +383,7 @@ impl LosslessAnimationCache {
     fn CacheFrame(
         &mut self,
         current: ArgbView<'_>,
-        codec: &LosslessOptions,
-        strength: i32,
+        codec: &MixedEncodingConfig,
     ) -> Result<(), AnimationError> {
         debug_assert!(self.cached.len() < 2);
         let frame_index = self.status.submitted_frames;
@@ -271,19 +397,53 @@ impl LosslessAnimationCache {
                     &mut ArgbViewMut::new(&mut self.carryover, w, h, stride)?,
                 )?;
             }
-            let candidate = set_frame_near_lossless(
-                ArgbView::new(&self.carryover, w, h, stride)?,
-                current,
-                self.status.previous_rect,
-                &LosslessCandidateOptions {
-                    codec: *codec,
-                    is_key_frame: first,
-                    is_first_frame: first,
-                    minimize_size: self.minimize_size,
-                    ..Default::default()
-                },
-                strength,
-            )?;
+            self.last_config = Some(*codec);
+            self.last_config_reversed = Some(codec.reversed());
+            let previous = ArgbView::new(&self.carryover, w, h, stride)?;
+            let candidate = if self.allow_mixed {
+                SetFrameMixed(
+                    previous,
+                    current,
+                    self.status.previous_rect,
+                    &MixedCandidateOptions {
+                        codec: *codec,
+                        is_key_frame: first,
+                        is_first_frame: first,
+                        minimize_size: self.minimize_size,
+                        ..Default::default()
+                    },
+                )?
+            } else if codec.primary == AnimationCandidateCodec::Vp8l {
+                set_frame_near_lossless(
+                    previous,
+                    current,
+                    self.status.previous_rect,
+                    &LosslessCandidateOptions {
+                        codec: codec.lossless_options(),
+                        is_key_frame: first,
+                        is_first_frame: first,
+                        minimize_size: self.minimize_size,
+                        ..Default::default()
+                    },
+                    codec.near_lossless,
+                )?
+                .map(Into::into)
+            } else {
+                super::lossy::set_frame_with_exact(
+                    previous,
+                    current,
+                    self.status.previous_rect,
+                    &LossyCandidateOptions {
+                        codec: codec.codec,
+                        is_key_frame: first,
+                        is_first_frame: first,
+                        minimize_size: self.minimize_size,
+                        ..Default::default()
+                    },
+                    codec.exact,
+                )?
+                .map(Into::into)
+            };
             if let Some(candidate) = candidate {
                 candidate.update_canvases(
                     current,

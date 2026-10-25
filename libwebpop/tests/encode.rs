@@ -94,7 +94,7 @@ fn public_default_api_is_layout_independent() {
 #[test]
 fn rgba_entry_point_round_trips_palettes_photos_and_transparency() {
     let mut seed = 0x6d2b79f5u32;
-    let mut count = 0;
+    let mut cases = Vec::new();
     for (width, height) in [(1u32, 1u32), (1, 39), (41, 1), (17, 19), (65, 67)] {
         let stride = width as usize * 4 + 7;
         for pattern in 0..7 {
@@ -130,7 +130,6 @@ fn rgba_entry_point_round_trips_palettes_photos_and_transparency() {
                     rgba[y * stride + x * 4..y * stride + x * 4 + 4].copy_from_slice(&pixel);
                 }
             }
-            let original = rgba.clone();
             for (quality, method) in [(0, 0), (25, 1), (70, 4), (100, 5), (100, 6)] {
                 for exact in [false, true] {
                     let options = LosslessOptions {
@@ -138,37 +137,39 @@ fn rgba_entry_point_round_trips_palettes_photos_and_transparency() {
                         method,
                         exact,
                     };
-                    let mut encoded = Vec::new();
-                    encode_lossless_rgba(&rgba, width, height, stride, &options, &mut encoded)
-                        .unwrap();
-                    assert_eq!(encoded, {
-                        let mut output = Vec::new();
-                        encode_lossless_rgba(&rgba, width, height, stride, &options, &mut output)
-                            .unwrap();
-                        output
-                    });
-                    let decoded =
-                        image::load_from_memory_with_format(&encoded, image::ImageFormat::WebP)
-                            .unwrap()
-                            .to_rgba8();
-                    assert_eq!(decoded.dimensions(), (width, height));
-                    for y in 0..height as usize {
-                        for x in 0..width as usize {
-                            let expected = &rgba[y * stride + x * 4..y * stride + x * 4 + 4];
-                            let actual = decoded.get_pixel(x as u32, y as u32).0;
-                            assert_eq!(actual[3], expected[3]);
-                            if exact || expected[3] != 0 {
-                                assert_eq!(actual, expected);
-                            }
-                        }
-                    }
-                    assert_eq!(rgba, original);
-                    count += 1;
+                    cases.push((width, height, stride, rgba.clone(), options));
                 }
             }
         }
     }
-    assert_eq!(count, 350);
+    assert_eq!(cases.len(), 350);
+    support::parallel::map(&cases, |(width, height, stride, rgba, options)| {
+        let (width, height, stride) = (*width, *height, *stride);
+        let exact = options.exact;
+        let original = rgba.clone();
+        let mut encoded = Vec::new();
+        encode_lossless_rgba(rgba, width, height, stride, options, &mut encoded).unwrap();
+        assert_eq!(encoded, {
+            let mut output = Vec::new();
+            encode_lossless_rgba(rgba, width, height, stride, options, &mut output).unwrap();
+            output
+        });
+        let decoded = image::load_from_memory_with_format(&encoded, image::ImageFormat::WebP)
+            .unwrap()
+            .to_rgba8();
+        assert_eq!(decoded.dimensions(), (width, height));
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let expected = &rgba[y * stride + x * 4..y * stride + x * 4 + 4];
+                let actual = decoded.get_pixel(x as u32, y as u32).0;
+                assert_eq!(actual[3], expected[3]);
+                if exact || expected[3] != 0 {
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+        assert_eq!(*rgba, original);
+    });
 }
 
 #[test]

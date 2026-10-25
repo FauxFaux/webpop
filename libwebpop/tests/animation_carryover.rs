@@ -274,9 +274,8 @@ fn animation_carryover_committed_fixtures_and_sequence_composites() {
 #[test]
 fn animation_carryover_match_pinned_reference() {
     let cases = corpus::differential_cases();
-    let outputs = native::run("animation-carryover", &cases);
-    let (mut skipped, mut background, mut carries, mut background_carry) = (0, 0, 0, 0);
-    for (case, expected) in cases.iter().zip(&outputs) {
+    let stats = native::parallel_cases("animation-carryover", &cases, |case, expected| {
+        let (mut skipped, mut background, mut carries, mut background_carry) = (0, 0, 0, 0);
         native::compare(case, expected, &case.rust());
         if case.function == "AnimationCarryoverSequence" {
             let mut at = 0;
@@ -295,7 +294,13 @@ fn animation_carryover_match_pinned_reference() {
             }
             assert_eq!(at, expected.len());
         }
-    }
+        [skipped, background, carries, background_carry]
+    });
+    let skipped: usize = stats.iter().map(|counts| counts[0]).sum();
+    let background: usize = stats.iter().map(|counts| counts[1]).sum();
+    let carries: usize = stats.iter().map(|counts| counts[2]).sum();
+    let background_carry: usize = stats.iter().map(|counts| counts[3]).sum();
+
     assert!(skipped > 0 && background > 0 && carries > 0 && background_carry > 0);
     eprintln!(
         "{} carryover helper/sequence cases match scalar C; skip={skipped}, background={background}, carries={carries}, background_carry={background_carry}",

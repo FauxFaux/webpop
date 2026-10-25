@@ -298,8 +298,9 @@ plan keeps this branch as an explicit completion gate against the production
 decoding exclusion above. Ordinary mux cleanup of a full-canvas single frame
 does not need decoding.
 
-The animation plan's 2026-10-25 replan splits the remaining work into shared
-lossy/mixed timestamp caching (4a), keyframe normalization/storage (4b), deferred
+The animation plan's shared VP8L/VP8/mixed timestamp cache and overflow holds
+(4a) are complete; the established lossless cache adapts to the shared owner.
+The remaining work includes keyframe normalization/storage (4b), deferred
 selection (4c), keyframe/overflow integration (4d) and public optimized RGBA
 wiring (4e). It defines acceptance cases before implementation and focused
 comparisons before broad validation. Production decoding remains excluded;

@@ -101,6 +101,9 @@ pub fn encode(case: &Case) -> (Vec<u32>, Vec<u8>) {
 }
 
 pub fn evaluate(case: &Case) -> Vec<u32> {
+    if case.input[2] & 4 != 0 {
+        return super::animation_codec_cache::evaluate(case);
+    }
     assert!(
         case.input[3] < 2,
         "mode 2 is a reference-only completion gate"

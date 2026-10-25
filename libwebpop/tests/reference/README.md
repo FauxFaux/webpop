@@ -28,13 +28,16 @@ Enabling the feature on a library build does not invoke the oracle.
 Large live sweeps use `native::parallel_cases` to split independent cases across
 up to eight workers each, bounded by available CPU parallelism. These include
 public RGBA, encoder streams, predictor/cross-color search and transforms,
-clustering, near-lossless public corpus/options and feedback, and lossy sweeps.
-Each worker runs a separate scalar oracle process and checks its Rust results;
-no encoder-internal threading is enabled. Requests and responses retain worker
+clustering, near-lossless public corpus/options and feedback, lossy sweeps, and
+animation candidate/cache/carryover sweeps. The helper divides a large sweep
+into up to 32 batches, claimed dynamically by the workers so expensive cases
+do not hold up a fixed shard. Each complete frame sequence stays within one
+case. Each batch runs a separate scalar oracle process and checks its Rust
+results; no encoder-internal threading is enabled. Requests and responses retain batch
 suffixes (for example `public-rgba-0.requests.txt`) in `target/native-oracle/`.
 Case coverage and ordered cross-case checks are retained.
 
-Large portable stream, predictor and cross-color checks use
+Large portable RGBA round-trip, stream, predictor and cross-color checks use
 `support::parallel::map`, with the same eight-worker limit. Workers claim cases
 dynamically to balance expensive images, and results retain input order. Keep
 aggregate coverage assertions outside the workers, combining per-case results.

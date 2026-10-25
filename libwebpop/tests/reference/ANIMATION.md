@@ -1154,3 +1154,170 @@ cargo fmt --all -- --check
 The low-level cache remains VP8L-only. Lossy/mixed timestamp caching, fixed
 overflow holds, deferred keyframes, decode-dependent single-frame reconstruction
 and public RGBA Optimized remain open.
+
+## 4a acceptance contract (2026-10-25)
+
+Use the existing AnimationCache adapter with a versioned extended request to
+exercise the original public adds, CacheFrame and FlushFrames. Keep old VP8L
+requests and fixtures unchanged. The shared Rust cache owns timing, pending
+payloads, two original-word canvases and submitted/reversed configs; existing
+VP8L methods adapt to it. Candidate helpers continue to own codec trials.
+
+Named deterministic families: repeat/similarity/mixed skips; saved settings on
+skips (including primary and strength changes); accepted/skip/accepted candidate
+history and disposal; zero/max/threshold durations; hold-before-codec-switch;
+repeated holds and final splits; metadata/wide origins and retry/state errors.
+Observe counters, pending controls, both saved configs and both raw canvases
+after each add and final flush. Compare complete bytes at mode 0 (before
+decode-dependent reconstruction), and mode 1 only for cases with multiple
+output frames. Independent still decoding/compositing must match native all-frame
+decoding at every output boundary and piecewise timing must preserve skips/holds.
+Keyframes, public RGBA policy and production decoding remain unsupported.
+
+## 4a shared cache and codec integration (2026-10-25)
+
+`mux::anim_encode::AnimationCache` is the single keyframe-disabled cache owner.
+It owns the two original-word canvases, two reserved pending slots, submitted
+and reversed `MixedEncodingConfig`, timing, counters and output container.
+`LosslessAnimationCache` preserves its existing methods/status and validation
+ordering through an adapter. New low-level `AnimationCacheOptions` selects
+minimize-size and allow-mixed; per-input `MixedEncodingConfig` selects VP8L or
+VP8 primary and preserves fractional quality, near-lossless strength, exact,
+method, alpha quality and SharpYUV. This low-level route is separate from the
+still-rejected public RGBA `Optimized` policy.
+
+CacheFrame dispatches to existing `set_frame_near_lossless`, `SetFrameMixed` or
+an internal exact-enabled `SetFrameLossy` adapter. The latter passes the already
+supported internal VP8 exact flag to candidate encoding; public still options
+and the established lossy candidate API retain their defaults. No SetFrame
+selection loops were consolidated and no codec algorithm was changed.
+Candidates still own trial generation, controls and masks. CopyIdenticalPixels
+runs before selection; candidate canvas updates dispose the preceding rectangle
+before masked copies. A skip retains accepted original words and the rectangle,
+while saving both incoming configs and counting the submitted input.
+
+IncreasePreviousDuration runs before the incoming config is saved. A sum below
+2^24 updates the pending duration; a sum at/above it preserves that duration and
+appends the fixed blended 1x1 transparent hold carrying the new interval. It uses
+the pin's VP8L payload when the saved primary is VP8L or mixed trials are enabled;
+otherwise it uses the pin's VP8 payload and two-byte ALPH payload. Typed payloads
+are copied fallibly, without RIFF parsing or re-encoding. A hold resets prev_rect
+to `(0,0,1,1)` and flushes before another candidate can exceed the two-slot cache.
+
+### Backward-compatible cache protocol
+
+`AnimationCache` keeps its eight global words and old requests unchanged.
+Global word 2 now has an extended-v1 flag, bit 2. With that flag set, bit 0 is
+minimize-size and bit 1 is allow-mixed. Other global words retain dimensions,
+assembly mode, submitted count, metadata selector and low/high timestamp origin.
+Each extended frame has nine header words:
+
+```text
+duration, stride, primary_lossless, quality_f32_bits, method,
+near_lossless, exact, alpha_quality, sharp_yuv, then ARGB rows
+```
+
+The original ten counter/status words remain the observation prefix. Extended
+observations append two seven-word configs using the existing mixed observer's
+layout `(lossless, quality_bits, method, near_lossless, exact, alpha_quality,
+sharp_yuv)`, followed by pending x/y/dispose/blend, canvas area, and both packed
+raw canvases. Each add therefore returns `29 + 2*width*height` words. After
+final timing/flush, observations have 29 words, absent controls are zero and
+canvas area is zero: Rust releases its canvases on successful finish and the
+C observer omits its retained buffers at this boundary. Both saved configs
+remain observable. A length word and complete file follow all observations.
+The original C public adds and original CacheFrame/FlushFrames/assembly are
+called directly; no selection logic is implemented by the wrapper.
+
+### Named acceptance evidence
+
+`support/animation_codec_cache.rs` supplies these deterministic requests:
+
+- `repeats`: exact repeats and merely similar uniform VP8/mixed inputs, fixed
+  primaries and switches in both directions, per-input settings changes and
+  strength changes. Skips keep the accepted original canvas/rectangle and
+  advance submitted indexes/configs. Portable assertions check those states.
+- `repeats` timing 0/1: merged durations exactly 2^24-1 and 2^24. The latter
+  retains the old duration and emits a 1 ms hold. At the splitting add, the
+  pending state is submitted/emitted/cached/count-since = `(3,1,1,1)` and the
+  previous rectangle is 1x1. Portable tests inspect exact fixed bytes, controls,
+  and hold codec chosen from the preceding saved config, in both switch
+  directions and mixed mode regardless of primary.
+- `repeats` timing 2: maximum intervals, repeated overflow, final-timing split
+  and capacity flushes. A 40-input portable case has 40 maximum-duration output
+  frames with identical decoded canvases; it walks piecewise intervals without
+  expanding a millisecond timeline.
+- `sequence`: existing reviewed original-word/candidate histories, accepted and
+  skipped inputs, method/alpha/SharpYUV/exact changes, skinny/1x1/odd canvases,
+  masks and preceding background disposal. The mixed palette-changing history
+  exercises both codec winners; explicit VP8-only histories exercise lossy
+  carryover. Zero-duration and split-before-change histories are included.
+- API checks: nonzero high timestamp origins, near-u64-limit final timing,
+  supplied metadata, invalid codec/settings/dimensions/timing retries even on
+  repeats, submitted-index errors, preserved finish output, released buffers
+  and permanently closed successful finish. Existing VP8L/near-lossless suites
+  retain the strength-100-does-not-repair-carryover and layout contracts.
+
+The new fixture file contains **52 C-generated cases / 376 submitted inputs**:
+42 compare pre-reconstruction mode 0; ten multi-output histories compare public
+assembly mode 1. Forty-four files retain ANMF and are independently parsed,
+still-decoded and composited with the established exact compositor. Every canvas
+and stored cumulative timestamp matches native WebPAnimDecoder without tolerance.
+The remaining eight files use ordinary full-canvas mux cleanup and receive
+independent still decoding. Across animated fixtures there are 32 preceding
+background disposals and both VP8L and VP8 output, including VP8/ALPH.
+The larger focused sweep contains **1,396 cases**, covering all methods, four
+cache-option combinations and 1x1/skinny/19x17 canvases. Counters, pending
+controls/durations, both saved configs, both raw canvases and complete files
+match pinned scalar C in debug and release. Existing 1,680 VP8L cache and 4,893
+near-lossless cases also match unchanged; old fixture files were not regenerated.
+
+Reference-only reconstruction requests remain in the existing cache suite and
+are excluded from public-assembly parity claims. Keyframes, public optimized
+RGBA integration, CLI work and decode-dependent single-frame reconstruction
+remain open. Production decoding and the upstream checkout are unchanged.
+
+### Provenance, growth and validation
+
+Before generation, reviewed the clean upstream pin, the wrapper changes and
+local tools: rustc `1.101.0-nightly (7189d39d9 2026-10-22)`, GCC 15.2.0 and CMake
+4.2.3. The scalar/unthreaded CMake build and complete actual compiler flags are
+recorded in `target/native-oracle/provenance.txt`. Regenerate only the new file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_codec_cache animation_codec_cache_fixtures_match_pinned_reference -- --nocapture
+```
+
+Package growth, excluding concurrent shared test-harness changes: production
++248/-72 lines (net +176); test/evaluator/oracle +729/-5 lines (683 lines in two
+new Rust files); fixtures 52 records / 2,379,962 bytes including requests and raw
+canvas observations. Documentation is counted separately. Implementation/review
+was approximately nine minutes of interactive work (estimate, excluding command
+waits); build and test timings below are measured separately from command logs.
+
+Focused validation passed:
+
+```sh
+cargo test -p libwebpop --test animation_cache --test animation_near_lossless
+cargo test -p libwebpop --features native-oracle --test animation_codec_cache --test animation_cache --test animation_near_lossless --test animation_lossy_candidates --test animation_lossy_carryover --test animation_mixed -- --nocapture
+```
+
+The focused native command took 10.12 s wall, including 1.94 s Cargo build and
+8.18 s test/oracle execution. Integration gate results are recorded below.
+
+Final integration gate, all passed:
+
+| Command | Cargo build | Post-build wall (tests/oracle/launches) | Total wall |
+| --- | ---: | ---: | ---: |
+| `cargo build -p libwebpop --lib` | 0.35 s | — | 0.36 s |
+| `cargo test -p libwebpop --release --features native-oracle animation -- --nocapture` | 28.00 s | 8.97 s | 36.97 s |
+| `cargo test -p cwebpop` | 1.75 s | 0.86 s | 2.61 s |
+| `cargo test --workspace` | 25.32 s | 14.50 s | 39.82 s |
+| `cargo test --workspace --features native-oracle -- --nocapture` | 28.35 s | 50.85 s | 79.20 s |
+| `cargo fmt --all -- --check` | — | passed | — |
+
+These timings describe this validation run, not a resource/performance baseline.
+The portable workspace run passed 323 tests (two manual baselines ignored); the
+native workspace run passed 459 tests (four manual baselines ignored). Warnings
+about an unused shared native-test helper in unrelated targets remain. Final
+`git diff --check` passed and the upstream checkout remained clean.

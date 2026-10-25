@@ -61,7 +61,7 @@ impl MixedEncodingConfig {
         }
     }
 
-    fn lossless_options(&self) -> LosslessOptions {
+    pub(super) fn lossless_options(&self) -> LosslessOptions {
         LosslessOptions {
             quality: self.codec.quality as u32,
             method: self.codec.method,
@@ -69,7 +69,7 @@ impl MixedEncodingConfig {
         }
     }
 
-    fn validate(&self) -> Result<u32, WebPEncodingError> {
+    pub(super) fn validate(&self) -> Result<u32, WebPEncodingError> {
         // Both codecs must be valid before palette heuristics or an empty-frame
         // shortcut can bypass encoding. VP8L's config uses integer effort.
         LossyConfig::from_options(&self.codec)?;
