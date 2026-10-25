@@ -71,6 +71,7 @@ pub fn encode_method(a: &[u32], method: i32, method_trace: bool) -> (Vec<u32>, V
     enc.max_i4_header_bits = a[4] as i32;
     VP8EncAnalyze(&mut enc, &pic);
     let mut out = Vec::new();
+    let mut calls = Vec::new();
     let bw = if !enc.use_tokens {
         VP8EncLoopWithObserver(&mut enc, &pic, quality, u64::from(a[5]), |enc, event| {
             if a[7] == 0 {
@@ -102,6 +103,18 @@ pub fn encode_method(a: &[u32], method: i32, method_trace: bool) -> (Vec<u32>, V
                 return;
             }
             match event {
+                VP8TokenLoopEvent::Reconstruct {
+                    reconstruction: r, ..
+                } => {
+                    if method_trace && method >= 5 {
+                        calls.extend([
+                            u32::from(r.kind),
+                            u32::from(r.trellis),
+                            r.block as u32,
+                            r.mode as u32,
+                        ]);
+                    }
+                }
                 VP8TokenLoopEvent::PassStart { pass } => {
                     out.extend([0, pass as u32]);
                     state(enc, &mut out);
@@ -117,6 +130,10 @@ pub fn encode_method(a: &[u32], method: i32, method_trace: bool) -> (Vec<u32>, V
                     iterator: it,
                     ..
                 } => {
+                    if method_trace && method >= 5 {
+                        out.extend([6, pass as u32, index as u32, calls.len() as u32 / 4]);
+                        out.append(&mut calls);
+                    }
                     macroblock_words(enc, &mut out, pass, index, rd, it, method_trace);
                 }
                 VP8TokenLoopEvent::PassEnd {

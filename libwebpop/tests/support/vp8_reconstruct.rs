@@ -63,6 +63,9 @@ pub fn dc_state(a: &[u32]) -> (VP8Encoder, VP8EncIterator, [[i16; 16]; 8]) {
     (enc, it, tmp)
 }
 pub fn initialized(a: &[u32]) -> (VP8Encoder, VP8EncIterator) {
+    initialized_with_method(a, 4)
+}
+pub fn initialized_with_method(a: &[u32], method: i32) -> (VP8Encoder, VP8EncIterator) {
     let mut enc = VP8Encoder::new(32, 32, a[3] & 4 != 0).unwrap();
     enc.dq_uv_dc = a[6] as i32;
     enc.dq_uv_ac = a[7] as i32;
@@ -79,6 +82,7 @@ pub fn initialized(a: &[u32]) -> (VP8Encoder, VP8EncIterator) {
     for (i, s) in enc.dqm.iter_mut().enumerate() {
         s.quant = ((a[1] + 17 * i as u32) % 128) as i32;
     }
+    enc.config.method = method;
     SetupMatrices(&mut enc);
     for (i, s) in enc.dqm.iter_mut().enumerate() {
         s.max_edge = 1 + i as i32;
@@ -112,16 +116,26 @@ pub fn run(
     rd: &mut VP8ModeScore,
     dst: &mut [u8],
 ) -> u32 {
+    run_with_observer(a, enc, it, rd, dst, &mut |_, _| {})
+}
+pub fn run_with_observer(
+    a: &[u32],
+    enc: &mut VP8Encoder,
+    it: &mut VP8EncIterator,
+    rd: &mut VP8ModeScore,
+    dst: &mut [u8],
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> u32 {
     match a[0] {
         0 => {
             VP8MakeLuma16Preds(it, enc);
-            let nz = ReconstructIntra16(it, enc, rd, dst, a[4] as usize);
+            let nz = ReconstructIntra16WithObserver(it, enc, rd, dst, a[4] as usize, observe);
             StoreMaxDelta(&mut enc.dqm[a[2] as usize], &rd.y_dc_levels);
             nz
         }
         2 => {
             VP8MakeChroma8Preds(it, enc);
-            ReconstructUV(it, enc, rd, &mut dst[U_OFF_ENC..], a[4] as usize)
+            ReconstructUVWithObserver(it, enc, rd, &mut dst[U_OFF_ENC..], a[4] as usize, observe)
         }
         1 => {
             VP8IteratorStartI4(it, enc);
@@ -130,13 +144,14 @@ pub fn run(
             }
             MakeIntra4Preds(it);
             let offset = VP8Scan[it.i4];
-            u32::from(ReconstructIntra4(
+            u32::from(ReconstructIntra4WithObserver(
                 it,
                 enc,
                 &mut rd.y_ac_levels[it.i4],
                 &it.yuv_in[offset..],
                 &mut dst[offset..],
                 a[4] as usize,
+                observe,
             ))
         }
         3 => {
@@ -145,13 +160,14 @@ pub fn run(
             for i in 0..16 {
                 MakeIntra4Preds(it);
                 let offset = VP8Scan[i];
-                nz |= u32::from(ReconstructIntra4(
+                nz |= u32::from(ReconstructIntra4WithObserver(
                     it,
                     enc,
                     &mut rd.y_ac_levels[i],
                     &it.yuv_in[offset..],
                     &mut dst[offset..],
                     (a[4] as usize + i) % 10,
+                    observe,
                 )) << i;
                 VP8IteratorRotateI4(it, dst);
             }
@@ -183,33 +199,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             errors(&it, enc.top_derr.as_ref().unwrap(), &mut out);
             out
         }
-        "VP8Reconstruct" => {
-            let (mut enc, mut it) = initialized(a);
-            let mut rd = seed_score();
-            let mut dst = [0xa5; 512];
-            let mut out = vec![run(a, &mut enc, &mut it, &mut rd, &mut dst)];
-            score(&rd, &mut out);
-            out.extend(dst.map(u32::from));
-            out.extend(it.yuv_p.map(u32::from));
-            // C retains its unused local storage even without a top_derr pointer.
-            let mut dummy = [[[11, 12], [13, 14]], [[15, 16], [17, 18]]];
-            dummy[it.x] =
-                std::array::from_fn(|ch| std::array::from_fn(|k| a[8 + 2 * ch + k] as i32 as i8));
-            errors(&it, enc.top_derr.as_deref().unwrap_or(&dummy), &mut out);
-            if a[0] == 2 && enc.top_derr.is_some() {
-                StoreDiffusionErrors(&mut it, &mut enc, &rd);
-            }
-            errors(&it, enc.top_derr.as_deref().unwrap_or(&dummy), &mut out);
-            out.extend(it.top_nz.map(u32::from));
-            out.extend(it.left_nz.map(u32::from));
-            out.extend([it.i4 as u32, it.i4_top as u32]);
-            out.extend(it.i4_boundary.map(u32::from));
-            super::vp8_analysis::mbs(&enc, &mut out);
-            out.extend(enc.preds.iter().map(|&v| u32::from(v)));
-            out.extend(enc.nz);
-            out.extend(enc.dqm.iter().map(|s| s.max_edge as u32));
-            out
-        }
+        "VP8Reconstruct" => evaluate_with_method(a, 4),
         _ => unreachable!(),
     }
 }
@@ -380,4 +370,48 @@ pub fn fixture_cases() -> Vec<Case> {
         }
     }
     cases
+}
+
+pub fn evaluate_with_method(a: &[u32], method: i32) -> Vec<u32> {
+    let (mut enc, mut it) = initialized_with_method(a, method);
+    let mut rd = seed_score();
+    let mut dst = [0xa5; 512];
+    let mut calls = Vec::new();
+    if method >= 5 {
+        it.do_trellis = true;
+        libwebpop::enc::cost_enc::VP8CalculateLevelCosts(&mut enc.proba);
+    }
+    let mask = run_with_observer(a, &mut enc, &mut it, &mut rd, &mut dst, &mut |_, r| {
+        calls.extend([
+            u32::from(r.kind),
+            u32::from(r.trellis),
+            r.block as u32,
+            r.mode as u32,
+        ]);
+    });
+    let mut out = vec![mask];
+    score(&rd, &mut out);
+    out.extend(dst.map(u32::from));
+    out.extend(it.yuv_p.map(u32::from));
+    // C retains its unused local storage even without a top_derr pointer.
+    let mut dummy = [[[11, 12], [13, 14]], [[15, 16], [17, 18]]];
+    dummy[it.x] = std::array::from_fn(|ch| std::array::from_fn(|k| a[8 + 2 * ch + k] as i32 as i8));
+    errors(&it, enc.top_derr.as_deref().unwrap_or(&dummy), &mut out);
+    if a[0] == 2 && enc.top_derr.is_some() {
+        StoreDiffusionErrors(&mut it, &mut enc, &rd);
+    }
+    errors(&it, enc.top_derr.as_deref().unwrap_or(&dummy), &mut out);
+    out.extend(it.top_nz.map(u32::from));
+    out.extend(it.left_nz.map(u32::from));
+    out.extend([it.i4 as u32, it.i4_top as u32]);
+    out.extend(it.i4_boundary.map(u32::from));
+    super::vp8_analysis::mbs(&enc, &mut out);
+    out.extend(enc.preds.iter().map(|&v| u32::from(v)));
+    out.extend(enc.nz);
+    out.extend(enc.dqm.iter().map(|s| s.max_edge as u32));
+    if method >= 5 {
+        out.push(calls.len() as u32 / 4);
+        out.extend(calls);
+    }
+    out
 }

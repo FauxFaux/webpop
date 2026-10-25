@@ -17,7 +17,7 @@ fn check_reference(case: &Case, output: &[u32]) {
         }
         "VP8MethodLoopFrame" => {
             let file = methods::check_loop(case, output);
-            if case.input[0] <= 4 {
+            if case.input[0] <= 6 {
                 assert_eq!(output, methods::loop_output(case));
             }
             if case.input[0] == 4 {

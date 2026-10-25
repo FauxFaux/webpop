@@ -2191,3 +2191,114 @@ and 593 first-position EOB winners, 611 nonzero winners from sharpened-zero
 inputs and 67,226 upward-candidate winners. Every inherited fixture remains
 unchanged, including method-4 complete files and the methods-0–3 drivers.
 The upstream checkout remains clean.
+
+## Remaining lossy methods: milestone 6
+
+Completed 2026-10-25 after merged revision `07c8021`; milestone-5 trellis leaves
+are committed at `f91122b`. `ReconstructIntra16` now quantizes AC blocks with
+raster-order local nonzero contexts when trellis is enabled; WHT/DC stays
+scalar. `ReconstructIntra4` uses the incoming block contexts for its trellis.
+`SimpleQuantize` reconstructs the already-selected modes and changes only the
+pin's levels, nonzero mask, reconstruction and scratch/diffusion fields.
+It preserves RD scores, mode selections, packed contexts, maximum-edge state
+and committed diffusion. In particular, its I4 pass keeps the incoming nonzero
+bytes throughout all sixteen blocks, and its UV reconstruction does not commit
+diffusion a second time. UV reconstruction remains scalar regardless of the
+iterator's trellis flag.
+
+`VP8Decimate` implements every mapped RD level. Method 5 selects modes with
+basic RD, enables trellis and requantizes the selected modes; method 6 enables
+trellis during candidate reconstruction. The token driver accepts methods 3–6,
+retaining probability refresh, retry, token-reset and no-skip behavior. Public
+lossy options/CLI and animation routes still select method 4 until method-
+dependent alpha and the public boundary are completed in milestones 7/8.
+
+Generic no-op production observers expose reconstruction invocations for tests;
+they add no per-encoder reporting state or allocation. Each record contains
+`(kind, do_trellis, block_index, mode)`: kinds 0/1/2 are luma16/luma4/scalar UV;
+block index is meaningful only for luma4. The flag is the iterator's setting;
+UV remains scalar even when it is true. The C wrapper intercepts the original
+forward-transform calls in the included `quant_enc.c`, identifying invocations
+from their source/prediction pointers without copying any reconstruction,
+quantization or search algorithm.
+
+New logical requests preserve the old layouts:
+
+- `VP8TrellisReconstruct`: method 5/6 followed by the existing 634-word
+  `VP8Reconstruct` input. It initializes default probabilities/level costs and
+  enables trellis. Output is the old complete reconstruction state followed
+  by invocation count and four words per invocation. Both methods use the
+  same matrices at this boundary; both are tested for propagation.
+- `VP8TrellisSearch`: method 5/6 followed by the existing 720-word
+  `VP8ModeSearch` input. Stages 0/1/3/4 retain their existing meaning, with
+  candidate trellis enabled only for method 6; stage 2 runs the selected
+  method's full `VP8Decimate`. Stage 5 performs basic mode selection followed
+  by selected-mode trellis quantization. Stage 6 calls `SimpleQuantize` on
+  seeded scores/modes: input word 0 selects I4/I16, and word 4 selects the
+  I16 prediction and UV mode `(word4+1)%4`; I4 uses the supplied prediction
+  map. Outputs append invocation count/records to the old normalized state.
+  Stage 5 normalizes unused fields like stage 2; stage 6 compares every seeded
+  score field because it copies no uninitialized candidates.
+- `VP8MethodLoopTrace` now also accepts methods 5/6. Their detailed streams add
+  tag 6 before each macroblock's tag 2 record: `(scan_ordinal, macroblock_index,
+  invocation_count)`, then invocation records. Other tags, old methods and
+  compact observations are unchanged. Only these new detailed traces call
+  the included original decimator to observe candidates. Normal public C
+  encodes and compact loop observations retain the normally linked decimator.
+
+The 56 `fixtures/lossy_trellis_modes.txt` references were captured before the
+Rust branches were ported: 16 reconstruction, 32 search/selected-mode and eight
+full frame traces. All inherited fixture files remain unchanged. The native
+corpus adds 17,424 exact reconstruction/search comparisons (12,032 candidates
+and 5,392 search/selected-mode states), 662 detailed loop comparisons and 692
+opaque files against normal public C with independent decoding. It covers
+quantizer/mode/context/border/diffusion combinations, probability extremes,
+flat/noisy/mixed sources, partial I4 early returns, header limits, refresh and
+retry boundaries, fractional quality, skinny maximum dimensions, 193x129
+images and the committed real-image corpus. The existing 336 compact method
+traces now compare exact Rust observations for all seven methods.
+
+Independent checks compose 854 luma16 reconstructions with a separate Hadamard
+matrix model for WHT rounding and scalar DC, plus individually quantized AC
+blocks using geometric north/west contexts. They observe 317 zero blocks and
+444 blocks with nonzero AC. Another 534 selected-mode checks (192 I4, 342 I16)
+verify unchanged scores, modes, prediction maps, packed contexts, maximum edges
+and committed diffusion. Sixty-four paired RD comparisons preserve method-5
+basic decisions, with 32 changed coefficient sets after selected quantization;
+method-6 candidate trellis changes mode decisions in 26 of those cases.
+
+Invocation-order checks inspect 2,368 macroblocks, including 631 selected I16
+and 553 selected I4 finishes for method 5. They observe 22 probability refreshes,
+two retries and 1,598 macroblocks using changed fitted probabilities. At refresh,
+independently rebuilt level costs equal the encoder's costs before the next
+candidate; detailed C states compare those tables' hashes, and every subsequent
+macroblock's levels, reconstruction, score, contexts and residual bytes.
+The inherited standalone trellis suite still exhaustively checks short paths,
+strict ties, saturation and scalar-independent coefficient quantization.
+
+The source/toolchain review is unchanged: clean pin
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake 4.2.3,
+Release `-O3 -DNDEBUG`, scalar dispatch, threading off, token buffering enabled,
+Rust 1.101.0-nightly `7189d39d9` (2026-10-22). Review provenance before
+regenerating only the new fixture file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle \
+  --test lossy_trellis_modes trellis_mode_fixtures_match_pinned_c -- --nocapture
+cargo test -p libwebpop --test lossy_trellis_modes
+cargo test -p libwebpop --features native-oracle \
+  --test lossy_trellis_modes --test lossy_methods -- --nocapture
+cargo test -p libwebpop --release --features native-oracle \
+  --test lossy_trellis_modes --test lossy_trellis --test lossy_reconstruct \
+  --test lossy_search --test lossy_loop --test lossy_method_loop \
+  --test lossy_methods -- --nocapture
+```
+
+Validation passed: full workspace `cargo test` and
+`cargo test --features native-oracle -- --nocapture`; release native suites
+`lossy_trellis_modes` (10 tests), `lossy_trellis` (7), `lossy_reconstruct` (8),
+`lossy_search` (8), `lossy_loop` (9), `lossy_method_loop` (6) and `lossy_methods`
+(6); the production library build; `cargo fmt --all -- --check`; and
+`git diff --check`. All inherited method-4, lossless, near-lossless, alpha,
+SharpYUV and merged animation fixtures remain unchanged. The upstream checkout
+is clean.

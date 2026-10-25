@@ -577,6 +577,11 @@ pub fn VP8EncLoopWithObserver(
 /// Observation points for subgraph comparisons. Borrowed state is read-only;
 /// normal encoding instantiates the driver with a no-op observer.
 pub enum VP8TokenLoopEvent<'a> {
+    Reconstruct {
+        pass: usize,
+        index: usize,
+        reconstruction: VP8Reconstruction,
+    },
     PassStart {
         pass: usize,
     },
@@ -602,7 +607,7 @@ pub enum VP8TokenLoopEvent<'a> {
     },
 }
 
-/// Buffered basic-RD methods, one configured pass, no target search, skip syntax or autofilter.
+/// Buffered RD methods, one configured pass, no target search, skip syntax or autofilter.
 /// Header-budget retries remain part of this default path.
 pub fn VP8EncTokenLoop(
     enc: &mut VP8Encoder,
@@ -622,7 +627,7 @@ pub fn VP8EncTokenLoopWithObserver(
     header_limit: u64,
     mut observe: impl FnMut(&VP8Encoder, VP8TokenLoopEvent<'_>),
 ) -> Result<VP8BitWriter, TryReserveError> {
-    assert!(matches!(enc.config.method, 3 | 4));
+    assert!(matches!(enc.config.method, 3..=6));
     assert!(enc.use_tokens);
     let rd_opt = enc.rd_opt_level;
     assert!(!enc.proba.use_skip_proba && quality.is_finite());
@@ -657,7 +662,16 @@ pub fn VP8EncTokenLoopWithObserver(
                 count = max_count as i32;
             }
             let mut rd = VP8ModeScore::default();
-            VP8Decimate(&mut it, enc, &mut rd, rd_opt);
+            VP8DecimateWithObserver(&mut it, enc, &mut rd, rd_opt, &mut |enc, reconstruction| {
+                observe(
+                    enc,
+                    VP8TokenLoopEvent::Reconstruct {
+                        pass,
+                        index,
+                        reconstruction,
+                    },
+                );
+            });
             RecordTokens(&mut it, enc, &rd, &mut tokens)?;
             header_cost += rd.H as u64;
             distortion += rd.D as u64;

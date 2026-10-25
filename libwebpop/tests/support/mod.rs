@@ -36,6 +36,7 @@ pub mod vp8_syntax;
 pub mod vp8_tokens;
 pub mod vp8_transforms;
 pub mod vp8_trellis;
+pub mod vp8_trellis_modes;
 pub mod vp8_yuv;
 
 use libwebpop::dsp::{lossless::*, lossless_common::*, lossless_enc::*};
@@ -66,6 +67,9 @@ impl Case {
             | "VP8DistortionSearch"
             | "VP8FastSearchFrame" => vp8_fast::evaluate(self),
             "VP8DirectCoeffs" | "VP8DirectResiduals" | "VP8SkipProba" => vp8_direct::evaluate(self),
+            "VP8TrellisReconstruct" | "VP8TrellisSearch" | "VP8MethodLoopTrace" => {
+                vp8_trellis_modes::evaluate(self)
+            }
             "VP8TrellisScore" | "VP8TrellisBlock" => vp8_trellis::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),

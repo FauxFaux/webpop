@@ -99,8 +99,15 @@ static void ObserveCosts(VP8EncProba* p) {
     Word(1); Word(loop_pass); Word(observed_it->x+observed_it->y*observed_enc->mb_w); State(observed_enc);
   }
 }
+int WebpopQuantDecimateObserved(VP8EncIterator*,VP8ModeScore*,VP8RDLevel,uint32_t*,unsigned*);
 static int ObserveDecimate(VP8EncIterator* it, VP8ModeScore* rd, VP8RDLevel level) {
-  int result=VP8Decimate(it,rd,level);
+  int result;
+  if(method_trace && it->enc->method>=5) {
+    uint32_t calls[256*4];unsigned count,i;
+    result=WebpopQuantDecimateObserved(it,rd,level,calls,&count);
+    Word(6);Word(loop_pass);Word(it->x+it->y*it->enc->mb_w);Word(count);
+    for(i=0;i<4*count;++i) Word(calls[i]);
+  } else result=VP8Decimate(it,rd,level);
   if(method_observing) {
     const unsigned pass=method_pass_count-1;
     method_passes[pass].level=level;

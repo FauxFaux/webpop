@@ -1,6 +1,10 @@
 // Access pinned static helpers; normal VP8SetSegmentParams still comes from
 // the linked library. No quantization algorithms are copied into this wrapper.
 #include "src/enc/cost_enc.h"
+static void ObserveQuantTransform(const uint8_t*, const uint8_t*, int16_t*);
+static void ObserveQuantTransform2(const uint8_t*, const uint8_t*, int16_t*);
+#define VP8FTransform ObserveQuantTransform
+#define VP8FTransform2 ObserveQuantTransform2
 static int ObserveTrellisLevelCost(const uint16_t*, int);
 #define VP8LevelCost ObserveTrellisLevelCost
 #define VP8SetSegmentParams WebpopIncludedSetSegmentParams
@@ -11,9 +15,49 @@ static int ObserveTrellisLevelCost(const uint16_t*, int);
 #define VP8UVModeOffsets WebpopQuantUVModeOffsets
 #define VP8Scan WebpopQuantScan
 #include "src/enc/quant_enc.c"
+#undef VP8FTransform
+#undef VP8FTransform2
 #undef VP8LevelCost
 #undef VP8SetSegmentParams
 void VP8SetSegmentParams(VP8Encoder*, float);
+
+// Record reconstruction invocation sites without copying candidate algorithms.
+static const VP8EncIterator* quant_it;
+static unsigned quant_count;
+static uint32_t quant_calls[256*4];
+static void QuantCall(unsigned kind, const uint8_t* ref) {
+  unsigned mode=0, limit=(kind==1)?10:4;
+  if (!quant_it) return;
+  for (;mode<limit;++mode) {
+    const unsigned offset=(kind==0)?VP8I16ModeOffsets[mode]:
+                          (kind==1)?VP8I4ModeOffsets[mode]:VP8UVModeOffsets[mode];
+    if (ref==quant_it->yuv_p+offset) break;
+  }
+  if(mode==limit || quant_count>=256) abort();
+  quant_calls[4*quant_count+0]=kind;
+  quant_calls[4*quant_count+1]=quant_it->do_trellis;
+  quant_calls[4*quant_count+2]=(kind==1)?quant_it->i4:0;
+  quant_calls[4*quant_count+3]=mode;
+  ++quant_count;
+}
+static void ObserveQuantTransform(const uint8_t* src,const uint8_t* ref,int16_t* out) {
+  if(quant_it) QuantCall(1,ref);
+  VP8FTransform(src,ref,out);
+}
+static void ObserveQuantTransform2(const uint8_t* src,const uint8_t* ref,int16_t* out) {
+  if(quant_it && src==quant_it->yuv_in) QuantCall(0,ref);
+  if(quant_it && src==quant_it->yuv_in+U_OFF_ENC) QuantCall(2,ref);
+  VP8FTransform2(src,ref,out);
+}
+int WebpopQuantDecimateObserved(VP8EncIterator* it,VP8ModeScore* rd,VP8RDLevel level,
+                               uint32_t* calls,unsigned* count) {
+  int result;
+  quant_it=it;quant_count=0;
+  result=WebpopQuantDecimate(it,rd,level);
+  quant_it=NULL;*count=quant_count;
+  memcpy(calls,quant_calls,4*quant_count*sizeof(*calls));
+  return result;
+}
 
 static const VP8Encoder* trellis_enc;
 static unsigned trellis_type, trellis_count;
@@ -215,13 +259,13 @@ unsigned WebpopDCError(const uint32_t* in, uint32_t* out) {
   StoreDiffusionErrors(&it, &rd);
   return n + Errors(&it, top, out+n);
 }
-unsigned WebpopReconstruct(const uint32_t* in, uint32_t* out) {
+static unsigned Reconstruct(const uint32_t* in, uint32_t* out, unsigned method) {
   VP8Encoder enc = {0}; WebPConfig config; VP8EncIterator it = {0}; VP8ModeScore rd;
   VP8MBInfo mbs[4] = {{0}}; uint8_t preds[99] = {0}, tops[64], dst[YUV_SIZE_ENC];
   uint32_t nz[3] = {0x123456,0xabcdef,0x765432}; DError top[2];
   unsigned i, ch, k, at = 16, n = 0; int mask = 0;
   if (!WebPConfigInit(&config)) abort();
-  enc.config = &config; enc.method = 4; enc.num_parts = 1;
+  enc.config = &config; enc.method = method; enc.num_parts = 1;
   enc.mb_w = enc.mb_h = 2; enc.preds_w = 9;
   enc.mb_info = mbs; enc.preds = preds+10; enc.nz = nz+1;
   enc.y_top = tops; enc.uv_top = tops+32;
@@ -245,6 +289,10 @@ unsigned WebpopReconstruct(const uint32_t* in, uint32_t* out) {
     top[it.x][ch][k] = (int8_t)in[8+2*ch+k]; it.left_derr[ch][k] = (int8_t)in[12+2*ch+k];
   }
   memset(it.yuv_p, 0xa5, PRED_SIZE_ENC); memset(dst, 0xa5, sizeof(dst)); SeedScore(&rd);
+  if(method>=5) {
+    VP8DefaultProbas(&enc); enc.proba.dirty=1; VP8CalculateLevelCosts(&enc.proba);
+    it.do_trellis=1;quant_it=&it;quant_count=0;
+  }
   if (in[0] == 0) {
     VP8MakeLuma16Preds(&it); mask = ReconstructIntra16(&it, &rd, dst, in[4]);
     StoreMaxDelta(enc.dqm+in[2], rd.y_dc_levels);
@@ -280,20 +328,26 @@ unsigned WebpopReconstruct(const uint32_t* in, uint32_t* out) {
   for (i = 0; i < 81; ++i) out[n++] = preds[i];
   for (i = 0; i < 3; ++i) out[n++] = nz[i];
   for (i = 0; i < 4; ++i) out[n++] = enc.dqm[i].max_edge;
+  if(method>=5) {
+    quant_it=NULL;out[n++]=quant_count;
+    memcpy(out+n,quant_calls,4*quant_count*sizeof(*out));n+=4*quant_count;
+  }
   return n;
 }
+unsigned WebpopReconstruct(const uint32_t* in,uint32_t* out) { return Reconstruct(in,out,4); }
+unsigned WebpopTrellisReconstruct(const uint32_t* in,uint32_t* out) { return Reconstruct(in+1,out,in[0]); }
 
 // Compare defined search state; automatic C candidate structs leave unrelated
 // mode/UV fields uninitialized, so those fields are omitted or zero-normalized.
 #undef VP8Decimate
 int VP8Decimate(VP8EncIterator*, VP8ModeScore*, VP8RDLevel);
-static unsigned ModeSearch(const uint32_t* in, uint32_t* out, const uint32_t* fast) {
+static unsigned ModeSearch(const uint32_t* in, uint32_t* out, const uint32_t* fast, unsigned method) {
   VP8Encoder enc = {0}; WebPConfig config; VP8EncIterator it = {0};
   VP8ModeScore rd, logical = {0}; VP8MBInfo mbs[4] = {{0}};
   uint8_t preds[99] = {0}, tops[64]; uint32_t nz[3]; DError top[2];
   unsigned i, ch, k, at = 16, n = 0, stage = in[634]; int result = 0;
   if (!WebPConfigInit(&config)) abort();
-  enc.config = &config; enc.method = 4; enc.num_parts = 1;
+  enc.config = &config; enc.method = method; enc.num_parts = 1;
   enc.mb_w = enc.mb_h = 2; enc.preds_w = 9; enc.mb_info = mbs;
   enc.preds = preds+10; enc.nz = nz+1; nz[0] = 0x123456;
   enc.y_top = tops; enc.uv_top = tops+32; enc.segment_hdr.num_segments = 4;
@@ -323,6 +377,7 @@ static unsigned ModeSearch(const uint32_t* in, uint32_t* out, const uint32_t* fa
   memset(it.yuv_p, 0xa5, PRED_SIZE_ENC); memset(it.yuv_out, 0x5a, YUV_SIZE_ENC); memset(it.yuv_out2, 0xc3, YUV_SIZE_ENC);
   SeedScore(&rd); rd.score = in[637] | ((int64_t)in[638]<<32);
   VP8MakeLuma16Preds(&it); VP8MakeChroma8Preds(&it);
+  if(method>=5) { it.do_trellis=(method==6);quant_it=&it;quant_count=0; }
   if (fast) {
     it.mb->type = fast[1]; it.mb->uv_mode = fast[2];
     if (fast[7]) result = VP8Decimate(&it, &rd, RD_OPT_NONE);
@@ -330,20 +385,29 @@ static unsigned ModeSearch(const uint32_t* in, uint32_t* out, const uint32_t* fa
   } else if (stage == 0 || stage == 1) {
     PickBestIntra16(&it, &rd);
     if (stage == 1) {for (i = 0; i < 16; ++i) rd.modes_i4[i] = i%10; result = PickBestIntra4(&it, &rd);}
-  } else if (stage == 2) result = VP8Decimate(&it, &rd, RD_OPT_BASIC);
+  } else if (stage == 2) result = (method>=5)?
+      WebpopQuantDecimate(&it,&rd,(method==5)?RD_OPT_TRELLIS:RD_OPT_TRELLIS_ALL):VP8Decimate(&it, &rd, RD_OPT_BASIC);
   else if (stage == 3) PickBestUV(&it, &rd);
   else if (stage == 4) result = PickBestIntra4(&it, &rd);
-  else abort();
+  else if(stage==5 || stage==6) {
+    if(stage==5) {
+      it.do_trellis=0;PickBestIntra16(&it,&rd);PickBestIntra4(&it,&rd);PickBestUV(&it,&rd);
+    } else {
+      it.mb->type=in[0];it.mb->uv_mode=(in[4]+1)%4;
+      if(it.mb->type) VP8SetIntra16Mode(&it,in[4]);
+    }
+    it.do_trellis=1;SimpleQuantize(&it,&rd);
+  } else abort();
   CopyScore(&logical, &rd);
   logical.mode_i16 = rd.mode_i16;
   memcpy(logical.y_dc_levels, rd.y_dc_levels, sizeof(logical.y_dc_levels));
   memcpy(logical.y_ac_levels, rd.y_ac_levels, sizeof(logical.y_ac_levels));
-  if (stage == 1 || stage == 4 || (stage == 2 && it.mb->type == 0)) memcpy(logical.modes_i4, rd.modes_i4, sizeof(logical.modes_i4));
-  if (stage == 2 || stage == 3) {
+  if (stage == 1 || stage == 4 || ((stage == 2 || stage==5) && it.mb->type == 0)) memcpy(logical.modes_i4, rd.modes_i4, sizeof(logical.modes_i4));
+  if (stage == 2 || stage == 3 || stage==5) {
     logical.mode_uv = rd.mode_uv; memcpy(logical.uv_levels, rd.uv_levels, sizeof(logical.uv_levels));
     if (enc.top_derr) memcpy(logical.derr, rd.derr, sizeof(logical.derr));
   }
-  if (fast) logical = rd;  // Every field was seeded; non-RD copies no undefined candidates.
+  if (fast || stage==6) logical = rd;  // Every field was seeded; non-RD copies no undefined candidates.
   out[n++] = result; n += WebpopModeScore(&logical, out+n);
   for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = it.yuv_out[i];
   for (i = 0; i < YUV_SIZE_ENC; ++i) out[n++] = it.yuv_out2[i];
@@ -357,13 +421,20 @@ static unsigned ModeSearch(const uint32_t* in, uint32_t* out, const uint32_t* fa
   for (i = 0; i < 81; ++i) out[n++] = preds[i];
   for (i = 0; i < 3; ++i) out[n++] = nz[i];
   for (i = 0; i < 4; ++i) out[n++] = enc.dqm[i].max_edge;
+  if(method>=5) {
+    quant_it=NULL;out[n++]=quant_count;
+    memcpy(out+n,quant_calls,4*quant_count*sizeof(*out));n+=4*quant_count;
+  }
   return n;
 }
+unsigned WebpopTrellisSearch(const uint32_t* in,uint32_t* out) {
+  return ModeSearch(in+1,out,NULL,in[0]);
+}
 unsigned WebpopModeSearch(const uint32_t* in, uint32_t* out) {
-  return ModeSearch(in, out, NULL);
+  return ModeSearch(in, out, NULL,4);
 }
 unsigned WebpopDistortionSearch(const uint32_t* in, uint32_t* out) {
-  return ModeSearch(in+8, out, in);
+  return ModeSearch(in+8, out, in,4);
 }
 unsigned WebpopFlat(const uint32_t* in, uint32_t* out) {
   uint8_t src[512]; int16_t levels[256]; unsigned i;

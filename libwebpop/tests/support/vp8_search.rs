@@ -5,7 +5,10 @@ use libwebpop::{
 };
 
 pub fn initialized(a: &[u32]) -> (VP8Encoder, VP8EncIterator) {
-    let (mut enc, mut it) = reconstruction::initialized(a);
+    initialized_with_method(a, 4)
+}
+pub fn initialized_with_method(a: &[u32], method: i32) -> (VP8Encoder, VP8EncIterator) {
+    let (mut enc, mut it) = reconstruction::initialized_with_method(a, method);
     enc.max_i4_header_bits = a[635] as i32;
     enc.preds = a[639..720].iter().map(|&v| v as u8).collect();
     it.top_nz = std::array::from_fn(|i| ((i + 1) % 2) as u8);
@@ -48,25 +51,62 @@ pub fn run(
     it: &mut VP8EncIterator,
     rd: &mut VP8ModeScore,
 ) -> bool {
+    run_with_observer(a, enc, it, rd, &mut |_, _| {})
+}
+pub fn run_with_observer(
+    a: &[u32],
+    enc: &mut VP8Encoder,
+    it: &mut VP8EncIterator,
+    rd: &mut VP8ModeScore,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> bool {
     rd.score = (u64::from(a[637]) | (u64::from(a[638]) << 32)) as i64;
     VP8MakeLuma16Preds(it, enc);
     VP8MakeChroma8Preds(it, enc);
     match a[634] {
         0 => {
-            PickBestIntra16(it, enc, rd);
+            PickBestIntra16WithObserver(it, enc, rd, observe);
             false
         }
         1 => {
-            PickBestIntra16(it, enc, rd);
+            PickBestIntra16WithObserver(it, enc, rd, observe);
             rd.modes_i4 = std::array::from_fn(|i| (i % 10) as u8);
-            PickBestIntra4(it, enc, rd)
+            PickBestIntra4WithObserver(it, enc, rd, observe)
         }
-        2 => VP8Decimate(it, enc, rd, VP8RDLevel::RD_OPT_BASIC),
+        2 => VP8DecimateWithObserver(
+            it,
+            enc,
+            rd,
+            match enc.config.method {
+                5 => VP8RDLevel::RD_OPT_TRELLIS,
+                6 => VP8RDLevel::RD_OPT_TRELLIS_ALL,
+                _ => VP8RDLevel::RD_OPT_BASIC,
+            },
+            observe,
+        ),
         3 => {
-            PickBestUV(it, enc, rd);
+            PickBestUVWithObserver(it, enc, rd, observe);
             false
         }
-        4 => PickBestIntra4(it, enc, rd),
+        4 => PickBestIntra4WithObserver(it, enc, rd, observe),
+        5 | 6 => {
+            if a[634] == 5 {
+                it.do_trellis = false;
+                PickBestIntra16WithObserver(it, enc, rd, observe);
+                PickBestIntra4WithObserver(it, enc, rd, observe);
+                PickBestUVWithObserver(it, enc, rd, observe);
+            } else {
+                let mb = &mut enc.mb_info[it.y * enc.mb_w + it.x];
+                mb.r#type = a[0] as u8;
+                mb.uv_mode = ((a[4] + 1) % 4) as u8;
+                if a[0] != 0 {
+                    libwebpop::enc::iterator_enc::VP8SetIntra16Mode(it, enc, a[4] as u8);
+                }
+            }
+            it.do_trellis = true;
+            SimpleQuantizeWithObserver(it, enc, rd, observe);
+            false
+        }
         _ => unreachable!(),
     }
 }
@@ -77,15 +117,21 @@ pub fn logical_score(
     rd: &VP8ModeScore,
 ) -> VP8ModeScore {
     let stage = a[634];
+    if stage == 6 {
+        return rd.clone();
+    }
     let mut score = VP8ModeScore::default();
     CopyScore(&mut score, rd);
     score.mode_i16 = rd.mode_i16;
     score.y_dc_levels = rd.y_dc_levels;
     score.y_ac_levels = rd.y_ac_levels;
-    if stage == 1 || stage == 4 || (stage == 2 && enc.mb_info[it.y * enc.mb_w + it.x].r#type == 0) {
+    if stage == 1
+        || stage == 4
+        || ((stage == 2 || stage == 5) && enc.mb_info[it.y * enc.mb_w + it.x].r#type == 0)
+    {
         score.modes_i4 = rd.modes_i4;
     }
-    if stage == 2 || stage == 3 {
+    if stage == 2 || stage == 3 || stage == 5 {
         score.mode_uv = rd.mode_uv;
         score.uv_levels = rd.uv_levels;
         if enc.top_derr.is_some() {

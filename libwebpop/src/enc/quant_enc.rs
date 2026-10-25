@@ -186,6 +186,34 @@ pub fn TrellisQuantizeBlockWithObserver(
     nz != 0
 }
 
+/// Reconstruction invocation observed before any candidate scratch is changed.
+/// Kinds are luma16 (0), luma4 (1), and scalar chroma8 (2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VP8Reconstruction {
+    pub kind: u8,
+    pub trellis: bool,
+    pub block: usize,
+    pub mode: usize,
+}
+
+fn ObserveReconstruction(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    kind: u8,
+    mode: usize,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) {
+    observe(
+        enc,
+        VP8Reconstruction {
+            kind,
+            trellis: it.do_trellis,
+            block: if kind == 1 { it.i4 } else { 0 },
+            mode,
+        },
+    );
+}
+
 pub fn InitScore(rd: &mut VP8ModeScore) {
     rd.D = 0;
     rd.SD = 0;
@@ -216,6 +244,16 @@ pub fn SetRDScore(lambda: i32, rd: &mut VP8ModeScore) {
 }
 
 pub fn PickBestIntra16(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8ModeScore) {
+    PickBestIntra16WithObserver(it, enc, rd, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn PickBestIntra16WithObserver(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &mut VP8ModeScore,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) {
     let segment = usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment);
     let (lambda, tlambda) = (enc.dqm[segment].lambda_i16, enc.dqm[segment].tlambda);
     let mut flat = IsFlatSource16(&it.yuv_in);
@@ -224,7 +262,7 @@ pub fn PickBestIntra16(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut V
         let mut cur = VP8ModeScore::default();
         let mut dst = it.yuv_out2;
         cur.mode_i16 = mode as i32;
-        cur.nz = ReconstructIntra16(it, enc, &mut cur, &mut dst, mode);
+        cur.nz = ReconstructIntra16WithObserver(it, enc, &mut cur, &mut dst, mode, observe);
         it.yuv_out2 = dst;
         cur.D = i64::from(SSE16x16_C(&it.yuv_in, &dst));
         cur.SD = if tlambda != 0 {
@@ -282,6 +320,16 @@ pub fn PickBestIntra4(
     enc: &mut VP8Encoder,
     rd: &mut VP8ModeScore,
 ) -> bool {
+    PickBestIntra4WithObserver(it, enc, rd, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn PickBestIntra4WithObserver(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &mut VP8ModeScore,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> bool {
     if enc.max_i4_header_bits == 0 {
         return false;
     }
@@ -313,13 +361,14 @@ pub fn PickBestIntra4(
             let mut cur = VP8ModeScore::default();
             let mut levels = [0i16; 16];
             let mut dst = [0u8; 3 * BPS + 4];
-            cur.nz = u32::from(ReconstructIntra4(
+            cur.nz = u32::from(ReconstructIntra4WithObserver(
                 it,
                 enc,
                 &mut levels,
                 &it.yuv_in[offset..],
                 &mut dst,
                 mode,
+                observe,
             )) << it.i4;
             if tmp_in_scratch {
                 Copy4x4_C(&dst, &mut it.yuv_p[I4TMP..]);
@@ -382,6 +431,16 @@ pub fn PickBestIntra4(
 }
 
 pub fn PickBestUV(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8ModeScore) {
+    PickBestUVWithObserver(it, enc, rd, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn PickBestUVWithObserver(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &mut VP8ModeScore,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) {
     let segment = usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment);
     let lambda = enc.dqm[segment].lambda_uv;
     let mut best = VP8ModeScore::default();
@@ -392,7 +451,7 @@ pub fn PickBestUV(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8Mod
     for mode in 0..4 {
         let mut cur = VP8ModeScore::default();
         let mut dst = [0u8; 7 * BPS + 16];
-        cur.nz = ReconstructUV(it, enc, &mut cur, &mut dst, mode);
+        cur.nz = ReconstructUVWithObserver(it, enc, &mut cur, &mut dst, mode, observe);
         if tmp_in_out2 {
             Copy16x8_C(&dst, &mut it.yuv_out2[U_OFF_ENC..]);
         } else {
@@ -426,6 +485,58 @@ pub fn PickBestUV(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &mut VP8Mod
     if enc.top_derr.is_some() {
         StoreDiffusionErrors(it, enc, rd);
     }
+}
+
+/// Requantize selected modes without changing their RD scores or mode choices.
+pub fn SimpleQuantize(it: &mut VP8EncIterator, enc: &VP8Encoder, rd: &mut VP8ModeScore) {
+    SimpleQuantizeWithObserver(it, enc, rd, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn SimpleQuantizeWithObserver(
+    it: &mut VP8EncIterator,
+    enc: &VP8Encoder,
+    rd: &mut VP8ModeScore,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) {
+    let mb = enc.mb_info[it.y * enc.mb_w + it.x];
+    let mut dst = it.yuv_out;
+    let mut nz = 0;
+    if mb.r#type == 1 {
+        let mode = enc.preds[enc.preds_offset(it.x, it.y)] as usize;
+        nz = ReconstructIntra16WithObserver(it, enc, rd, &mut dst, mode, observe);
+    } else {
+        VP8IteratorStartI4(it, enc);
+        loop {
+            let offset = VP8Scan[it.i4];
+            let base = enc.preds_offset(it.x, it.y);
+            let mode = enc.preds[base + (it.i4 & 3) + (it.i4 >> 2) * enc.preds_w] as usize;
+            MakeIntra4Preds(it);
+            nz |= u32::from(ReconstructIntra4WithObserver(
+                it,
+                enc,
+                &mut rd.y_ac_levels[it.i4],
+                &it.yuv_in[offset..],
+                &mut dst[offset..],
+                mode,
+                observe,
+            )) << it.i4;
+            // The pin retains the incoming I4 nz bytes throughout this pass.
+            if !VP8IteratorRotateI4(it, &dst) {
+                break;
+            }
+        }
+    }
+    nz |= ReconstructUVWithObserver(
+        it,
+        enc,
+        rd,
+        &mut dst[U_OFF_ENC..],
+        usize::from(mb.uv_mode),
+        observe,
+    );
+    it.yuv_out = dst;
+    rd.nz = nz;
 }
 
 /// Refine prediction modes using source SSE and fixed mode penalties.
@@ -544,27 +655,38 @@ pub fn RefineUsingDistortion(
     rd.score = best_score;
 }
 
-/// Scalar non-RD and basic-RD mode decisions. Trellis remains deferred.
+/// Scalar mode decisions with the pinned non-RD/basic/trellis dispatch.
 pub fn VP8Decimate(
     it: &mut VP8EncIterator,
     enc: &mut VP8Encoder,
     rd: &mut VP8ModeScore,
     rd_opt: VP8RDLevel,
 ) -> bool {
-    assert!(matches!(
-        rd_opt,
-        VP8RDLevel::RD_OPT_NONE | VP8RDLevel::RD_OPT_BASIC
-    ));
+    VP8DecimateWithObserver(it, enc, rd, rd_opt, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn VP8DecimateWithObserver(
+    it: &mut VP8EncIterator,
+    enc: &mut VP8Encoder,
+    rd: &mut VP8ModeScore,
+    rd_opt: VP8RDLevel,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> bool {
     InitScore(rd);
     VP8MakeLuma16Preds(it, enc);
     VP8MakeChroma8Preds(it, enc);
     if rd_opt != VP8RDLevel::RD_OPT_NONE {
-        it.do_trellis = false;
-        PickBestIntra16(it, enc, rd);
+        it.do_trellis = rd_opt == VP8RDLevel::RD_OPT_TRELLIS_ALL;
+        PickBestIntra16WithObserver(it, enc, rd, observe);
         if enc.config.method >= 2 {
-            PickBestIntra4(it, enc, rd);
+            PickBestIntra4WithObserver(it, enc, rd, observe);
         }
-        PickBestUV(it, enc, rd);
+        PickBestUVWithObserver(it, enc, rd, observe);
+        if rd_opt == VP8RDLevel::RD_OPT_TRELLIS {
+            it.do_trellis = true;
+            SimpleQuantizeWithObserver(it, enc, rd, observe);
+        }
     } else {
         RefineUsingDistortion(it, enc, enc.config.method >= 2, enc.config.method >= 1, rd);
     }
@@ -615,16 +737,28 @@ pub fn MakeIntra4Preds(it: &mut VP8EncIterator) {
     Intra4Preds_C(&mut it.yuv_p, &top);
 }
 
-/// Default scalar reconstruction without trellis. Candidate pixels and levels
-/// are returned separately from the persistent borders and coefficient context.
+/// Reconstruct luma16 with scalar WHT/DC and optional AC trellis. Trellis
+/// updates local coefficient contexts in raster order; packed contexts persist.
 pub fn ReconstructIntra16(
-    it: &VP8EncIterator,
+    it: &mut VP8EncIterator,
     enc: &VP8Encoder,
     rd: &mut VP8ModeScore,
     yuv_out: &mut [u8],
     mode: usize,
 ) -> u32 {
-    assert!(!it.do_trellis);
+    ReconstructIntra16WithObserver(it, enc, rd, yuv_out, mode, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn ReconstructIntra16WithObserver(
+    it: &mut VP8EncIterator,
+    enc: &VP8Encoder,
+    rd: &mut VP8ModeScore,
+    yuv_out: &mut [u8],
+    mode: usize,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> u32 {
+    ObserveReconstruction(it, enc, 0, mode, observe);
     let reference = &it.yuv_p[VP8I16ModeOffsets[mode]..];
     let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
     let mut tmp = [0i16; 256];
@@ -638,17 +772,39 @@ pub fn ReconstructIntra16(
     }
     FTransformWHT_C(&tmp, &mut dc);
     let mut nz = u32::from(QuantizeBlock_C(&mut dc, &mut rd.y_dc_levels, &dqm.y2)) << 24;
-    for n in (0..16).step_by(2) {
-        tmp[16 * n] = 0;
-        tmp[16 * (n + 1)] = 0;
-        nz |= Quantize2Blocks_C(
-            (&mut tmp[16 * n..16 * n + 32]).try_into().unwrap(),
-            (&mut rd.y_ac_levels.as_flattened_mut()[16 * n..16 * n + 32])
-                .try_into()
-                .unwrap(),
-            &dqm.y1,
-        ) << n;
+    if it.do_trellis {
+        VP8IteratorNzToBytes(it, enc);
+        for n in 0..16 {
+            let (x, y) = (n % 4, n / 4);
+            let ctx = usize::from(it.top_nz[x] + it.left_nz[y]);
+            let nonzero = TrellisQuantizeBlock(
+                enc,
+                (&mut tmp[16 * n..16 * n + 16]).try_into().unwrap(),
+                &mut rd.y_ac_levels[n],
+                ctx,
+                0,
+                &dqm.y1,
+                dqm.lambda_trellis_i16,
+            );
+            it.top_nz[x] = u8::from(nonzero);
+            it.left_nz[y] = u8::from(nonzero);
+            rd.y_ac_levels[n][0] = 0;
+            nz |= u32::from(nonzero) << n;
+        }
+    } else {
+        for n in (0..16).step_by(2) {
+            tmp[16 * n] = 0;
+            tmp[16 * (n + 1)] = 0;
+            nz |= Quantize2Blocks_C(
+                (&mut tmp[16 * n..16 * n + 32]).try_into().unwrap(),
+                (&mut rd.y_ac_levels.as_flattened_mut()[16 * n..16 * n + 32])
+                    .try_into()
+                    .unwrap(),
+                &dqm.y1,
+            ) << n;
+        }
     }
+    let reference = &it.yuv_p[VP8I16ModeOffsets[mode]..];
     TransformWHT_C(&dc, &mut tmp);
     for n in (0..16).step_by(2) {
         ITransform_C(
@@ -669,12 +825,38 @@ pub fn ReconstructIntra4(
     yuv_out: &mut [u8],
     mode: usize,
 ) -> bool {
-    assert!(!it.do_trellis);
+    ReconstructIntra4WithObserver(it, enc, levels, src, yuv_out, mode, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn ReconstructIntra4WithObserver(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    levels: &mut [i16; 16],
+    src: &[u8],
+    yuv_out: &mut [u8],
+    mode: usize,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> bool {
+    ObserveReconstruction(it, enc, 1, mode, observe);
     let reference = &it.yuv_p[VP8I4ModeOffsets[mode]..];
     let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
     let mut tmp = [0i16; 16];
     FTransform_C(src, reference, &mut tmp);
-    let nz = QuantizeBlock_C(&mut tmp, levels, &dqm.y1);
+    let nz = if it.do_trellis {
+        let ctx = usize::from(it.top_nz[it.i4 & 3] + it.left_nz[it.i4 >> 2]);
+        TrellisQuantizeBlock(
+            enc,
+            &mut tmp,
+            levels,
+            ctx,
+            3,
+            &dqm.y1,
+            dqm.lambda_trellis_i4,
+        )
+    } else {
+        QuantizeBlock_C(&mut tmp, levels, &dqm.y1)
+    };
     ITransform_C(reference, &tmp, yuv_out, false);
     nz
 }
@@ -747,6 +929,19 @@ pub fn ReconstructUV(
     yuv_out: &mut [u8],
     mode: usize,
 ) -> u32 {
+    ReconstructUVWithObserver(it, enc, rd, yuv_out, mode, &mut |_, _| {})
+}
+
+#[doc(hidden)]
+pub fn ReconstructUVWithObserver(
+    it: &VP8EncIterator,
+    enc: &VP8Encoder,
+    rd: &mut VP8ModeScore,
+    yuv_out: &mut [u8],
+    mode: usize,
+    observe: &mut impl FnMut(&VP8Encoder, VP8Reconstruction),
+) -> u32 {
+    ObserveReconstruction(it, enc, 2, mode, observe);
     let reference = &it.yuv_p[VP8UVModeOffsets[mode]..];
     let src = &it.yuv_in[U_OFF_ENC..];
     let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];

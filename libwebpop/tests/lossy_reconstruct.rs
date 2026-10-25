@@ -366,7 +366,13 @@ fn reconstruction_accepts_minimum_strided_destination_buffers() {
                 0 => {
                     VP8MakeLuma16Preds(&mut it, &enc);
                     (
-                        ReconstructIntra16(&it, &enc, &mut candidate, &mut minimal, mode as usize),
+                        ReconstructIntra16(
+                            &mut it,
+                            &enc,
+                            &mut candidate,
+                            &mut minimal,
+                            mode as usize,
+                        ),
                         minimal.len(),
                     )
                 }

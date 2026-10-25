@@ -58,18 +58,18 @@ needed. Preserve their behavior and reference fixtures.
 | Rust location | Existing behavior | Additional work |
 | --- | --- | --- |
 | [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` now validates and carries method too | Expose method in existing public options after the algorithms compose; finish method propagation into alpha effort |
-| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches direct/token frames from the mapped tools | Trellis methods remain guarded until their algorithms land |
+| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches direct/token frames from the mapped tools for all methods | Method-dependent alpha remains before public method selection |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
-| [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD/distortion refinement and standalone trellis block quantization | Trellis reconstruction, selected-mode requantization and remaining RD dispatch |
-| [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct residual coding/statistics, skip fitting/reset, token recording, refresh/retry loop and deterministic filter finalization | Statistics/direct drivers and method-3 tokens complete; integrate trellis RD levels |
+| [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD/distortion refinement, trellis reconstruction/quantization and selected-mode requantization | No additional RD algorithms for this scope |
+| [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct coding/statistics for methods 0–2, token drivers for methods 3–6, skip fitting/reset, refresh/retry and deterministic filter finalization | No additional frame algorithms for this scope |
 | [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, filters, VP8L and raw fallback | Replace fixed effort 4/q32 throughout with method-dependent effort and quality |
 | [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including composed direct residuals and fitted skip state | No additional syntax for this scope |
 | [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Parses methods 0–6 but rejects lossy methods other than 4 | Route every valid method to the checked configurable lossy API |
 
-`VP8Decimate` now accepts non-RD and basic RD;
-`VP8EncTokenLoopWithObserver` accepts methods 3/4;
-`ReconstructIntra16` and `ReconstructIntra4` reject trellis. Removing assertions
-alone would produce the wrong encoder. Matrix setup already contains the
+`VP8Decimate` now accepts all four RD levels;
+`VP8EncTokenLoopWithObserver` accepts methods 3–6, and luma reconstruction
+uses the mapped trellis policy. Public APIs/CLI still select method 4 until
+method-dependent alpha is integrated. Matrix setup already contains the
 method threshold for texture-distortion weighting and the trellis lambdas;
 extend its coverage instead of porting it again. `GetFilterMap` already accepts
 alpha effort, but its caller fixes it at 4.
@@ -218,7 +218,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–5 are complete; milestones 6–8 remain pending. Integrate callers after
+Milestones 0–6 are complete; milestones 7–8 remain pending. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -231,7 +231,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | 3 (complete) | Direct coefficient coding/statistics and skip-probability leaves | 0 | 37 portable fixtures and 4,811 live C requests; exact bytes, writer/counter/statistics state, skip costs and post-skip contexts; independent coefficient decoding and geometric context checks |
 | 4 (complete) | Single-pass statistics driver, direct final loop and method-3 token integration | 1–3 | 27 portable fixtures, 1,335 exact C driver traces and 1,384 normal-public-C opaque files; probe boundaries, skip on/off, retries, borders, probabilities and final filter state match |
 | 5 (complete) | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | 72 portable fixtures and 19,646 live C requests match scores, levels, dequantized coefficients, nonzero returns and candidate cost traces; independent exhaustive short-path checks cover terminal/predecessor/skip ties |
-| 6 | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | Methods 5/6 opaque files match normal C; traces distinguish selected-mode versus candidate trellis; method 4 remains identical |
+| 6 (complete) | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | 56 portable fixtures, 17,424 reconstruction/search requests, 662 frame traces and 692 opaque files match C; invocation order, refreshed costs and selected-mode preservation checked; method 4 unchanged |
 | 7 | Method-dependent alpha effort, quality and filter trials | 1, existing ALPH/VP8L; 4 and 6 for complete files | Exact headerless streams, filter maps, winning payloads and complete transparent files across all methods/alpha qualities |
 | 8 | Public `LossyOptions`/`encode_lossy_rgba`, CLI routing, full regression and baseline record | 4, 6, 7 | Checked API and CLI support methods 0–6; portable/live full-file parity, independent decode, validation and benchmark record pass |
 
@@ -448,6 +448,26 @@ inputs and defined arithmetic boundaries with C; do not feed the oracle values
 that cause undefined signed overflow just to exhaust an i16 domain.
 
 ### 6. Trellis reconstruction and methods 5/6
+
+Completed 2026-10-25 after merged revision `07c8021` (trellis leaves landed in
+`f91122b`). Intra16 AC and Intra4 candidate reconstruction now use the trellis
+leaf, and `SimpleQuantize` requantizes selected modes for method 5. All RD
+levels compose with the mapped token loop; WHT/DC and UV remain scalar.
+Production code uses no-op generic observers; reference tests record exact
+candidate/selected reconstruction order without adding encoder reporting state.
+
+The 56 new C fixtures were captured before porting. Live comparisons cover
+17,424 reconstruction/search requests, 662 detailed frame traces and 692 opaque
+files against normal public C, including independent decode. Invocation traces
+show basic search followed by selected-mode trellis for method 5 and candidate
+trellis for method 6, including refresh/retry boundaries. Independent checks
+compose luma16 blocks from scalar WHT/DC and raster AC contexts, verify that
+selected-mode requantization preserves scores/modes/committed diffusion, and
+exercise cases where method 6 changes mode choices. Public lossy and animation
+routes still use method 4; method-dependent alpha and public method selection
+remain milestones 7/8. See the
+[reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-6).
+
 
 Connect trellis to `ReconstructIntra16` and `ReconstructIntra4`, carrying
 `it.do_trellis` and incoming nonzero contexts explicitly. Intra16 AC visits

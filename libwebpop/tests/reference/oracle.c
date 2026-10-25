@@ -43,6 +43,8 @@ unsigned WebpopTrellisScore(const uint32_t*, uint32_t*);
 unsigned WebpopTrellisBlock(const uint32_t*, uint32_t*);
 unsigned WebpopDCError(const uint32_t*, uint32_t*);
 unsigned WebpopReconstruct(const uint32_t*, uint32_t*);
+unsigned WebpopTrellisReconstruct(const uint32_t*, uint32_t*);
+unsigned WebpopTrellisSearch(const uint32_t*, uint32_t*);
 unsigned WebpopFastAnalyze(const uint32_t*, uint32_t*);
 unsigned WebpopFastAnalysisFrame(const uint32_t*, uint32_t*);
 unsigned WebpopDistortionSearch(const uint32_t*, uint32_t*);
@@ -273,7 +275,7 @@ int main(void) {
       for(i=offset+9;i<n;++i) REQUIRE(in[i] <= 255);
       if(frame[6]) { unsigned x,y; for(y=0;y<frame[1];++y) for(x=0;x<frame[0];++x) REQUIRE(frame[9+y*frame[8]+4*x+3] == 255); }
       if(IS(VP8MethodLoopTrace)) {
-        REQUIRE(in[0]<=4 && frame[7]==1);
+        REQUIRE(in[0]<=6 && frame[7]==1);
         count=WebpopMethodLoopTrace(in,out);
       } else if(offset) {
         REQUIRE(in[0]<=6 && frame[3]==4 && frame[4]==65536 && frame[5]==((524288u-2048u)<<11) && frame[7]==0);
@@ -288,18 +290,23 @@ int main(void) {
       REQUIRE(n==15 && in[0]<=100 && in[1]<=7 && in[2]<=63);
       for(i=3;i<15;i+=3) REQUIRE(in[i]<=2047 && in[i+1]<=65535 && in[i+2]<=63);
       count=WebpopAdjustFilter(in,out);
-    } else if (IS(VP8ModeSearch) || IS(VP8DistortionSearch)) {
+    } else if (IS(VP8ModeSearch) || IS(VP8DistortionSearch) || IS(VP8TrellisSearch)) {
       uint32_t* request = in; unsigned size = n;
       if (IS(VP8DistortionSearch)) {
         REQUIRE(n == 728 && in[0]<=2 && in[1]<=1 && in[2]<=3 && in[4]<=0x7fffff && in[5]<=1 && in[6]<=1 && in[7]<=1);
         in += 8; n -= 8;
       }
-      REQUIRE(n == 720 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && in[634] <= 4 && in[635] <= 65536 && in[636] <= 4 && in[638] <= 0x7fffff);
+      if(IS(VP8TrellisSearch)) {
+        REQUIRE(n==721 && (in[0]==5 || in[0]==6));in+=1;n-=1;
+        REQUIRE(in[634]<=6 && in[0]<=1 && in[4]<4);
+      }
+      REQUIRE(n == 720 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && (IS(VP8TrellisSearch) || in[634] <= 4) && in[635] <= 65536 && in[636] <= 4 && in[638] <= 0x7fffff);
       REQUIRE((int32_t)in[6] >= -15 && (int32_t)in[6] <= 15 && (int32_t)in[7] >= -15 && (int32_t)in[7] <= 15);
       for (i = 8; i < 16; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
       for (i = 16; i < 634; ++i) REQUIRE(in[i] <= 255);
       for (i = 639; i < n; ++i) REQUIRE(in[i] <= 9);
-      count = IS(VP8DistortionSearch) ? WebpopDistortionSearch(request, out) : WebpopModeSearch(in, out);
+      count = IS(VP8TrellisSearch) ? WebpopTrellisSearch(request,out) :
+          IS(VP8DistortionSearch) ? WebpopDistortionSearch(request, out) : WebpopModeSearch(in, out);
       in = request; n = size;
     } else if (IS(VP8Flat)) {
       REQUIRE(n >= 514 && in[0] <= 240 && in[1] <= 16 && n == 514+16*in[1]);
@@ -347,13 +354,16 @@ int main(void) {
       for (i = 1; i < 9; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
       for (i = 9; i < n; ++i) REQUIRE((int32_t)in[i] >= -32768 && (int32_t)in[i] <= 32767);
       count = WebpopDCError(in, out);
-    } else if (IS(VP8Reconstruct)) {
+    } else if (IS(VP8Reconstruct) || IS(VP8TrellisReconstruct)) {
+      uint32_t* request=in;unsigned size=n;
+      if(IS(VP8TrellisReconstruct)) { REQUIRE(n==635 && (in[0]==5 || in[0]==6));in+=1;n-=1; }
       REQUIRE(n == 634 && in[0] <= 3 && in[1] <= 127 && in[2] <= 3 && in[3] <= 7 && in[5] <= 15);
       REQUIRE(in[4] < ((in[0] == 0 || in[0] == 2) ? 4u : 10u));
       REQUIRE((int32_t)in[6] >= -15 && (int32_t)in[6] <= 15 && (int32_t)in[7] >= -15 && (int32_t)in[7] <= 15);
       for (i = 8; i < 16; ++i) REQUIRE((int32_t)in[i] >= -128 && (int32_t)in[i] <= 127);
       for (i = 16; i < n; ++i) REQUIRE(in[i] <= 255);
-      count = WebpopReconstruct(in, out);
+      count = IS(VP8TrellisReconstruct)?WebpopTrellisReconstruct(request,out):WebpopReconstruct(in,out);
+      in=request;n=size;
     } else if (IS(VP8AnalysisQuant)) {
       uint64_t pixels, mbw, mbh, output_size;
       float quality;

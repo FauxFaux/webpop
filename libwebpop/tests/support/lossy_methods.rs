@@ -1,5 +1,5 @@
 //! Reference-first cases for the methods extension. Until each algorithm lands,
-//! methods 0–4 have frame drivers; trellis/alpha variants remain C references.
+//! methods 0–6 have frame drivers; method-dependent alpha remains pending.
 use super::{Case, ImageCase, lossy, vp8_loop};
 
 pub const RD_LEVELS: [u32; 7] = [0, 0, 0, 1, 1, 2, 3];
