@@ -422,6 +422,94 @@ unsigned WebpopAnimationCarryoverSequence(const uint32_t* in, unsigned n, uint32
   return written;
 }
 
+static unsigned AnimationCacheStatus(const WebPAnimEncoder* enc, uint32_t* out) {
+  out[0] = enc->in_frame_count; out[1] = enc->out_frame_count;
+  out[2] = enc->count; out[3] = enc->count_since_key_frame;
+  out[4] = enc->prev_rect.x_offset; out[5] = enc->prev_rect.y_offset;
+  out[6] = enc->prev_rect.width; out[7] = enc->prev_rect.height;
+  out[8] = enc->count != 0;
+  out[9] = enc->count ? GetFrame(enc, enc->count - 1)->sub_frame.duration : 0;
+  return 10;
+}
+
+static unsigned AnimationFileOutput(const WebPData* data, uint32_t* out) {
+  unsigned i;
+  if (data->size > (1u << 19)) abort();
+  out[0] = data->size;
+  for (i = 0; i < data->size; ++i) out[i + 1] = data->bytes[i];
+  return data->size + 1;
+}
+
+// Original public adds exercise timing and the capacity flush before CacheFrame.
+// Mode 0 stops before decode-dependent OptimizeSingleFrame. Mode 1 runs the
+// full public assemble. Mode 2 records both for a reference-only completion gate.
+unsigned WebpopAnimationCache(const uint32_t* in, unsigned n, uint32_t* out) {
+  WebPAnimEncoderOptions options;
+  WebPAnimEncoder* enc;
+  WebPData data;
+  uint32_t timestamp;
+  unsigned frame, duration = 0, at = 8, written = 0;
+  if (n < 8 || !in[0] || !in[1] || in[0] > 32 || in[1] > 32 ||
+      in[2] > 1 || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
+      !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
+  options.minimize_size = in[2];
+  if (in[5]) { options.anim_params.bgcolor = 0x4e0c2238; options.anim_params.loop_count = 65535; }
+  enc = WebpopIncludedAnimNew(in[0], in[1], &options, WEBP_MUX_ABI_VERSION);
+  if (!enc) abort();
+  if (in[5]) {
+    static const uint8_t icc[] = {1, 2, 3}, xmp[] = {4};
+    // An empty WebPData copy loses its non-null presence; borrow static storage.
+    const WebPData a = {icc, sizeof(icc)}, b = {icc, 0}, c = {xmp, sizeof(xmp)};
+    if (WebPMuxSetChunk(enc->mux, "ICCP", &a, 1) != WEBP_MUX_OK ||
+        WebPMuxSetChunk(enc->mux, "EXIF", &b, 0) != WEBP_MUX_OK ||
+        WebPMuxSetChunk(enc->mux, "XMP ", &c, 1) != WEBP_MUX_OK) abort();
+  }
+  timestamp = in[6];  // High origin word is irrelevant to wrapping C intervals.
+  for (frame = 0; frame < in[4]; ++frame) {
+    WebPPicture current;
+    WebPConfig config;
+    unsigned size;
+    int signed_timestamp;
+    if (n - at < 5 || in[at] >= (1u << 24) || in[at + 1] < in[0] || in[at + 1] > 64 ||
+        in[at + 2] > 100 || in[at + 3] > 6 || in[at + 4] > 1 ||
+        !WebPPictureInit(&current) || !WebPConfigInit(&config)) abort();
+    duration = in[at]; current.argb_stride = in[at + 1];
+    config.lossless = 1; config.quality = in[at + 2]; config.method = in[at + 3]; config.exact = in[at + 4];
+    current.use_argb = 1; current.width = in[0]; current.height = in[1];
+    at += 5; size = (current.height - 1) * current.argb_stride + current.width;
+    if (size > n - at) abort();
+    current.argb = (uint32_t*)(in + at); at += size;
+    memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
+    if (!WebpopIncludedAnimAdd(enc, &current, signed_timestamp, &config)) abort();
+    written += AnimationCacheStatus(enc, out + written);
+    timestamp += duration;
+  }
+  if (at != n) abort();
+  {
+    int signed_timestamp;
+    memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
+    if (!WebpopIncludedAnimAdd(enc, NULL, signed_timestamp, NULL)) abort();
+  }
+  WebPDataInit(&data);
+  if (in[3] != 1) {
+    enc->flush_count = enc->count;
+    if (!FlushFrames(enc) ||
+        WebPMuxSetCanvasSize(enc->mux, enc->canvas_width, enc->canvas_height) != WEBP_MUX_OK ||
+        WebPMuxSetAnimationParams(enc->mux, &enc->options.anim_params) != WEBP_MUX_OK ||
+        WebPMuxAssemble(enc->mux, &data) != WEBP_MUX_OK) abort();
+  } else if (!WebpopIncludedAnimAssemble(enc, &data)) abort();
+  written += AnimationCacheStatus(enc, out + written);
+  written += AnimationFileOutput(&data, out + written);
+  WebPDataClear(&data);
+  if (in[3] == 2) {
+    if (!WebpopIncludedAnimAssemble(enc, &data)) abort();
+    written += AnimationFileOutput(&data, out + written);
+    WebPDataClear(&data);
+  }
+  WebpopIncludedAnimDelete(enc);
+  return written;
+}
+
 // Output-only mux oracle: use exactly the supplied still payloads. Raw pixels
 // are carried in the logical request solely for the Rust evaluator; C does not
 // encode them, so this comparison isolates the mux from codec differences.

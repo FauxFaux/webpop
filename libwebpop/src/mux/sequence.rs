@@ -89,6 +89,12 @@ pub enum AnimationError {
         source: WebPEncodingError,
     },
     #[error("frame {frame_index}: {source}")]
+    Candidate {
+        frame_index: usize,
+        #[source]
+        source: anim_encode::AnimationCandidateError,
+    },
+    #[error("frame {frame_index}: {source}")]
     Container {
         frame_index: usize,
         #[source]

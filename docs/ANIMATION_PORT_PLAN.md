@@ -142,9 +142,31 @@ Fifteen assembled sequences also match the independent compositor and native
 all-frame decoder exactly. Synthetic carryover histories independently check
 disposal-before-mask order, retained pixels and validation rollback.
 
-Rust caching and timing merging remain open. Canvas-state/candidate parity
-against C does not establish optimized full-file `WebPAnimEncoder` parity;
-the sequence API still rejects `Optimized`.
+Lossless caching and duration merging with keyframes disabled are implemented
+(2026-10-25) as the low-level `mux::anim_encode::LosslessAnimationCache`.
+`add_argb` consumes checked borrowed ARGB views with per-frame lossless options;
+the cache owns two original/carryover canvases, two candidate slots and buffered
+container output. It retains one pending frame so the next candidate can select
+its disposal. Skipped frames merge timing; an overflowing merged duration
+inserts the pin's fixed transparent 1x1 lossless hold, resets the preceding
+rectangle and flushes before another candidate can fill the cache. Final timing
+is explicit, validation errors permit retry, and post-validation failures are
+terminal. Frame indexes count submitted inputs, including skips.
+
+`LosslessAnimationCacheOptions` supplies minimize-size and owned container
+settings. `LosslessCacheStatus` reports cache counters, preceding rectangle and
+pending duration for intermediate comparisons; flushing still buffers encoded
+output and does not stream bytes. The RGBA sequence API continues to reject
+`Optimized`; near-lossless/lossy/mixed routes and keyframe settings remain open.
+
+There are 32 cache fixtures and 1,680 live timing/cache/file comparisons across
+13,440 submitted frames: 1,470 compare complete files to public
+`WebPAnimEncoderAssemble`, and 210 explicitly stop before decode-dependent
+single-frame optimization. Twenty-nine timed fixture sequences match both the
+independent compositor and pinned all-frame decoder. A separate native gate
+merges eight transparent inputs into one 90-byte cropped animation; C's decode
+and re-encode optimization reduces it to a 34-byte still. Rust preserves the
+90-byte pre-optimization representation, keeping this parity branch open.
 
 ## Scope and delivery order
 
@@ -350,15 +372,17 @@ Implement and test these output rules against the pinned sources:
   wrapper convention without duplicate linked definitions. Leaves, output mux
   and the reference-only decode-dependent single-frame path now have wrappers
   and provenance; lossless candidate selection and all-frame decoding now have
-  wrappers too. Carryover sequences now observe original CacheFrame/FlushFrames;
-  timing/cache-control/keyframe protocols and lossy/mixed candidates remain open.
+  wrappers too. Carryover sequences observe original CacheFrame/FlushFrames;
+  default lossless cache/timing and full-file protocols are now implemented.
+  Keyframe-control protocols and lossy/mixed candidates remain open.
 - [ ] Record fixtures for raw mux assembly, optimized rectangles/candidates,
   default and explicit keyframe options, duration merging/splitting and both
   single-frame cleanup paths. Capture the decode-dependent case as an open
   completion requirement, not an ignored mismatch in a passing parity corpus.
   Raw mux assembly, both single-frame paths, isolated lossless candidate
-  selection and carryover-state sequences are now recorded. Optimized full
-  files, keyframe options and duration merging/splitting remain open.
+  selection, carryover-state sequences and default lossless optimized files
+  with duration merging/splitting are now recorded. Explicit keyframe options
+  and lossy/mixed optimized files remain open.
 
 ### 1. Container assembly and metadata
 
@@ -409,14 +433,19 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
   Lossless canvas updates match 32 fixtures and 768 live helper/sequence cases,
   including 5,376 frame transitions and 15 exact all-frame decoder checks.
   These low-level updates do not yet implement Rust cache/timing policy.
-- [ ] Port `SetFrame`, `CacheFrame`, `FlushFrames` and duration accumulation.
-  Isolated lossless `SetFrame` selection is implemented as `SetFrameLossless`;
-  cache integration and the sequence state transitions remain open.
-  Merge unchanged frames without changing total duration. Port
+- [x] Port lossless `SetFrame`, `CacheFrame`, `FlushFrames` and duration
+  accumulation with keyframe insertion disabled. `SetFrameLossless` is now
+  integrated into `LosslessAnimationCache`; repeats merge without changing
+  total duration. Port
   `IncreasePreviousDuration`'s transparent 1x1 hold frame when a merged duration
-  would reach `2^24`, including cache-capacity and keyframe-state updates.
-- [ ] Compare intermediates and full files with pinned lossless animation.
-  Add near-lossless only with its actual routing and decoded-pixel evidence;
+  would reach `2^24`, including the two-slot capacity flush and count/rectangle
+  updates. Deferred-keyframe freezing/rebasing on a split remains in milestone 4.
+- [x] Compare supported keyframe-disabled lossless intermediates and full files
+  with pinned animation. There are 32 fixtures, 1,680 live cases (1,470 complete
+  public animation files and 210 before single-frame reconstruction), 13,440
+  submitted-frame cache snapshots and 29 timed all-frame decoder checks. The
+  decode-dependent single-frame completion gate remains explicitly open.
+- [ ] Add near-lossless with its actual routing and decoded-pixel evidence;
   do not apply an independent lossless pixel guarantee below strength 100.
 
 ### 4. Lossy, mixed mode and keyframes
@@ -433,6 +462,8 @@ section of the [reference record](../libwebpop/tests/reference/ANIMATION.md).
   mode does not unconditionally try both codecs on every frame.
 - [ ] Port `KeyFramePenalty`, candidate caching, deferred keyframe selection,
   `kmin`/`kmax`, all-keyframes mode and minimize-size disabling of insertion.
+  Include `IncreasePreviousDuration` freezing/rebasing an already selected
+  deferred keyframe before a hold-frame split, with cache-boundary tests.
   A VP8 intra frame in a cropped/blended ANMF is not automatically a full-canvas
   animation keyframe.
 - [ ] Verify output bytes, candidate order, selected disposal on the preceding

@@ -11,7 +11,9 @@
 //! Lossless comparisons include invisible RGB. Lossy similarity requires equal
 //! alpha and weights RGB differences by that alpha.
 
+mod cache;
 mod lossless;
+pub use cache::{LosslessAnimationCache, LosslessAnimationCacheOptions, LosslessCacheStatus};
 pub use lossless::{
     AnimationCandidateError, EncodeCandidate, LosslessCandidate, LosslessCandidateOptions,
     PickBestCandidate, SetFrameLossless,

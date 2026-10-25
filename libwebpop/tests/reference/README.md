@@ -100,7 +100,11 @@ or C dependency. See the animation record for the `image-webp` blending
 limitation and exact portable/native compositing checks.
 Lossless carryover updates add 32 fixtures and 768 live helper/sequence cases,
 including 5,376 original CacheFrame transitions and 15 exact all-frame decoder
-comparisons. Rust cache/timing policy and optimized full-file parity remain open.
+comparisons. The keyframe-disabled lossless cache adds 32 fixtures and 1,680
+live cases: 1,470 full public animation files and 210 before single-frame
+reconstruction, 13,440 submitted-frame snapshots and 29 timed all-frame decoder
+comparisons. Deferred-keyframe caching, other codecs and decode-dependent
+single-frame parity remain open; the public RGBA Optimized policy is rejected.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

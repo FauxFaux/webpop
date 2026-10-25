@@ -131,8 +131,13 @@ encoding/selection now has 79 fixtures and 3,120 live C comparisons, including
 winning carryover masks and preceding disposal, with 48 exact all-frame
 decoder checks. Lossless carryover canvas updates now match 32 committed
 fixtures and 768 live helper/sequence cases, including 5,376 frame transitions
-and 15 exact all-frame decoder checks. Caching, timing merging, keyframe
-selection and lossy/mixed candidates remain optimizer work.
+and 15 exact all-frame decoder checks. The low-level lossless ARGB cache now
+merges durations and inserts overflow holds with keyframes disabled: 32 cache
+fixtures and 1,680 live cases cover 13,440 submitted inputs, including 1,470
+complete public animation files, 210 cases before single-frame reconstruction
+and 29 timed all-frame decoder checks. Near-lossless/lossy/mixed candidates,
+keyframe controls, single-frame reconstruction and the RGBA Optimized policy
+remain open.
 
 - [x] Write caller-supplied ICC, EXIF and XMP chunks, with correct VP8X flags,
   chunk sizes/padding and RIFF limits. `AnimationContainer` accepts prepared

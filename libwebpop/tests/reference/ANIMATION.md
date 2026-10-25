@@ -561,7 +561,140 @@ cargo test --workspace --features native-oracle -- --nocapture
 cargo fmt --all -- --check
 ```
 
-Carryover state/payload parity does not establish optimized full-file parity:
-Rust caching, duration merging/splitting, keyframe selection,
-near-lossless/lossy/mixed candidates and decode-dependent single-frame
-reconstruction remain open. The public sequence API still rejects `Optimized`.
+Carryover state/payload parity alone does not establish optimized full-file
+parity. The following milestone adds keyframe-disabled lossless caching and
+timing; keyframe selection, near-lossless/lossy/mixed candidates and
+decode-dependent single-frame reconstruction remain open. The public RGBA
+sequence API still rejects `Optimized`.
+
+## Lossless cache and duration merging (2026-10-25)
+
+`mux::anim_encode::LosslessAnimationCache` integrates `SetFrameLossless`, the
+ported canvas updates and the keyframe-disabled branches of `CacheFrame`,
+`FlushFrames` and `IncreasePreviousDuration`. The first input is forced even
+when transparent; later identical inputs skip candidate insertion while their
+intervals accumulate in the pending frame. Changes retain exact zero durations.
+The most recent frame remains cached until its duration and preceding-disposal
+choice are known. Flushed payloads remain buffered in `AnimationContainer`.
+
+The pin allocates two cache slots when keyframes are disabled. If accumulated
+duration plus the next interval reaches `2^24`, the previous duration is left
+unchanged and a transparent blended 1x1 hold is inserted with the supplied
+interval as its duration. The hold uses the original fixed VP8L bytes, prepared
+directly as a typed payload; it is not re-encoded or parsed from RIFF. The
+preceding rectangle becomes `(0,0,1,1)` and the frames-since-keyframe counter
+increments. Before encoding the next input, old frames flush to free a slot.
+Final timing can trigger the same insertion without a new source frame.
+
+Only lossless strength 100 is accepted, with methods 0–6, effort 0–100, exact
+on/off, minimize-size and supplied container metadata. Keyframe insertion stays
+disabled. Freezing/rebasing an already selected deferred keyframe on overflow
+belongs to the future keyframe cache implementation and is not claimed here.
+
+`add_argb` accepts immutable checked ARGB views with independent strides and
+optional final padding. Two owned canvases retain original/carryover pixels;
+temporary candidate copies/masks remain isolated as in the preceding milestone.
+Input timestamps are non-decreasing `u64` with arbitrary origin; every interval
+must fit 24 bits. `finish` always needs explicit final timing. Canvas, codec and
+timing validation happens before mutation and permits retry. Subsequent encoding,
+allocation or assembly failures are terminal; all finish errors preserve output.
+Successful finish releases canvases and buffered payloads and rejects reuse.
+Error indexes count submitted frames, including merged inputs.
+
+### Protocol and compatibility boundaries
+
+`AnimationCache` is registered in the existing evaluator and C dispatcher.
+Its eight-word header is:
+
+```text
+canvas width, canvas height, minimize_size, assemble_mode,
+input frame count, metadata flag, timestamp origin low/high words
+```
+
+Each frame follows as `(duration_ms, ARGB stride, lossless effort quality,
+method, exact)` then `(height - 1) * stride + width` ARGB words. The metadata
+flag supplies loop 65535, background RGBA `(12,34,56,78)`, ICCP `[1,2,3]`, present
+empty EXIF and XMP `[4]`; otherwise default white background/infinite loop and
+absent metadata are used. Empty EXIF borrows static non-null C storage, following
+the prepared-mux wrapper's presence convention. Source pixels remain unchanged.
+
+The adapter calls original `WebPAnimEncoderAdd` for every source and a final
+NULL-frame timestamp. It transports only the low origin word to C by copying its
+bits into the signed timestamp, preserving equivalent unsigned wrapping
+intervals, including crossings of `INT_MAX` and `UINT32_MAX`. Rust keeps the full
+wide origin and performs no signed wrap emulation. The C source/configuration
+and algorithms remain unchanged.
+
+After each submitted input and after final assembly, ten output words record:
+
+```text
+input count, flushed output count, cached count, frames since keyframe,
+preceding rectangle x/y/width/height, pending duration present/value
+```
+
+Then a byte count and complete output bytes follow. Mode 0 invokes original
+`FlushFrames` and the original mux setup/assembly calls, stopping immediately
+before `OptimizeSingleFrame`. Mode 1 uses original public
+`WebPAnimEncoderAssemble`, including its single-frame handling. Mode 2 is a
+separate reference-only completion gate: it records mode 0 output and then an
+additional byte count/file from full public C assembly. The ordinary Rust
+evaluator explicitly rejects mode 2. No expected optimized single-frame bytes
+are replaced or ignored in a passing full-file parity corpus.
+
+### Evidence and remaining gates
+
+There are 1,680 live cases with eight inputs each (13,440 submitted-frame
+snapshots plus 1,680 final states). Of these, 1,470 compare complete bytes against
+public animation assembly; 210 deliberately use the pre-reconstruction
+boundary. All controls, counters, durations, payload and file bytes match.
+Coverage assertions include 133 split-before-changed-frame transitions and
+2,639 adds that merge without inserting an encoded frame. Inputs include 1x1,
+skinny, odd, 16x16/32x17 canvases, all lossless methods, effort 0/70/100, exact
+on/off, minimize-size, metadata presence, repeats, zero/max intervals,
+transparency/hidden RGB, sprites, fades, disposal/masks and opposite corners.
+Codec settings change between inputs.
+
+`fixtures/animation_cache.txt` records 32 C-generated cases (316 input frames),
+including final-duration overflow, exact `2^24-1` versus `2^24` merged thresholds,
+capacity flushing immediately before changes, 16-frame disposal histories and
+96 maximum-duration repeated inputs. Portable checks independently compare
+piecewise source/output playback intervals and every visible RGBA canvas; they
+sum stored timing exactly without expanding a millisecond timeline. The shared
+RIFF/VP8L compositor checks all animated frames, including holds and zero-delay
+changes. Twenty-nine animated fixture files also match original
+`WebPAnimDecoder`; the three full-canvas stills are independently decoded too.
+Validation tests exercise descending/excessive intervals, recovery with unchanged
+status/output, submitted-index errors after merging, wide origins near
+`u64::MAX`, and terminal finish behavior.
+
+The separate mode-2 native gate submits eight identical transparent 8x7 canvases.
+They merge into one 90-byte cropped ANMF file before optimization; original C
+decodes/re-encodes it to a 34-byte full-canvas still. Rust exactly matches the
+90-byte representation, and the test explicitly asserts that the optimized
+file differs and decodes correctly. This confirms that merging can reach the
+existing single-frame completion gate; it does not complete reconstruction.
+
+The pin and toolchain are unchanged: clean upstream revision
+`1844042d1ca751e62e61df7617dba19c98588339`, GCC 15.2.0-16ubuntu1, CMake Release
+`-O3 -DNDEBUG`, SIMD/threading off. Review `target/native-oracle/provenance.txt`
+before regenerating only the new fixture file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_cache animation_cache_fixtures_match_pinned_reference -- --nocapture
+```
+
+Validation commands:
+
+```sh
+cargo build -p libwebpop --lib
+cargo test -p libwebpop --features native-oracle --test animation_cache -- --nocapture
+cargo test -p libwebpop --release --features native-oracle animation -- --nocapture
+cargo test --workspace
+cargo test --workspace --features native-oracle -- --nocapture
+cargo fmt --all -- --check
+```
+
+Near-lossless/lossy/mixed candidate routing, bounded/all-keyframe policies and
+deferred cache selection, decode-dependent single-frame reconstruction and the
+public RGBA Optimized policy remain open. The lossless cache is a low-level
+supported subset, not a claim of complete `WebPAnimEncoder` parity.

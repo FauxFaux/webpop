@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod animation;
+pub mod animation_cache;
 pub mod animation_carryover;
 pub mod animation_lossless;
 pub mod animation_mux;
@@ -77,6 +78,7 @@ impl Case {
             "VP8TrellisScore" | "VP8TrellisBlock" => vp8_trellis::evaluate(self),
             "VP8MethodTools" => lossy_methods::tools_output(self),
             "AnimationLeaves" => animation::evaluate(self),
+            "AnimationCache" => animation_cache::evaluate(self),
             "AnimationSubframes" => animation_subframes::evaluate(self),
             "AnimationLossless" => animation_lossless::evaluate(self),
             "AnimationCarryover" | "AnimationCarryoverSequence" => {

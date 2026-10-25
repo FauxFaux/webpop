@@ -1,6 +1,7 @@
 //! Checked raw RGBA sequences and output containers for encoded rectangles.
 //! Both preserve frame order and durations. Pixel/rectangle optimizer leaves
-//! are in [`anim_encode`]; optimized sequence encoding is not yet available.
+//! and the lossless ARGB cache are in [`anim_encode`]; the public RGBA Optimized
+//! policy is not yet available.
 
 pub mod anim_encode;
 mod muxedit;
