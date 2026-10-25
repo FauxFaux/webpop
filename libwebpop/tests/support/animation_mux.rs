@@ -18,6 +18,7 @@ fn lossless_options() -> LosslessOptions {
 fn lossy_options(mode: u32) -> LossyOptions {
     LossyOptions {
         quality: if mode == 2 { 42.5 } else { 75.0 },
+        method: 4,
         alpha_quality: if mode == 2 { 50 } else { 100 },
         use_sharp_yuv: mode == 4,
     }

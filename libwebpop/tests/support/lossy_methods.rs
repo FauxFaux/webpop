@@ -1,5 +1,4 @@
-//! Reference-first cases for the methods extension. Methods 0–6 now compose
-//! color/alpha internally; public method selection remains milestone 8.
+//! Reference cases for public methods 0–6 and their internal tool/frame mapping.
 use super::{Case, ImageCase, lossy, vp8_loop};
 
 pub const RD_LEVELS: [u32; 7] = [0, 0, 0, 1, 1, 2, 3];
@@ -18,10 +17,9 @@ pub fn request(image: &ImageCase, quality: f32, alpha: i32, method: u32, sharp: 
     Case::new("WebPEncodeLossyMethod", input)
 }
 
-pub fn method4_output(case: &Case) -> Vec<u32> {
+pub fn public_output(case: &Case) -> Vec<u32> {
     let a = &case.input;
     assert_eq!(case.function, "WebPEncodeLossyMethod");
-    assert_eq!(a[5], 4, "public method selection remains milestone 8");
     let pixels: Vec<_> = a[7..].iter().map(|&v| v as u8).collect();
     let mut output = Vec::new();
     libwebpop::encode_lossy_rgba(
@@ -31,6 +29,7 @@ pub fn method4_output(case: &Case) -> Vec<u32> {
         a[2] as usize,
         &libwebpop::LossyOptions {
             quality: f32::from_bits(a[3]),
+            method: a[5],
             alpha_quality: a[4] as i32,
             use_sharp_yuv: a[6] != 0,
         },

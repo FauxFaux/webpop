@@ -25,7 +25,7 @@ and [lossy](LOSSY_PORT_PLAN.md) plans:
 | `WebPEncodeLosslessRGBA`, `encode_lossless_rgba` | Checked positive-stride RGBA; complete VP8L files; quality 0–100, methods 0–6, exact transparent RGB option |
 | `WebPEncodeRGBAWithNearLossless`, `encode_near_lossless_rgba` | Strength 0–100 with standalone preprocessing and predictor quantization; configurable effort and exact handling |
 | `WebPEncodeRGBA`, `WebPEncodeRGBAWithAlphaQuality` | Default-preset lossy VP8, method 4, fractional color quality 0–100; YUV420(A) import; exact or independently quantized alpha; complete still-image files |
-| `encode_lossy_rgba` | Method-4 lossy encoding with `LossyOptions` selecting color/alpha quality and ordinary or scalar SharpYUV conversion; existing defaults and output-buffer guarantees retained |
+| `encode_lossy_rgba` | Default-preset lossy methods 0–6 with `LossyOptions` selecting method, color/alpha quality and ordinary or scalar SharpYUV conversion; method 4 defaults and output-buffer guarantees retained |
 
 Palette ordering, all lossless transforms, reference/cache trials, default
 lossy segmentation/SNS, Intra4 search, token probability refresh, chroma error
@@ -33,6 +33,14 @@ diffusion, deterministic filter adjustment, and partition-0 budget retries
 are already implemented. Separate ALPH compression, predictive alpha filters,
 and raw-alpha fallback are also implemented. Their configurable variants must
 not be mistaken for wholly missing subsystems.
+
+The [additional lossy methods plan](LOSSY_METHODS_PLAN.md) is complete as of
+2026-10-25: fast analysis/non-RD decisions, direct statistics/coding and fitted
+skip syntax for methods 0–2, basic RD for methods 3/4, selected-mode trellis for
+5, candidate trellis for 6, and method-dependent alpha effort/filter trials all
+have pinned-C parity. Library and CLI expose methods 0–6. A
+[42-case paired scalar baseline](benchmarks/2026-10-25-lossy-methods.md) records
+larger-image bytes, quality, repeated time and whole-process RSS.
 
 The older plans' deferred lists are historical: lossy VP8, ordinary YUV import,
 near-lossless, and ALPH are no longer outstanding. No additional default-path
@@ -44,15 +52,14 @@ The API/configuration reference is
 [`encode.h`](../upstream/src/webp/encode.h), with defaults and validation in
 [`config_enc.c`](../upstream/src/enc/config_enc.c). Rust currently exposes
 `LosslessOptions { quality, method, exact }` and
-`LossyOptions { quality, alpha_quality, use_sharp_yuv }` for method-4 encoding.
+`LossyOptions { quality, method, alpha_quality, use_sharp_yuv }` for methods 0–6.
 Some public low-level modules expose
 more knobs, but they do not provide a checked, integrated advanced encoder.
 
 | Gap | Current implementation and remaining work | Main sources |
 | --- | --- | --- |
 | Advanced Rust configuration and routing | Add checked configuration covering the supported upstream fields and connect it to complete-file encoding. Keep the existing convenience APIs and defaults. Internal `WebPEncode` is not a general public equivalent of upstream's config/picture API. | Rust [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) |
-| Lossy methods 0–3, 5 and 6 | Only method 4 is integrated; `VP8Decimate` and the token loop assert that method. Port fast/non-RD decisions, method-dependent analysis/search, trellis quantization and all applicable RD levels. Method 5/6 behavior cannot be supplied just by changing a config value. | Upstream [`quant_enc.c`](../upstream/src/enc/quant_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c), [`webp_enc.c`](../upstream/src/enc/webp_enc.c) |
-| Direct frame loop and low-memory mode | Port `VP8EncLoop`, its statistics pass, skip-probability fitting and skipped-residual handling. Current complete-file encoding always uses the buffered method-4 token loop. This is also needed for the faster methods and partition support. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c), Rust [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) |
+| Public low-memory mode and additional direct-loop integrations | `VP8EncLoop`, single-pass statistics, fitted skip probabilities and skipped residual handling are complete for normal methods 0–2. Methods 3–6 use buffered tokens. Add checked `low_memory` routing for methods 3–6 and integrate direct coding with future partitions/passes/search. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c), Rust [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) |
 | Multiple coefficient partitions | Only one is emitted. Add 2/4/8 partitions, partition sizes, row distribution and overflow checks. Match upstream routing: its buffered token path forces one partition, so a partitions field alone is insufficient. | Upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c), [`syntax_enc.c`](../upstream/src/enc/syntax_enc.c) |
 | Rate control and repeated passes | Add `target_size`, `target_PSNR`, user-selected `pass` 1–10, and `qmin`/`qmax`; port quality search, convergence and state resets. Default header-budget retries already work and do not implement these features. Match the pin's target precedence and approximate-target behavior. | Upstream [`frame_enc.c`](../upstream/src/enc/frame_enc.c) |
 | Segmentation, SNS and header-budget controls | Expose and validate `segments`, `sns_strength`, and `partition_limit`; generalize the analysis/setup paths currently used with default settings. Some quantizer/SNS helpers already accept parameters. | Rust [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs), [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) |
@@ -60,7 +67,7 @@ more knobs, but they do not provide a checked, integrated advanced encoder.
 | Preprocessing and SharpYUV | Add segment smoothing and pseudo-random conversion dithering. Scalar SharpYUV and its encoder/CLI routing are complete, including `--pre 4` and upstream's small-image fallback. The caller adapts the independent module without adding encoder dependencies to it. See the [SharpYUV plan](SHARPYUV_PORT_PLAN.md). | Rust [`sharpyuv/`](../libwebpop/src/sharpyuv/), [`picture_csp_enc.rs`](../libwebpop/src/enc/picture_csp_enc.rs), upstream [`picture_csp_enc.c`](../upstream/src/enc/picture_csp_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c) |
 | Presets and JPEG-size emulation | Add picture/photo/drawing/icon/text presets, full default-preset initialization, and `emulate_jpeg_size`. Several presets depend on the missing preprocessing or configurable segmentation/filter behavior. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c), [`quant_enc.c`](../upstream/src/enc/quant_enc.c) |
 | Lossless preset levels and image hints | `-z` levels 0–9 need the upstream method/quality mapping and option ordering; the underlying methods already exist. Add `image_hint`. At this pin, `WEBP_HINT_GRAPH` changes initial VP8L writer allocation; the other hint values do not imply additional missing compression algorithms. | Upstream [`config_enc.c`](../upstream/src/enc/config_enc.c), [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c) |
-| Configurable alpha method/filter | Integrate `alpha_compression` 0/1 and filtering none/fast/best. Low-level Rust `EncodeAlpha` already accepts these and tries the filters; public lossy encoding fixes compression=1/filter=fast. Alpha effort and fast-filter decisions are hardcoded for method 4 and need generalizing with other methods. | Rust [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) |
+| Configurable alpha method/filter | Integrate public `alpha_compression` 0/1 and filtering none/fast/best. Low-level Rust `EncodeAlpha` already accepts these and tries the filters; public lossy encoding fixes compression=1/filter=fast. Effort, VP8L quality and fast-filter selection now follow the selected method for all methods 0–6. | Rust [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) |
 | Lossy transparent-area policy | Add lossy `exact` handling: current routing always performs YUVA cleanup and the CLI rejects `--lossy --exact`. Follow upstream's cleanup semantics; lossy `exact` does not make RGB lossless. | Rust [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), upstream [`webp_enc.c`](../upstream/src/enc/webp_enc.c) |
 | Encoder threading | Add `thread_level`: split VP8L configuration trials, split lossy analysis where upstream does, and run the alpha job concurrently with VP8 coding. Present execution is synchronous. Preserve selection/tie behavior and error propagation for the requested thread mode. | Upstream [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c), [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c), [`alpha_enc.c`](../upstream/src/enc/alpha_enc.c), [`thread_utils.c`](../upstream/src/utils/thread_utils.c) |
 
@@ -197,8 +204,8 @@ thresholds or claims about every configuration.
 | Missing explicit SIMD and dispatch | Rust has no explicit SIMD backend. Disabling C runtime SIMD narrowed the map gap but left Rust about 17.2% slower in that session; it closed about 38% of the absolute time gap. Missing SIMD alone does not explain the remaining difference. `-noasm` still permits compiler auto-vectorization and SIMD in libc. |
 | Prototype improvements remain unmerged | [Palette investigation](PALETTE-INVESTIGATION.md) retained patches using borrowed context and per-span predictor specialization. Separate paired sessions measured about 2% and then 6.8% improvements on the map. Predictor 10's copied context caused measured store-forwarding stalls. These are temporary-source experiments, not current production optimizations or demonstrated corpus-wide wins. Their baseline also used experimental `#[inline(always)]`, which is not the repository's inline convention. |
 | Extra histogram clearing | Current predictor search clears all completed histogram planes/modes; upstream selectively clears active entries. This is a source-confirmed difference with equivalent results; the speed benefit of changing it is unmeasured. Palette mapping/sorting and traceback were smaller secondary gaps in the recorded profile. |
-| Synchronous execution and buffered memory | No encoder worker implementation or low-memory/direct VP8 route exists. These are known missing resource/performance features; available records do not quantify their potential gain or memory savings. |
-| Lossy comparison missing | The [2026-10-24 lossy baseline](benchmarks/2026-10-24-lossy.md) measures 28 small-image cases, quality, timing and whole-process RSS. It establishes no Rust/C speed or isolated encoder-memory comparison. There is no evidenced percentage slowdown for lossy encoding yet. |
+| Synchronous execution and buffered memory | Encoder workers and public low-memory selection remain missing. Direct VP8 coding is complete for methods 0–2; methods 3–6 use buffered tokens. Existing records do not isolate the gain or memory savings of adding low-memory routing to those methods. |
+| Paired scalar lossy baseline | The [2026-10-25 record](benchmarks/2026-10-25-lossy-methods.md) measures 42 exact-byte Rust/C pairs across all methods, two image sizes and opaque/alpha inputs, with repeated encode time, quality and whole-process RSS. Rust uses the session's native CPU target; C uses scalar Release dispatch. This establishes no global speed ranking, SIMD-enabled-C comparison or isolated encoder-memory gap. |
 | Near-lossless comparison missing | The [2026-10-23 near-lossless record](benchmarks/2026-10-23-near-lossless.md) has exact C parity across 30 real-image cases, but its Rust timings are single exploratory samples and RSS is cumulative test-process memory. It establishes no comparative speed or encoder-only memory gap. |
 
 The current source still has copied predictor context and whole-range histogram
@@ -210,9 +217,11 @@ recommendation without new measurements.
 
 Performance work remaining:
 
-- [ ] Establish paired, repeated native Rust/C benchmarks for lossy and
-  near-lossless as well as lossless, including large inputs and alpha. Match
-  configurations and thread policies; report encoded bytes and verify parity.
+- [x] Establish a paired, repeated scalar lossy Rust/C baseline across all
+  methods, larger inputs and alpha, with matching settings, bytes and metrics.
+- [ ] Establish paired, repeated native Rust/C benchmarks for near-lossless,
+  and extend lossy comparisons to ordinary SIMD-enabled C. Match configurations,
+  compiler targets and thread policies; report encoded bytes and verify parity.
 - [ ] Measure isolated encoder peak memory/allocation behavior for each mode
   and large-image cases. Existing whole-process RSS does not establish a Rust/C
   memory regression. Profile allocations/copies before attributing a slowdown
@@ -234,16 +243,16 @@ Performance work remaining:
 
 ## Suggested implementation order and completion checks
 
-The [remaining lossy methods plan](LOSSY_METHODS_PLAN.md) details methods
-0–3 and 5–6, their direct-loop/trellis/alpha dependencies, and checked API/CLI
-integration. It keeps other advanced encoder options as separate work.
+The completed [additional lossy methods plan](LOSSY_METHODS_PLAN.md) records
+methods 0–6, their direct-loop/trellis/alpha dependencies, checked API/CLI
+integration and release baseline. Other advanced encoder options remain below.
 
 1. **Configuration foundation and small integrations:** define the checked
    advanced Rust API; wire existing alpha controls, configurable scalar knobs,
    lossless level mapping and hints. Add raw layout adapters without changing
    the existing convenience APIs.
-2. **Additional VP8 algorithms:** port direct-loop/statistics/skip handling and
-   fast methods, then trellis and methods 5–6. Add multiple partitions, repeated
+2. **Additional VP8 configurations:** extend direct-loop routing to public
+   low-memory mode for methods 3–6. Add multiple partitions, repeated
    passes and target-size/PSNR search with the correct routing dependencies.
 3. **Quality controls and presets:** finish configurable analysis/filtering,
    automatic filter search, preprocessing, SharpYUV, JPEG-size emulation and

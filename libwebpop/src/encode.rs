@@ -70,6 +70,7 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
         stride,
         &LossyOptions {
             quality,
+            method: 4,
             alpha_quality,
             use_sharp_yuv: false,
         },
@@ -77,7 +78,7 @@ pub fn WebPEncodeRGBAWithAlphaQuality(
     )
 }
 
-/// Encode RGBA as method-4 VP8 with independent color/alpha quality and an
+/// Encode RGBA as VP8 with method 0–6, independent color/alpha quality and an
 /// optional SharpYUV importer. Default options match [`WebPEncodeRGBA`] at 75.
 /// Geometry, input immutability and output replacement/error guarantees follow
 /// [`WebPEncodeRGBA`]. Other advanced VP8 configuration remains deferred.
@@ -116,7 +117,7 @@ pub(crate) fn encode_lossy_rgba_with<T>(
     options: &LossyOptions,
     write: impl FnOnce(crate::mux::muxinternal::EncodedImage<'_>) -> Result<T, WebPEncodingError>,
 ) -> Result<T, WebPEncodingError> {
-    let config = LossyConfig::new(options.quality, options.alpha_quality, 4)?;
+    let config = LossyConfig::from_options(options)?;
     let mut picture = if options.use_sharp_yuv {
         import_rgba_to_yuva_sharp(rgba, width, height, stride)?
     } else {

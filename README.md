@@ -43,12 +43,14 @@ port well: we've kept the original C (for now).
 
  * `cargo run --release -- --lossless t.png -o t.webp`
  * `cargo run --release -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp`
- * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp`
+ * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 -m 6 input.png -o output.webp`
 
 The Rust library exposes `WebPEncodeRGBA(..., quality: f32, &mut output)` for
 lossy color with exact alpha and
 `WebPEncodeRGBAWithAlphaQuality(..., quality, alpha_quality, &mut output)` for
-independent alpha fidelity. Both use the pinned default preset. All six RGBA
+independent alpha fidelity. Both use the pinned default preset and method 4.
+`encode_lossy_rgba` accepts `LossyOptions { quality, method, alpha_quality,
+use_sharp_yuv }` with methods 0–6 and method 4 as the default. The RGBA
 entry points take a final `&mut Vec<u8>` and return `Result<(), _>`. Success
 replaces the buffer with a complete WebP file, reusing its capacity; errors
 leave its contents unchanged. The CLI defaults to lossless.
@@ -61,7 +63,7 @@ libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
 ```
 
 The library also encodes full-canvas RGBA sequences with explicit millisecond
-timestamps. Each frame can select lossless, near-lossless or method-4 lossy
+timestamps. Each frame can select lossless, near-lossless or lossy methods 0–6
 settings. Repeats and zero durations are preserved; encoded frames stay in
 memory until `finish`. This full-frame policy has pinned WebPMux parity;
 animation optimization and a sequence CLI remain future work.
@@ -80,6 +82,7 @@ encoder.finish(640, &mut output)?; // 100 ms, then 40 ms.
 
  * [Original lossless encoder porting plan](docs/LOSSLESS_PORT_PLAN.md)
  * [Lossy encoder porting plan](docs/LOSSY_PORT_PLAN.md)
+ * [Additional lossy methods](docs/LOSSY_METHODS_PLAN.md)
  * [SharpYUV module porting plan](docs/SHARPYUV_PORT_PLAN.md)
  * [Animation and multi-frame encoding plan](docs/ANIMATION_PORT_PLAN.md)
  * [Remaining encoder features and performance work](docs/ENCODER_COMPLETION_PLAN.md)

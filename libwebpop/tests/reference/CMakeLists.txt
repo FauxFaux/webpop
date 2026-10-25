@@ -54,3 +54,9 @@ add_executable(webpop_near_lossless_file near_lossless_file.c near_lossless_wrap
 target_include_directories(webpop_near_lossless_file PRIVATE "${UPSTREAM}")
 target_link_libraries(webpop_near_lossless_file PRIVATE webp)
 set_target_properties(webpop_near_lossless_file PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)
+
+# Explicit manual timing target, sharing the oracle's scalar configuration.
+add_executable(webpop_lossy_benchmark lossy_benchmark.c)
+target_include_directories(webpop_lossy_benchmark PRIVATE "${UPSTREAM}")
+target_link_libraries(webpop_lossy_benchmark PRIVATE webp)
+set_target_properties(webpop_lossy_benchmark PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)

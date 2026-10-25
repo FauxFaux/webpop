@@ -83,11 +83,13 @@ pub(crate) struct EncoderConfig {
     pub near_lossless: u32,
 }
 
-/// Supported lossy settings, using the default method-4 VP8 preset.
+/// Supported lossy settings, using the default VP8 preset.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LossyOptions {
     /// Color fidelity, finite and in 0..=100; fractional values are retained.
     pub quality: f32,
+    /// Encoder effort, 0..=6; default 4. Also controls alpha compression effort.
+    pub method: u32,
     /// Alpha fidelity, 0..=100. At 100 alpha is preserved exactly.
     pub alpha_quality: i32,
     /// Use SharpYUV conversion. As upstream does, fall back to ordinary
@@ -100,6 +102,7 @@ impl Default for LossyOptions {
     fn default() -> Self {
         Self {
             quality: 75.0,
+            method: 4,
             alpha_quality: 100,
             use_sharp_yuv: false,
         }
@@ -115,6 +118,12 @@ pub(crate) struct LossyConfig {
 }
 
 impl LossyConfig {
+    pub fn from_options(options: &LossyOptions) -> Result<Self, LosslessEncodeError> {
+        let method =
+            i32::try_from(options.method).map_err(|_| LosslessEncodeError::InvalidMethod)?;
+        Self::new(options.quality, options.alpha_quality, method)
+    }
+
     pub fn new(quality: f32, alpha_quality: i32, method: i32) -> Result<Self, LosslessEncodeError> {
         if !quality.is_finite() || !(0.0..=100.0).contains(&quality) {
             return Err(LosslessEncodeError::InvalidQuality);

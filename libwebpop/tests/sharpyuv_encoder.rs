@@ -66,6 +66,7 @@ fn sharp_yuv_encoder_options_preserve_defaults_and_output_guarantees() {
     for use_sharp_yuv in [false, true] {
         let options = LossyOptions {
             quality: 98.5,
+            method: 4,
             alpha_quality: 30,
             use_sharp_yuv,
         };

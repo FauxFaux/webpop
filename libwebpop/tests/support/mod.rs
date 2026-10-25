@@ -83,6 +83,7 @@ impl Case {
             name if name.starts_with("SharpYuv") => sharpyuv::evaluate(self),
             "AlphaOps" | "VP8AlphaFile" => vp8_alpha::evaluate(self),
             "AlphaMethodOps" => vp8_alpha_methods::evaluate(self),
+            "WebPEncodeLossyMethod" => lossy_methods::public_output(self),
             "VP8LoopFrame" | "VP8FrameSegments" | "VP8AdjustFilter" => vp8_loop::evaluate(self),
             "VP8ModeSyntax" | "VP8Syntax" | "VP8FixedImage" => vp8_syntax::evaluate(self),
             "VP8ModeSearch" | "VP8Flat" | "VP8ModeCost" | "VP8ScoreOps" | "VP8SearchFrame" => {

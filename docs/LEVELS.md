@@ -249,7 +249,8 @@ These controls are separate from `LosslessOptions`.
 
 `cwebpop --lossy -q 98.5 --alpha_q 70 input.png -o output.webp` selects VP8
 with color quality 98.5 and alpha quality 70. Its defaults are color quality
-75, alpha quality 100 and method 4; other lossy methods are not implemented.
+75, alpha quality 100 and method 4. Lossy `-m 0..6` selects color and alpha
+encoding effort, also exposed as `LossyOptions::method` in `encode_lossy_rgba`.
 `--lossy` conflicts with `--lossless`, `--near_lossless` and `--exact`.
 `--alpha_q` requires `--lossy`. `-z` and other unimplemented settings remain
 rejected even where parsing recognizes their names.

@@ -25,7 +25,7 @@ pub struct AnimationOptions {
 /// Codec settings for one complete display canvas. Lossless quality controls
 /// effort; lossy quality controls fidelity. Near-lossless strength below 100
 /// can change visible RGB and intermediate alpha, even with `exact` enabled.
-/// Lossy encoding currently uses method 4, including alpha quality and SharpYUV.
+/// Lossy encoding supports methods 0–6, including alpha quality and SharpYUV.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnimationFrameOptions {
     Lossless(LosslessOptions),
@@ -53,7 +53,7 @@ impl AnimationFrameOptions {
                 WebPValidateConfig(options)
             }
             Self::Lossy(options) => {
-                LossyConfig::new(options.quality, options.alpha_quality, 4)?;
+                LossyConfig::from_options(options)?;
                 Ok(())
             }
         }

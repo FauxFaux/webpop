@@ -148,7 +148,7 @@ impl EncodedFrame {
         )
     }
 
-    /// Encode method-4 lossy RGBA, including optional ALPH and SharpYUV.
+    /// Encode lossy RGBA with method 0–6, including optional ALPH and SharpYUV.
     pub fn encode_lossy_rgba(
         rgba: &[u8],
         width: u32,

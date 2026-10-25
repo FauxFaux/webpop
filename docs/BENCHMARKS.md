@@ -387,3 +387,11 @@ inlining still performs prediction and context access in its callers.
 [Raw samples, hashes, build settings and paired comparisons](benchmarks/2026-10-23-map-inline.json)
 accompany this result. Full local artifacts, including before/after binaries
 and build/test logs, are under `target/bench-map-inline/`.
+
+## Lossy methods
+
+The [2026-10-25 lossy methods baseline](benchmarks/2026-10-25-lossy-methods.md)
+records paired scalar Rust/C bytes, quality, repeated encode-only timings and
+whole-process RSS for all methods, including larger opaque/alpha inputs.
+Reproduce it with `scripts/benchmark-lossy.py`; its measurement boundaries are
+separate from the lossless CLI harness above.

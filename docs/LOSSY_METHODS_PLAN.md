@@ -21,6 +21,12 @@ public `LossyOptions`/`encode_lossy_rgba` API and SharpYUV selection for method
 4. Extend that existing API with method selection and retain `use_sharp_yuv`;
 the initial audit below describes the earlier source snapshot.
 
+Completed 2026-10-25 after parent `8c26278`: checked public/CLI methods 0–6,
+method-dependent alpha and all planned parity gates are integrated. The
+[release baseline](benchmarks/2026-10-25-lossy-methods.md) records 42 paired
+Rust/C cases with larger opaque and alpha images. The implementation order
+below retains the original requirements and milestone evidence.
+
 The target is complete-file RGBA encoding with caller-selected color quality,
 method and alpha quality, using the default preset's remaining settings:
 
@@ -42,7 +48,7 @@ method and alpha quality, using the default preset's remaining settings:
 The direct loop is required by methods 0–2 even with `low_memory=0`. Port its
 single-partition, one-configured-pass behavior here. Public low-memory selection
 for methods 3–6, multiple coefficient partitions, repeated passes, rate control,
-non-default presets/analysis/filter controls, lossy `exact`, SharpYUV routing,
+non-default presets/analysis/filter controls, lossy `exact`,
 threading, SIMD and reporting remain separate completion work. Keep internal
 state extensible for those tasks without exposing unsupported settings.
 
@@ -57,20 +63,20 @@ needed. Preserve their behavior and reference fixtures.
 
 | Rust location | Existing behavior | Additional work |
 | --- | --- | --- |
-| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries color/alpha quality and SharpYUV selection; private `LossyConfig` validates and carries method through color and alpha jobs | Expose method in existing public options |
-| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches frames and alpha effort for all methods | Public method selection remains |
+| [`config_enc.rs`](../libwebpop/src/enc/config_enc.rs), [`encode.rs`](../libwebpop/src/encode.rs) | Public `LossyOptions` carries method, color/alpha quality and SharpYUV selection; private `LossyConfig` validates and carries them through color and alpha jobs | No additional configuration for this scope |
+| [`webp_enc.rs`](../libwebpop/src/enc/webp_enc.rs), [`vp8i_enc.rs`](../libwebpop/src/enc/vp8i_enc.rs) | Checked method-aware construction maps all RD levels, token/direct selection and header budgets; integrated encoding dispatches frames and alpha effort for all methods | No additional routing for this scope |
 | [`analysis_enc.rs`](../libwebpop/src/enc/analysis_enc.rs) | Histogram and fast luma probes, UV analysis, segmentation and synchronous source-border traversal, including one-segment fast prediction initialization | No additional analysis for this scope |
 | [`quant_enc.rs`](../libwebpop/src/enc/quant_enc.rs) | Matrices/lambdas, reconstruction, diffusion, basic RD/distortion refinement, trellis reconstruction/quantization and selected-mode requantization | No additional RD algorithms for this scope |
 | [`frame_enc.rs`](../libwebpop/src/enc/frame_enc.rs) | Direct coding/statistics for methods 0–2, token drivers for methods 3–6, skip fitting/reset, refresh/retry and deterministic filter finalization | No additional frame algorithms for this scope |
 | [`alpha_enc.rs`](../libwebpop/src/enc/alpha_enc.rs) | Alpha quantization, method-dependent filters/VP8L effort and quality, raw fallback | No additional alpha algorithms for this scope |
 | [`syntax_enc.rs`](../libwebpop/src/enc/syntax_enc.rs), [`tree_enc.rs`](../libwebpop/src/enc/tree_enc.rs) | Single-partition containers and probability/mode headers, including composed direct residuals and fitted skip state | No additional syntax for this scope |
-| [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Parses methods 0–6 but rejects lossy methods other than 4 | Route every valid method to the checked configurable lossy API |
+| [`cwebpop/src/main.rs`](../cwebpop/src/main.rs) | Routes `--lossy -m 0..6` to the checked configurable API, retaining quality/alpha/SharpYUV/stream behavior | No additional CLI routing for this scope |
 
 `VP8Decimate` now accepts all four RD levels;
 `VP8EncTokenLoopWithObserver` accepts methods 3–6, and luma reconstruction
 uses the mapped trellis policy. Alpha effort/quality and complete transparent
-files now compose for every method internally. Public APIs/CLI still select
-method 4 until milestone 8. Matrix setup already contains the
+files now compose for every method through the checked public APIs and CLI,
+with method 4 remaining the default. Matrix setup already contains the
 method threshold for texture-distortion weighting and the trellis lambdas;
 extend its coverage instead of porting it again. `GetFilterMap` and headerless
 VP8L encoding now receive the selected method's alpha effort.
@@ -219,7 +225,7 @@ other. Preserve boundaries, probability fitting and context reset order.
 
 ## Implementation order and acceptance gates
 
-Milestones 0–7 are complete; milestone 8 remains pending. Integrate callers after
+Milestones 0–8 are complete. Integrate callers after
 their dependencies pass, retaining the original plan's method-4 coverage at
 every stage. Leaf-specific oracle requests are added before the corresponding
 Rust ports in subsequent milestones, using the reference foundation below.
@@ -234,7 +240,7 @@ Rust ports in subsequent milestones, using the reference foundation below.
 | 5 (complete) | Trellis score/state leaves and `TrellisQuantizeBlock` | 0, existing matrices/costs | 72 portable fixtures and 19,646 live C requests match scores, levels, dequantized coefficients, nonzero returns and candidate cost traces; independent exhaustive short-path checks cover terminal/predecessor/skip ties |
 | 6 (complete) | Trellis candidate reconstruction, `SimpleQuantize`, all RD dispatch and methods 5/6 token integration | 1, 5 | 56 portable fixtures, 17,424 reconstruction/search requests, 662 frame traces and 692 opaque files match C; invocation order, refreshed costs and selected-mode preservation checked; method 4 unchanged |
 | 7 (complete) | Method-dependent alpha effort, quality and filter trials | 1, existing ALPH/VP8L; 4 and 6 for complete files | 77 portable fixtures, 2,982 exact C leaf/trial requests and 4,137 complete files; independent decoding, effort/color thresholds, request-dependent method-6 exception and strict size ties pass |
-| 8 | Public `LossyOptions`/`encode_lossy_rgba`, CLI routing, full regression and baseline record | 4, 6, 7 | Checked API and CLI support methods 0–6; portable/live full-file parity, independent decode, validation and benchmark record pass |
+| 8 (complete) | Public `LossyOptions`/`encode_lossy_rgba`, CLI routing, full regression and baseline record | 4, 6, 7 | Public/CLI methods 0–6; 4,137 alpha-corpus files plus 406 seeded/fractional/frame-boundary files match C through the public API; inherited fixtures, validation, animation routes and 42 paired release baseline cases pass |
 
 ### 0. Oracle and baseline
 
@@ -527,6 +533,32 @@ from color coding. Require composed transparent-file parity before exposing
 new methods publicly; opaque-only method support is incomplete.
 
 ### 8. Public and CLI integration
+
+Completed 2026-10-25 after `8c26278`. `LossyOptions::method` defaults to 4, uses
+checked unsigned conversion and validates the range before import/allocation.
+The shared checked configuration reaches still-image, prepared animation frame
+and full-canvas sequence routes. Both convenience APIs retain method 4 and
+their existing signatures. The CLI accepts `--lossy -m 0..6`, retaining
+fractional quality, alpha quality, SharpYUV, files/streams and `--noalpha`.
+Unsupported advanced options and incompatible codecs still fail before input
+access; invalid settings preserve existing output.
+
+Public comparisons reuse every original methods fixture and the milestone-7
+4,137-file corpus, and add 406 seeded/fractional/frame-boundary files. Portable
+checks cover source immutability, padded/unaligned/minimum/surplus buffers,
+output capacity/replacement, checked overflow, all method/quality bounds,
+method-4 defaults and both animation entry points. CLI tests compare files,
+stdin/stdout, alpha removal and SharpYUV with the library for every method.
+All inherited fixtures remain unchanged. Full portable, native and release
+workspace suites, formatting and the production library build pass.
+
+The [42-case release record](benchmarks/2026-10-25-lossy-methods.md) and its CSV/
+raw samples cover all methods on 128×128 and 1024×685 opaque/alpha inputs, with
+normal pinned C byte parity, independently decoded RGB/alpha metrics, repeated
+encode-only timing and clearly bounded whole-process RSS. The encoder inventory
+now marks these methods/alpha complete while retaining public low-memory,
+partitions, repeated passes and target-search integrations as remaining work.
+See the [reference record](../libwebpop/tests/reference/LOSSY.md#remaining-lossy-methods-milestone-8).
 
 Extend the checked API with method selection after the algorithms compose.
 Keep both existing lossy convenience functions delegated through it, with

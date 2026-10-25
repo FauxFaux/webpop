@@ -9,6 +9,7 @@ cargo run -p cwebpop -- --lossless -q 80 input.png -o output.webp
 cargo run --release -p cwebpop -- --exact input.png -o output.webp
 cargo run --release -p cwebpop -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp
 cargo run --release -p cwebpop -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp
+cargo run --release -p cwebpop -- --lossy -q 75 -m 6 input.png -o output.webp
 cargo run --release -p cwebpop -- --lossy --sharp_yuv input.png -o output.webp
 cat input.png | target/release/cwebpop --quiet - -o - > output.webp
 ```
@@ -37,7 +38,7 @@ finite values from 0–100 and preserves fractional values; the default is 75.
 Quality 100 still uses YUV420 and quantization, so RGB can change.
 `--alpha_q N` accepts integer alpha quality 0–100 (default 100, exact alpha).
 Lower values permit alpha quantization; opaque output ignores alpha quality.
-The lossy path currently supports method 4 only, including explicit `-m 4`.
+Lossy `-m 0..6` selects color and alpha encoding effort; the default remains 4.
 `--lossy` conflicts with `--lossless`, `--near_lossless` and `--exact`;
 `--alpha_q` requires `--lossy`. `--noalpha`, streams and reporting options work
 in either mode. Invalid or unsupported settings fail before reading input.

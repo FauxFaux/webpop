@@ -35,6 +35,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             a[2] as usize,
             &LossyOptions {
                 quality: f32::from_bits(a[3]),
+                method: 4,
                 alpha_quality: a[4] as i32,
                 use_sharp_yuv: a[5] != 0 || a[6] & 4 != 0,
             },

@@ -884,10 +884,12 @@ the encoder-required inverse WHT, animation, metadata muxing, file loaders,
 negative strides, and C ABI compatibility. Default-path header-budget retries
 and deterministic filter-strength adjustment remain required.
 
-The [remaining lossy methods plan](LOSSY_METHODS_PLAN.md) now schedules methods
-0–3 and 5–6, including their direct frame loop, trellis, method-dependent alpha,
-and configurable API/CLI integration. This plan's completed milestones retain
-their original method-4 scope; the extension's other advanced options remain
+The [additional lossy methods plan](LOSSY_METHODS_PLAN.md) completed methods
+0–3 and 5–6 on 2026-10-25, including their direct frame loop, trellis,
+method-dependent alpha, configurable API/CLI integration and
+[paired release baseline](benchmarks/2026-10-25-lossy-methods.md).
+This plan's completed milestones retain their original method-4 scope;
+other advanced options remain
 under the [encoder completion inventory](ENCODER_COMPLETION_PLAN.md).
 
 ### Earlier extension: near-lossless VP8L

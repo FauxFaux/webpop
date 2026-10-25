@@ -34,8 +34,8 @@ protocol, provenance and validation commands/results.
 The public prepared-frame layer now exposes `EncodedFrame`,
 `AnimationContainer`, `AnimationContainerOptions`, `BackgroundColor`,
 `ContainerFrameOptions`, `FrameBlend`, `FrameDispose` and `MuxError` from the
-crate root. `EncodedFrame` provides checked lossless, near-lossless and method-4
-lossy RGBA encoding, reusing `LosslessOptions`/`LossyOptions`, including alpha
+crate root. `EncodedFrame` provides checked lossless, near-lossless and lossy
+RGBA encoding with methods 0–6, reusing `LosslessOptions`/`LossyOptions`, including alpha
 quality and SharpYUV. It captures typed codec output directly at the still-writer
 boundary; it does not parse RIFF input. Existing still options/defaults and
 output bytes are preserved.
@@ -68,7 +68,7 @@ The public raw-frame layer (2026-10-25) exposes `AnimationEncoder`,
 `AnimationError`. `new(width, height, options)` fixes the canvas;
 `add_rgba(rgba, stride, timestamp_ms, frame_options)` immediately encodes each
 full canvas as a replacement at (0,0), without disposal. Frame options select
-lossless, near-lossless or method-4 lossy using the existing still settings.
+lossless, near-lossless or lossy methods 0–6 using the existing still settings.
 Global options reuse `AnimationContainerOptions` for loop/background/metadata.
 `FullFrame` is the default policy; `Optimized` is explicitly rejected before
 encoding. Repeats and zero durations remain separate submitted frames.
@@ -146,13 +146,13 @@ filter-control integration described below. Keep the existing still APIs and
 their defaults unchanged. A WebP animation contains independently coded VP8 or
 VP8L rectangles; there is no VP8 inter-frame video coding to port.
 
-The [remaining lossy methods plan](LOSSY_METHODS_PLAN.md) owns methods 0–6,
+The completed [additional lossy methods plan](LOSSY_METHODS_PLAN.md) owns methods 0–6,
 direct/token loop selection, trellis, method-dependent alpha effort and the
 shared `LossyOptions`/`encode_lossy_rgba` API. Animation consumes those codec
 routes; it does not duplicate their algorithms or create another lossy options
-type. Basic animation can ship with method 4 while that plan proceeds. Enable
-additional lossy animation methods only after their opaque and transparent
-still-file acceptance gates pass. Mixed mode requires the selected method and
+type. Its opaque/transparent still-file gates now pass for every method;
+prepared-frame and full-canvas sequence routes carry all methods, with method 4
+remaining the default. Mixed mode requires the selected method and
 settings to be supported by every candidate codec, even when a heuristic might
 ultimately choose only one; reject unsupported combinations before encoding.
 
@@ -319,8 +319,8 @@ Implement and test these output rules against the pinned sources:
 ### 0. Contract and native oracle
 
 - [ ] Finalize the types, timing/state rules and supported codec matrix above.
-  Full-frame types, timing/state and lossless/near-lossless/method-4 lossy settings
-  are finalized and tested. Optimizer settings/keyframe normalization remain open.
+  Full-frame types and timing/state rules are finalized and tested for lossless,
+  near-lossless and lossy methods 0–6. Optimizer settings/keyframe normalization remain open.
 - [x] Extend the existing `native-oracle` CMake build: enable
   `WEBP_BUILD_LIBWEBPMUX` and link `libwebpmux` for animation wrappers. Link
   `webpdemux` only if needed for test inspection/decoding. Preserve scalar,

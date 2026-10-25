@@ -299,6 +299,10 @@ fn animation_sequence_rejects_layout_and_settings_without_poisoning() {
                 alpha_quality: 101,
                 ..Default::default()
             }),
+            AnimationFrameOptions::Lossy(LossyOptions {
+                method: u32::MAX,
+                ..Default::default()
+            }),
         ];
         for options in bad {
             assert!(
@@ -376,6 +380,7 @@ fn animation_sequence_custom_codec_settings_match_still_decodes() {
             for use_sharp_yuv in [false, true] {
                 settings.push(AnimationFrameOptions::Lossy(LossyOptions {
                     quality,
+                    method: 4,
                     alpha_quality,
                     use_sharp_yuv,
                 }));

@@ -103,6 +103,7 @@ fn all_methods_match_normal_c_files_and_decode() {
     let cases = alpha::file_cases();
     let counts = native::parallel_cases("lossy-alpha-method-files", &cases, |case, out| {
         native::compare(case, out, &alpha::file_output(case));
+        native::compare(case, out, &case.rust());
         support::lossy_methods::check_decoded(case, out)
     });
     let mut totals = [[0; 3]; 7];

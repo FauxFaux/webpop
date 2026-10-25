@@ -246,9 +246,7 @@ impl VP8Encoder {
         Self::new_with_method(width, height, diffusion, 4)
     }
 
-    /// Initialize method-dependent analysis/quantization state. Frame coding
-    /// currently implements method 4; other methods are available for staged
-    /// leaf ports and setup comparisons, not complete-file encoding yet.
+    /// Initialize method-dependent analysis/quantization state for methods 0–6.
     /// Resource policy remains normal memory and one coefficient partition.
     pub fn new_with_method(
         width: u32,

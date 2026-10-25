@@ -31,7 +31,7 @@ struct Args {
     #[arg(short = 'q', long)]
     quality: Option<f32>,
 
-    /// Compression method, 0..6 (default 4; --lossy currently requires 4).
+    /// Compression method, 0..6 (default 4).
     #[arg(short = 'm', long)]
     method: Option<u8>,
 
@@ -285,9 +285,6 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, 
         return Err("method must be in 0..=6".into());
     }
     if args.lossy {
-        if method != 4 {
-            return Err("--lossy currently supports only method 4".into());
-        }
         let alpha_quality = i32::from(args.alpha_q.unwrap_or(100));
         if alpha_quality > 100 {
             return Err("alpha quality must be in 0..=100".into());
@@ -297,6 +294,7 @@ fn encoder_options(args: &Args, matches: &ArgMatches) -> Result<EncoderOptions, 
         }
         return Ok(EncoderOptions::Lossy(LossyOptions {
             quality,
+            method: u32::from(method),
             alpha_quality,
             use_sharp_yuv: args.sharp_yuv || args.pre == Some(4),
         }));

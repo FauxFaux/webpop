@@ -594,8 +594,11 @@ fn invalid_lossy_settings_fail_before_input_and_preserve_output() {
         vec!["--lossy", "-q", "101"],
         vec!["--lossy", "--alpha_q=101"],
         vec!["--lossy", "--alpha_q=-1"],
-        vec!["--lossy", "-m", "0"],
-        vec!["--lossy", "-m", "6"],
+        vec!["--lossy", "-m", "7"],
+        vec!["--lossy", "--method=-1"],
+        vec!["--lossy", "-m", "255"],
+        vec!["--lossy", "--low_memory"],
+        vec!["--lossy", "--pass", "1"],
         vec!["--lossy", "--lossless"],
         vec!["--lossy", "--near_lossless", "100"],
         vec!["--lossy", "--exact"],
@@ -677,6 +680,7 @@ fn sharp_yuv_files_and_streams_match_library_and_preprocessing_alias() {
             17 * 4,
             &libwebpop::LossyOptions {
                 quality: 98.5,
+                method: 4,
                 alpha_quality: 30,
                 use_sharp_yuv: sharp,
             },
@@ -724,4 +728,110 @@ fn sharp_yuv_files_and_streams_match_library_and_preprocessing_alias() {
     )
     .unwrap();
     assert_eq!(result.stdout, expected);
+}
+
+#[test]
+fn all_lossy_methods_match_library_for_files_streams_and_noalpha() {
+    let temp = Scratch::new();
+    let input = temp.file("methods.png");
+    let output = temp.file("methods.webp");
+    let image = source();
+    image.save(&input).unwrap();
+    for method in 0..=6 {
+        for (sharp, noalpha) in [(false, false), (true, false), (false, true)] {
+            let mut cmd = command();
+            cmd.arg(&input).arg("-o").arg(&output).args([
+                "--lossy",
+                "-q",
+                "98.5",
+                "--alpha_q",
+                "71",
+                "-m",
+                &method.to_string(),
+            ]);
+            if sharp {
+                cmd.arg("--sharp_yuv");
+            }
+            if noalpha {
+                cmd.arg("--noalpha");
+            }
+            let result = cmd.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let mut pixels = image.clone();
+            if noalpha {
+                for p in pixels.pixels_mut() {
+                    p[3] = 255;
+                }
+            }
+            let mut expected = Vec::new();
+            libwebpop::encode_lossy_rgba(
+                pixels.as_raw(),
+                17,
+                19,
+                17 * 4,
+                &libwebpop::LossyOptions {
+                    quality: 98.5,
+                    method,
+                    alpha_quality: 71,
+                    use_sharp_yuv: sharp,
+                },
+                &mut expected,
+            )
+            .unwrap();
+            let actual = fs::read(&output).unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(decode(&actual).dimensions(), (17, 19));
+        }
+        let mut child = command()
+            .args([
+                "--lossy",
+                "-m",
+                &method.to_string(),
+                "-q",
+                "30.25",
+                "--alpha_q",
+                "100",
+                "--quiet",
+                "-",
+                "-o",
+                "-",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&fs::read(&input).unwrap())
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(result.stderr.is_empty());
+        let mut expected = Vec::new();
+        libwebpop::encode_lossy_rgba(
+            image.as_raw(),
+            17,
+            19,
+            17 * 4,
+            &libwebpop::LossyOptions {
+                quality: 30.25,
+                method,
+                ..Default::default()
+            },
+            &mut expected,
+        )
+        .unwrap();
+        assert_eq!(result.stdout, expected);
+    }
 }

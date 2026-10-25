@@ -2397,3 +2397,82 @@ library build; `cargo fmt --all -- --check`; and `git diff --check`.
 The final release run includes all 4,137 complete files and 2,982 new alpha
 requests. All inherited method-4, lossless, near-lossless, SharpYUV and merged
 animation fixtures remain unchanged. The upstream checkout is clean.
+
+## Remaining lossy methods: milestone 8
+
+Completed 2026-10-25 after parent `8c26278`. `LossyOptions` now carries
+`method: u32`, default 4. A shared checked options conversion validates method,
+color quality and alpha quality before picture import/allocation. The public
+`encode_lossy_rgba` and existing animation frame/sequence routes use the selected
+method throughout color and alpha jobs. Both simple lossy convenience functions
+retain their signatures and method-4 bytes. Public output replacement, capacity
+reuse and unchanged-on-error guarantees are retained.
+
+The CLI routes `--lossy -m 0..6` through that public API, retaining fractional
+`-q`, `--alpha_q`, SharpYUV/`--pre 4`, files, stdin/stdout and `--noalpha`.
+Out-of-range methods, incompatible codec choices and unimplemented advanced
+switches, including `--low_memory` and `--pass`, still fail before input access
+and preserve an existing output file. Executable tests compare file output
+(ordinary/SharpYUV/alpha removal) and stream output with the public library for
+every method. The lossless default and existing CLI behavior remain covered.
+
+No protocol or fixture bytes change in this milestone. `Case::rust` now
+evaluates `WebPEncodeLossyMethod` through the checked exported API for all seven
+methods. Every existing methods fixture and the 3,556-case original public C
+corpus now compare public Rust output, extending their earlier method-4 gate.
+The milestone-7 4,137-file corpus compares both the internal leaf composition
+and public API with normal public C, then independently decodes the files.
+Another 406 complete files exercise seeded geometries/patterns/fractional
+qualities, adjacent f32 boundaries at 0/30/75/98/100, macroblock edges, token
+refresh intervals and larger 257×769 frames. All these compare exact complete
+bytes with normally linked C; they do not encode via instrumented replacements.
+
+Portable public checks exercise every method with ordinary/SharpYUV imports,
+minimum padded input, unaligned starts, packed/surplus buffers, immutable source,
+output replacement and capacity reuse. Invalid unsigned methods (including
+`u32::MAX`), nonfinite/out-of-range qualities, dimensions/strides, short input
+and checked overflow preserve output. A one-row `usize::MAX` stride remains
+legal. Default options and explicit method 4 preserve both convenience APIs
+across nine color qualities. Prepared animation frames and full-canvas sequences
+carry every lossy method and retain one-frame still output; invalid sequence
+method settings fail without consuming frame state.
+
+The [release baseline](../../../docs/benchmarks/2026-10-25-lossy-methods.md),
+[42-row CSV](../../../docs/benchmarks/2026-10-25-lossy-methods.csv) and
+[raw repetitions/provenance](../../../docs/benchmarks/2026-10-25-lossy-methods.json)
+record all methods on prepared 128×128 and 1024×685 opaque/alpha inputs, color
+quality 75 and alpha qualities 70/100. Each Rust/C pair has identical complete
+bytes, decoded RGB/alpha metrics, one warm-up and five timed encodes. Timers
+exclude preparation, output file I/O, comparisons and decoding. Whole-process
+RSS is reported separately from encoder-only allocations, which are unmeasured.
+The records describe CPU affinity, differing compiler targets and other limits.
+
+`scripts/benchmark-lossy.py` uses the safe Rust `lossy_benchmark` example and
+manual `webpop_lossy_benchmark` CMake target. That target links the ordinary
+scalar library built with the oracle settings and is excluded from normal
+oracle test builds. The shared image helper adds untimed size-limited input
+preparation and source-to-decoded metrics. The script checks the clean pinned
+revision and retains inputs, output WebPs, repeated timings, RSS, source snapshots
+and provenance beneath its fresh target directory. The baseline uses Rust
+1.101.0-nightly `7189d39d9`, session `RUSTFLAGS=-Ctarget-cpu=native`, GCC
+15.2.0-16ubuntu1 / CMake 4.2.3, scalar Release `-O3 -DNDEBUG`, threading off
+and token buffering enabled, on the unchanged pin
+`1844042d1ca751e62e61df7617dba19c98588339`.
+
+```sh
+cargo test -p libwebpop --features native-oracle \
+  --test lossy_methods --test lossy_alpha_methods --test animation_sequence \
+  -- --nocapture
+cargo test -p cwebpop
+python3 scripts/benchmark-lossy.py \
+  --output target/benchmarks/lossy-methods-new --runs 5 --edge 1024 --cpu 0
+```
+
+Validation passed: `cargo fmt --all -- --check`,
+`cargo build -p libwebpop --lib`, full workspace `cargo test`,
+`cargo test --features native-oracle -- --nocapture`,
+`cargo test --release --features native-oracle -- --nocapture`, and
+`git diff --check`. All inherited fixtures remain unchanged and upstream is
+clean. The methods plan is complete; public low-memory, multiple partitions,
+user-selected passes/targets and other advanced options remain in the encoder
+completion inventory.
