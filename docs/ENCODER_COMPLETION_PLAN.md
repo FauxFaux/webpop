@@ -359,7 +359,9 @@ configuration.
 - `thread_level` schedules VP8L configuration trials, lossy analysis jobs and
   alpha/color coding concurrently. Porting workers adds no new coding tool.
   Preserve candidate order, size ties, results and error propagation when
-  implementing it. Sources: [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c)
+  implementing it. The [threading plan](THREADING_PLAN.md) inventories these
+  boundaries and proposes Rayon scheduling with exact-byte acceptance gates.
+  Sources: [`vp8l_enc.c`](../upstream/src/enc/vp8l_enc.c)
   `VP8LEncodeStream`, [`analysis_enc.c`](../upstream/src/enc/analysis_enc.c)
   `VP8EncAnalyze`, [`alpha_enc.c`](../upstream/src/enc/alpha_enc.c).
 - `image_hint` is an allocation/compatibility option here: `WEBP_HINT_GRAPH`
