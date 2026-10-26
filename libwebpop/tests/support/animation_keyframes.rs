@@ -1,5 +1,4 @@
-//! 4b normalization and version-2 cache observations. Enabled traces remain
-//! reference-only until deferred selection/overflow integration are ported.
+//! Normalization and versioned cache observations, including deferred selection.
 use super::{Case, animation_cache, animation_codec_cache as codec, animation_mixed};
 use libwebpop::internal::mux::anim_encode::*;
 use libwebpop::internal::*;
@@ -57,7 +56,7 @@ pub fn snapshot(cache: &AnimationCache) -> Vec<u32> {
 
 pub fn base(case: &Case) -> Case {
     let mut input = case.input[..8].to_vec();
-    input[2] &= !8;
+    input[2] &= !(8 | 16);
     input.extend_from_slice(&case.input[10..]);
     Case::new("AnimationCache", input)
 }
@@ -68,14 +67,29 @@ pub fn is_disabled(case: &Case) -> bool {
         == SanitizeEncoderOptions(0, 0, false)
 }
 
+pub fn policy(case: &Case) -> KeyframePolicy {
+    match (case.input[8], case.input[9]) {
+        (_, 0) => KeyframePolicy::Disabled,
+        (_, 1) => KeyframePolicy::AllFrames,
+        (min, max) => KeyframePolicy::Bounded {
+            min_interval: min,
+            max_interval: max,
+        },
+    }
+}
+
+fn observation(cache: &AnimationCache, case: &Case) -> Vec<u32> {
+    let mut result = snapshot(cache);
+    if case.input[2] & 16 != 0 && cache.status().submitted_frames != 0 {
+        result.extend(&codec::observation(cache)[10..]);
+    }
+    result
+}
+
 pub fn evaluate(case: &Case) -> Vec<u32> {
-    assert!(
-        is_disabled(case),
-        "enabled selection is reference-only in 4b"
-    );
     let a = &case.input;
     let base = base(case);
-    let mut cache = AnimationCache::new(
+    let mut cache = AnimationCache::new_with_keyframes(
         a[0],
         a[1],
         AnimationCacheOptions {
@@ -83,13 +97,14 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             allow_mixed: a[2] & 2 != 0,
             container: animation_cache::container_options(a[5] != 0),
         },
+        policy(case),
     )
     .unwrap();
     let mut timestamp = u64::from(a[6]) | (u64::from(a[7]) << 32);
     let mut result = Vec::new();
     let frames = codec::frames(&base);
     for (i, f) in frames.iter().enumerate() {
-        result.extend(snapshot(&cache));
+        result.extend(observation(&cache, case));
         // Reuse the existing isolated-trial evaluator to compare every original
         // WebPEncode call, including losers. Timing overflow may reset prev_rect.
         let mut rect = cache.status().previous_rect;
@@ -120,29 +135,45 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             is_key_frame: i == 0,
             is_first_frame: i == 0,
             minimize_size: a[2] & 1 != 0,
-            ..Default::default()
+            previous_candidate_undecided: cache.window_status().previous_candidate_undecided,
         };
-        // V2 disabled fixture traces use mixed mode; VP8/VP8L-only parity stays
-        // covered by V1 and the existing exhaustive candidate/cache suites.
-        assert!(a[2] & 2 != 0);
-        let trials = animation_mixed::trials(
+        let previous_view =
+            ArgbView::new(&restored, a[0] as i32, a[1] as i32, a[0] as usize).unwrap();
+        let mut trials = animation_mixed::trials_for_codecs(
             ArgbView::new(&restored, a[0] as i32, a[1] as i32, a[0] as usize).unwrap(),
             current,
             rect,
             &settings,
+            a[2] & 2 != 0,
         );
+        if i != 0
+            && !trials.is_empty()
+            && cache.status().count_since_key_frame as i64 + 1
+                > i64::from(cache.window_status().effective.kmin)
+        {
+            trials.extend(animation_mixed::trials_for_codecs(
+                previous_view,
+                current,
+                rect,
+                &MixedCandidateOptions {
+                    is_key_frame: true,
+                    ..settings
+                },
+                a[2] & 2 != 0,
+            ));
+        }
         result.push(trials.len() as u32);
         for trial in trials {
             result.extend(trial.record);
         }
         cache.add_argb(current, timestamp, &f.config).unwrap();
-        result.extend(snapshot(&cache));
+        result.extend(observation(&cache, case));
         timestamp += u64::from(f.duration);
     }
-    result.extend(snapshot(&cache));
+    result.extend(observation(&cache, case));
     let mut output = Vec::new();
     cache.finish(timestamp, &mut output).unwrap();
-    result.extend(snapshot(&cache));
+    result.extend(observation(&cache, case));
     result.push(output.len() as u32);
     result.extend(output.into_iter().map(u32::from));
     result
@@ -209,4 +240,99 @@ pub fn traces() -> Vec<Case> {
         result.push(Case::new("AnimationCache", input));
     }
     result
+}
+
+/// New ordinary-duration corpus; V3 adds original/carryover and saved configs.
+pub fn selection_cases() -> Vec<Case> {
+    let mut cases = Vec::new();
+    for (min, max) in [(0, 1), (0, 2), (0, 3), (2, 5), (3, 7), (0, 100)] {
+        for flags in [0, 2, 3] {
+            for pattern in [2, 4, 6, 10, 11] {
+                let old = codec::sequence(19, 17, pattern, pattern % 7, flags, 0);
+                let mut input = old.input[..8].to_vec();
+                input[2] |= 8 | 16;
+                input.extend([min, max]);
+                input.extend_from_slice(&old.input[8..]);
+                cases.push(Case::new("AnimationCache", input));
+            }
+        }
+    }
+    // Equal-size full-canvas alternatives and later-tie demotion; many cycles
+    // exercise flushing/rebasing. Repeats change settings without advancing k.
+    for (w, h) in [(1, 1), (8, 8), (19, 17)] {
+        for primary in [0, 1, 2] {
+            for (min, max) in [(0, 1), (0, 3), (2, 5), (4, 9)] {
+                let mut input = vec![
+                    w,
+                    h,
+                    4 | 8 | 16 | if primary == 2 { 2 } else { 0 },
+                    0,
+                    24,
+                    1,
+                    0xfffffff0,
+                    0x1234,
+                    min,
+                    max,
+                ];
+                for i in 0..24 {
+                    input.extend([
+                        i % 3,
+                        w + 1,
+                        if primary < 2 { primary } else { i % 2 },
+                        (if i % 2 == 0 { 61.5f32 } else { 75.25 }).to_bits(),
+                        i % 7,
+                        if i % 3 == 0 { 60 } else { 100 },
+                        i % 2,
+                        100,
+                        i % 2,
+                    ]);
+                    // Includes exact repeats, global replacements, sparse
+                    // changes, fades and a late return to a simple canvas.
+                    let t = i - u32::from(i % 5 == 2);
+                    for y in 0..h {
+                        for x in 0..w {
+                            let word = match t % 8 {
+                                0 => 0xff102030,
+                                1 | 2 => 0xff405060,
+                                3 => {
+                                    if x < 3 && y < 3 {
+                                        0xffff0022
+                                    } else {
+                                        0xff405060
+                                    }
+                                }
+                                4 => ((x * 7919 + y * 104729) * (t + 1) & 0xffffff) | 0xff000000,
+                                5 => 0x8000ff40,
+                                6 => {
+                                    if x < w / 2 {
+                                        0
+                                    } else {
+                                        0xff402080
+                                    }
+                                }
+                                _ => 0xff102030,
+                            };
+                            input.push(word);
+                        }
+                        if y + 1 < h {
+                            input.push(0xdeadbeef);
+                        }
+                    }
+                }
+                cases.push(Case::new("AnimationCache", input));
+            }
+        }
+    }
+    cases
+}
+
+pub fn selection_fixtures() -> Vec<Case> {
+    let cases = selection_cases();
+    [
+        0, 4, 5, 10, 15, 24, 30, 45, 47, 60, 62, 63, 64, 69, 75, 89, 90, 93, 101, 105, 109, 113,
+        117, 121, 125,
+    ]
+    .into_iter()
+    .map(|i| cases[i].clone())
+    .collect()
 }

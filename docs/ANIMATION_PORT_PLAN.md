@@ -4,8 +4,9 @@ Planned 2026-10-24; remaining work replanned 2026-10-25 against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339`. Prepared-frame containers and the
 full-frame RGBA sequence API are usable. Candidate selection and shared timestamp
 caching support all three codec routes with keyframes disabled.
-Keyframe normalization/storage are implemented; deferred selection, the public
-optimized RGBA policy and sequence CLI remain open.
+Keyframe normalization/storage and ordinary-duration deferred selection are
+implemented. Keyframe/overflow integration, the public optimized RGBA policy
+and sequence CLI remain open.
 
 This expands the [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building
 on the completed [lossless](LOSSLESS_PORT_PLAN.md),
@@ -27,16 +28,19 @@ Milestone numbers 0–5 retain their original meaning; remaining work is split b
 | 2. Full-frame RGBA | Per-frame lossless, near-lossless and lossy methods 0–6; explicit final timing; replacements without merging; checked state/error contract | `src/mux/sequence.rs`, `tests/animation_sequence.rs` |
 | 3. VP8L optimizer subset | Checked ARGB subviews, geometry/blend leaves, candidates, original-word carryover, near-lossless strengths and duration merging/overflow holds with keyframes disabled | `src/mux/anim_encode.rs`, `anim_encode/{lossless,cache}.rs`, `tests/animation{,_subframes,_candidates,_carryover,_cache,_near_lossless}.rs` |
 | 4/4a. VP8/mixed candidates and cache | Blended VP8 filter override, FlattenSimilarBlocks, lossy/mixed SetFrame, palette eligibility, config reversal, trial order/ties, original-word carryover and shared keyframe-disabled timestamp caching/holds | `anim_encode/{lossy,mixed}.rs`, `tests/animation{_lossy_candidates,_lossy_carryover,_mixed,_codec_cache}.rs` |
-| 4b. Keyframe normalization/storage | Ordered option sanitization, checked typed controls, bounded owned alternatives and expanded C observer; enabled encoding remains gated | `anim_encode/keyframes.rs`, `tests/animation_keyframes.rs` |
+| 4b. Keyframe normalization/storage | Ordered option sanitization, checked typed controls, bounded owned alternatives and expanded C observer | `anim_encode/keyframes.rs`, `tests/animation_keyframes.rs` |
+| 4c. Deferred selection | Ordinary-duration keyframe windows across VP8L/VP8/mixed routes, signed penalties, ties, disposal and prefix flushing; enabled overflow remains gated | `anim_encode/cache.rs`, `tests/animation_keyframes.rs` |
 
 Paths in the table are relative to `libwebpop/`; candidate module paths are
 relative to `libwebpop/src/mux/`. Existing candidate generators and canvas
 updates are shared by the cache. The shared
 `AnimationCache` owns two original/carryover canvases, saved submitted/reversed
-configs and two cache slots; `LosslessAnimationCache` adapts its established VP8L
+configs and bounded cache slots; `LosslessAnimationCache` adapts its established VP8L
 methods to that owner. Its owned slots can hold both subframe/keyframe
-alternatives and normalized windows reserve up to 31 slots. Encoding still uses the disabled two-slot policy;
-deferred selection and keyframe/overflow integration remain open.
+alternatives and normalized windows reserve up to 31 slots. Existing constructors
+retain the disabled two-slot policy; `AnimationCache::new_with_keyframes` enables
+ordinary-duration selection. It rejects duration splits before mutation until
+keyframe/overflow integration (4d) lands.
 
 There is no production decoder or C/Wasm dependency. The low-level cache stops
 before decode-dependent single-frame reconstruction. `AnimationEncoder::new`
@@ -176,7 +180,7 @@ that invalidate their results; avoid unchanged broad reruns within one package.
 | --- | --- | --- |
 | 4a. Shared cache and codec integration — complete | Existing candidate routes | VP8L/VP8/mixed timing and holds, keyframes disabled |
 | 4b. Keyframe normalization and storage — complete | 4a | Effective options, bounded owned candidate slots and observer protocol |
-| 4c. Deferred selection | 4b | Candidate decisions and cache flushing without overflow interactions |
+| 4c. Deferred selection — complete | 4b | Candidate decisions and cache flushing without overflow interactions |
 | 4d. Keyframes plus duration overflow | 4c | Complete keyframe timing/cache branch integration |
 | 4e. Public optimized RGBA | 4a; 4d for keyframe controls | Checked public policy and settings for an advertised subset |
 | Single-frame discussion gate | Existing reference evidence | A separately discussed scope decision; no decoder change is assumed |
@@ -240,8 +244,8 @@ variants at the dispatch boundary; retain the existing exhaustive codec suites.
 Completed: effective policy, owned candidate storage and observer protocol are
 implemented, with disabled-keyframe output unchanged. See the
 [4b reference record](../libwebpop/tests/reference/ANIMATION.md#4b-keyframe-normalization-and-candidate-storage-2026-10-25).
-Enabled policies currently support normalization only; encoding remains gated
-until deferred selection and duration-overflow integration land.
+Enabled policies now support ordinary-duration encoding through the separate
+low-level constructor (4c). Duration overflow remains gated until 4d.
 
 - [x] Define distinct disabled, all-keyframes and bounded interval controls and
   their checked mapping. Port SanitizeEncoderOptions ordering: minimize-size
@@ -268,23 +272,25 @@ in 4e. Storage extraction alone does not complete keyframe support.
 
 ### 4c. Deferred keyframe selection and ordinary flushing
 
-Boundary: port CacheFrame/FlushFrames keyframe transitions with 4a codec routes;
-exercise timelines whose merged durations do not overflow. Full keyframe support
-remains incomplete until 4d; keep any partial route internal or explicitly gated.
+Completed: CacheFrame/FlushFrames keyframe transitions with all 4a codec routes
+at the ordinary-duration boundary. See the [4c reference record](../libwebpop/tests/reference/ANIMATION.md#4c-deferred-selection-and-ordinary-flushing-2026-10-26).
+The separate low-level constructor rejects enabled-keyframe duration splits
+before mutation. Full keyframe support remains incomplete until 4d; public
+RGBA Optimized remains gated.
 
-- [ ] Port first-frame, kmin subframe-only, candidate-window and kmax reset paths,
+- [x] Port first-frame, kmin subframe-only, candidate-window and kmax reset paths,
   including all-keyframes. Settle skips before attempting the keyframe variant;
   skipped inputs do not advance the accepted-frame keyframe distance, although
   submitted indexes/timestamps and saved configs advance as in the pin.
-- [ ] Calculate KeyFramePenalty as signed complete still-file byte-size
+- [x] Calculate KeyFramePenalty as signed complete still-file byte-size
   difference. Negative penalties are valid. Ordinary candidate ties retain the
   earlier trial; keyframe penalty comparisons use <= and favor the later
   candidate, demoting the previous choice. Keep these two tie rules distinct.
-- [ ] Preserve previous disposal updates for both alternatives when undecided,
+- [x] Preserve previous disposal updates for both alternatives when undecided,
   disallow background-disposal trials when the preceding rectangle is uncertain,
   and save prev_rect only when known. Update original/carryover canvases using
   the branch selected by the pin; defer only the encoded alternatives.
-- [ ] Flush only committed prefixes, emit the selected variant, rebase retained
+- [x] Flush only committed prefixes, emit the selected variant, rebase retained
   indexes and release losers. Finish must correctly drain a partially filled
   window and a selected candidate before kmax. Preserve output on errors.
 

@@ -2,7 +2,7 @@
 // Derived from upstream/src/mux/anim_encode.c at
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
-//! Shared CacheFrame/FlushFrames with keyframe insertion disabled. This is
+//! Shared CacheFrame/FlushFrames with deferred keyframe selection. This is
 //! separate from the public RGBA policy until the remaining optimizer gates land.
 
 use super::*;
@@ -13,7 +13,7 @@ use crate::mux::{
 };
 use crate::{internal::LosslessOptions, internal::LossyOptions};
 
-use super::keyframes::{CachedFrame, CandidateWindow};
+use super::keyframes::{CachedFrame, CandidateWindow, DELTA_INFINITY, FrameAlternative};
 
 const MAX_DURATION: u32 = 1 << 24;
 
@@ -154,12 +154,14 @@ pub struct AnimationCacheOptions {
     pub container: AnimationContainerOptions,
 }
 
-/// Low-level, keyframe-disabled ARGB cache. Codec selection may change on every
-/// input. Mixed mode tries eligible codecs with the supplied shared config.
+/// Low-level ARGB cache, with keyframes disabled by `new`. Codec selection may
+/// change on every input. Mixed mode tries eligible codecs with the supplied shared config.
 /// Owns original-word history and buffered output; skips save settings and merge
 /// timing. This does not enable the public RGBA Optimized policy or perform
 /// decode-dependent single-frame reconstruction. Validation errors allow retry;
 /// errors after validation are terminal. Explicit final timing is required.
+/// `new_with_keyframes` supports ordinary-duration deferred selection; enabled
+/// keyframes with duration overflow remain unsupported.
 #[derive(Debug)]
 pub struct AnimationCache {
     container: AnimationContainer,
@@ -181,6 +183,21 @@ impl AnimationCache {
         height: u32,
         options: AnimationCacheOptions,
     ) -> Result<Self, AnimationError> {
+        Self::new_with_keyframes(width, height, options, KeyframePolicy::Disabled)
+    }
+
+    /// Enable low-level deferred selection. Duration splits with enabled
+    /// insertion are rejected before mutation until overflow integration lands.
+    /// This route retains the pre-OptimizeSingleFrame assembly boundary.
+    pub fn new_with_keyframes(
+        width: u32,
+        height: u32,
+        options: AnimationCacheOptions,
+        keyframes: KeyframePolicy,
+    ) -> Result<Self, AnimationError> {
+        let effective = keyframes
+            .normalize(options.minimize_size)
+            .map_err(|source| candidate_error(0, source.into()))?;
         if !(1..=16383).contains(&width) || !(1..=16383).contains(&height) {
             return Err(AnimationError::InvalidCanvas);
         }
@@ -202,8 +219,8 @@ impl AnimationCache {
             canvas.resize(area, 0);
             Ok(canvas)
         };
-        let window = CandidateWindow::new(SanitizeEncoderOptions(0, 0, options.minimize_size))
-            .map_err(|source| candidate_error(0, source))?;
+        let window =
+            CandidateWindow::new(effective).map_err(|source| candidate_error(0, source))?;
         Ok(Self {
             container,
             window,
@@ -223,8 +240,7 @@ impl AnimationCache {
         self.status
     }
 
-    /// Effective disabled policy and deferred-selection state. Enabled policies
-    /// remain gated; this observation does not enable keyframe insertion.
+    /// Effective policy and deferred-selection state.
     pub fn window_status(&self) -> CacheWindowStatus {
         self.window.state
     }
@@ -311,6 +327,7 @@ impl AnimationCache {
                 source,
             })?;
         self.validate_dimensions(current)?;
+        self.validate_duration_merge(duration)?;
         let submitted_frames = frame_index
             .checked_add(1)
             .ok_or_else(|| candidate_error(frame_index, AnimationLeafError::SizeOverflow.into()))?;
@@ -319,12 +336,29 @@ impl AnimationCache {
             // Use the preceding submitted config for a hold, before saving the
             // incoming config (even when the incoming candidate will skip).
             self.IncreasePreviousDuration(duration)?;
-            self.FlushFrames(self.window.frames.len() - 1)?;
+            self.FlushFrames(self.window.state.flush_count)?;
         }
         self.CacheFrame(current, codec)?;
         self.status.submitted_frames = submitted_frames;
         self.last_timestamp_ms = Some(timestamp_ms);
         self.active = true;
+        Ok(())
+    }
+
+    fn validate_duration_merge(&self, duration: Option<u32>) -> Result<(), AnimationError> {
+        let disabled = self.window.state.effective == SanitizeEncoderOptions(0, 0, false);
+        if !disabled
+            && duration.is_some_and(|d| {
+                self.status
+                    .pending_duration_ms
+                    .is_some_and(|pending| pending + d >= MAX_DURATION)
+            })
+        {
+            return Err(candidate_error(
+                self.status.submitted_frames.saturating_sub(1),
+                AnimationCandidateError::KeyframeDurationOverflow,
+            ));
+        }
         Ok(())
     }
 
@@ -393,6 +427,7 @@ impl AnimationCache {
                 ..Default::default()
             };
             self.status.count_since_key_frame += 1;
+            self.window.state.flush_count = self.window.frames.len() - 1;
         }
         self.refresh_pending_status();
         Ok(())
@@ -417,76 +452,169 @@ impl AnimationCache {
             }
             self.last_config = Some(*codec);
             self.last_config_reversed = Some(codec.reversed());
-            let previous = ArgbView::new(&self.carryover, w, h, stride)?;
-            let candidate = if self.allow_mixed {
-                SetFrameMixed(
-                    previous,
-                    current,
-                    self.status.previous_rect,
-                    &MixedCandidateOptions {
-                        codec: *codec,
-                        is_key_frame: first,
-                        is_first_frame: first,
-                        minimize_size: self.minimize_size,
-                        ..Default::default()
-                    },
-                )?
-            } else if codec.primary == AnimationCandidateCodec::Vp8l {
-                set_frame_near_lossless(
-                    previous,
-                    current,
-                    self.status.previous_rect,
-                    &LosslessCandidateOptions {
-                        codec: codec.lossless_options(),
-                        is_key_frame: first,
-                        is_first_frame: first,
-                        minimize_size: self.minimize_size,
-                        ..Default::default()
-                    },
-                    codec.near_lossless,
-                )?
-                .map(Into::into)
-            } else {
-                super::lossy::set_frame_with_exact(
-                    previous,
-                    current,
-                    self.status.previous_rect,
-                    &LossyCandidateOptions {
-                        codec: codec.codec,
-                        is_key_frame: first,
-                        is_first_frame: first,
-                        minimize_size: self.minimize_size,
-                        ..Default::default()
-                    },
-                    codec.exact,
-                )?
-                .map(Into::into)
+            let sub_or_first = self.evaluate_frame(current, codec, first, first)?;
+            let Some(sub_or_first) = sub_or_first else {
+                // A skip keeps the accepted-frame distance, rectangle and
+                // undecided state, but SetFrame has saved the new configs.
+                return Ok(());
             };
-            if let Some(candidate) = candidate {
-                candidate.update_canvases(
+            let mut slot;
+            let mut undecided = false;
+            let rect;
+            if first {
+                sub_or_first.update_canvases(
                     current,
                     self.status.previous_rect,
                     &mut ArgbViewMut::new(&mut self.previous, w, h, stride)?,
                     &mut ArgbViewMut::new(&mut self.carryover, w, h, stride)?,
                 )?;
-                if let Some(dispose) = candidate.previous_dispose {
-                    self.window
+                rect = sub_or_first.rect;
+                slot = CachedFrame::new(sub_or_first.frame, sub_or_first.control, true);
+                self.window.state.flush_count = 0;
+                self.status.count_since_key_frame = 0;
+            } else {
+                self.status.count_since_key_frame += 1;
+                let sub = sub_or_first;
+                if let Some(dispose) = sub.previous_dispose {
+                    let previous = self
+                        .window
                         .frames
                         .last_mut()
-                        .expect("previous frame is cached")
-                        .selected_mut()
-                        .control
-                        .dispose = dispose;
+                        .expect("previous cached frame");
+                    if self.window.state.previous_candidate_undecided {
+                        debug_assert_eq!(dispose, crate::mux::FrameDispose::None);
+                        previous.sub_frame.control.dispose = dispose;
+                        previous.key_frame.control.dispose = dispose;
+                    } else {
+                        previous.selected_mut().control.dispose = dispose;
+                    }
                 }
-                self.status.previous_rect = candidate.rect;
-                self.status.count_since_key_frame += usize::from(!first);
-                self.window
-                    .push(CachedFrame::new(candidate.frame, candidate.control, first))?;
+                let effective = self.window.state.effective;
+                let key = if self.status.count_since_key_frame as i64 > i64::from(effective.kmin) {
+                    Some(
+                        self.evaluate_frame(current, codec, true, false)?
+                            .expect("keyframe cannot skip"),
+                    )
+                } else {
+                    None
+                };
+                let is_key_frame = if let Some(key) = &key {
+                    let penalty = key.encoded_size() as i64 - sub.encoded_size() as i64;
+                    if penalty <= self.window.state.best_penalty {
+                        if let Some(old) = self.window.state.selected_keyframe {
+                            self.window.frames[old].is_key_frame = false;
+                        }
+                        undecided = true;
+                        self.window.state.selected_keyframe = Some(self.window.frames.len());
+                        self.window.state.best_penalty = penalty;
+                        self.window.state.flush_count = self.window.frames.len();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    self.window.state.flush_count = self.window.frames.len();
+                    false
+                };
+                if key.is_some()
+                    && self.status.count_since_key_frame as i64 >= i64::from(effective.kmax)
+                {
+                    self.status.count_since_key_frame = 0;
+                    self.window.state.best_penalty = DELTA_INFINITY;
+                    self.window.state.selected_keyframe = None;
+                    undecided = false;
+                    self.window.state.flush_count = self.window.frames.len();
+                }
+                let selected = if is_key_frame {
+                    key.as_ref().unwrap()
+                } else {
+                    &sub
+                };
+                selected.update_canvases(
+                    current,
+                    self.status.previous_rect,
+                    &mut ArgbViewMut::new(&mut self.previous, w, h, stride)?,
+                    &mut ArgbViewMut::new(&mut self.carryover, w, h, stride)?,
+                )?;
+                rect = selected.rect;
+                slot = CachedFrame::new(sub.frame, sub.control, false);
+                if let Some(key) = key {
+                    slot.key_frame = FrameAlternative {
+                        frame: Some(key.frame),
+                        control: key.control,
+                    };
+                }
+                slot.is_key_frame = is_key_frame;
             }
+            self.window.state.previous_candidate_undecided = undecided;
+            if !undecided {
+                self.status.previous_rect = rect;
+            }
+            self.window.push(slot)?;
             Ok(())
         })();
         result.map_err(|source| candidate_error(frame_index, source))?;
-        self.FlushFrames(self.window.frames.len() - 1)
+        self.FlushFrames(self.window.state.flush_count)
+    }
+
+    fn evaluate_frame(
+        &self,
+        current: ArgbView<'_>,
+        codec: &MixedEncodingConfig,
+        is_key_frame: bool,
+        is_first_frame: bool,
+    ) -> Result<Option<MixedCandidate>, AnimationCandidateError> {
+        let previous = ArgbView::new(
+            &self.carryover,
+            current.width,
+            current.height,
+            current.width as usize,
+        )?;
+        let previous_candidate_undecided = self.window.state.previous_candidate_undecided;
+        if self.allow_mixed {
+            SetFrameMixed(
+                previous,
+                current,
+                self.status.previous_rect,
+                &MixedCandidateOptions {
+                    codec: *codec,
+                    is_key_frame,
+                    is_first_frame,
+                    previous_candidate_undecided,
+                    minimize_size: self.minimize_size,
+                },
+            )
+        } else if codec.primary == AnimationCandidateCodec::Vp8l {
+            set_frame_near_lossless(
+                previous,
+                current,
+                self.status.previous_rect,
+                &LosslessCandidateOptions {
+                    codec: codec.lossless_options(),
+                    is_key_frame,
+                    is_first_frame,
+                    previous_candidate_undecided,
+                    minimize_size: self.minimize_size,
+                },
+                codec.near_lossless,
+            )
+            .map(|c| c.map(Into::into))
+        } else {
+            super::lossy::set_frame_with_exact(
+                previous,
+                current,
+                self.status.previous_rect,
+                &LossyCandidateOptions {
+                    codec: codec.codec,
+                    is_key_frame,
+                    is_first_frame,
+                    previous_candidate_undecided,
+                    minimize_size: self.minimize_size,
+                },
+                codec.exact,
+            )
+            .map(|c| c.map(Into::into))
+        }
     }
 
     fn FlushFrames(&mut self, count: usize) -> Result<(), AnimationError> {
@@ -532,6 +660,7 @@ impl AnimationCache {
         let duration = self
             .interval(end_timestamp_ms)?
             .ok_or(AnimationError::NoFrames)?;
+        self.validate_duration_merge(Some(duration))?;
         let frame_index = self.status.submitted_frames - 1;
         self.active = false;
         self.IncreasePreviousDuration(duration)?;

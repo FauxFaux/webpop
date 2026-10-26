@@ -1322,6 +1322,25 @@ native workspace run passed 459 tests (four manual baselines ignored). Warnings
 about an unused shared native-test helper in unrelated targets remain. Final
 `git diff --check` passed and the upstream checkout remained clean.
 
+## 4c acceptance contract (2026-10-26)
+
+Port ordinary CacheFrame/FlushFrames selection into the shared owner, reusing
+all three SetFrame routes, owned alternatives and original-word canvas helpers.
+Expose a separate low-level checked keyframe constructor; preserve existing
+constructors/options and keep public RGBA Optimized gated. Enabled policies
+reject a duration split before mutation, with retry allowed, pending 4d.
+
+Named corpus: all-frames; below/at/above kmin/kmax; equal/negative penalties;
+early/late winners and demotion; repeats within a window with changed configs;
+uncertain preceding rectangle/disposal; repeated flush/rebase; partial-window
+finish; VP8L/near-lossless/VP8/mixed switches; minimize-size override. Compare
+both alternatives, signed penalties, selection/flush counters, saved configs,
+original/carryover canvases and all original codec calls/losers. Extend the
+existing versioned observer without changing old fixtures. Complete files use
+mode 0 (pre-OptimizeSingleFrame); independently decode/composite rectangles and
+compare native all-frame playback/timing. Duration overflow with enabled
+keyframes and decode-dependent reconstruction are explicitly unsupported.
+
 ## 4b acceptance contract (2026-10-25)
 
 Before deferred selection, port option normalization and replace single-payload
@@ -1494,3 +1513,146 @@ Final diff/format checks passed; upstream remained clean. 4b is complete at its
 normalization/storage/protocol boundary. Deferred selection (4c), keyframes with
 duration overflow (4d), public RGBA Optimized (4e) and single-frame reconstruction
 remain open.
+
+## 4c deferred selection and ordinary flushing (2026-10-26)
+
+The shared `AnimationCache` now implements ordinary-duration CacheFrame and
+FlushFrames transitions across VP8L, near-lossless, VP8 and mixed routes.
+`AnimationCache::new_with_keyframes(width, height, options, policy)` checks the
+existing typed policy and allocates its normalized window. Existing `new` and
+LosslessAnimationCache entry points retain disabled insertion and unchanged
+fixtures. Public RGBA Optimized remains rejected. No production decoding or
+single-frame reconstruction was added.
+
+### Selection, ownership and staging
+
+First input populates the keyframe alternative. Later inputs restore identical
+original words and evaluate a subframe first; an unchanged/similar skip saves
+submitted/reversed settings and timestamps without advancing the accepted-frame
+keyframe distance or replacing the original/rectangle. Through kmin, accepted
+inputs hold only a subframe. In the candidate window, the cache also evaluates
+a keyframe using the same codec dispatch and original canvas. It subtracts
+complete still-file sizes as signed i64 values, including VP8X/ALPH overhead.
+Negative penalties are retained. Penalty comparisons use <=, favoring the later
+candidate and demoting an earlier selection; codec/disposal trial comparisons
+still use strict < and retain the first trial.
+
+The cache updates the preceding disposal selected by the subframe trial even
+when the current input is eventually chosen as a keyframe. If the preceding
+candidate is undecided, both alternatives receive NONE disposal, and existing
+SetFrame helpers suppress background trials. The current selected branch
+updates the original/carryover canvases using the existing mask/disposal helper.
+An undecided candidate leaves prev_rect unchanged. Reaching kmax resets the
+window distance/penalty/selection and commits the preceding prefix. FlushFrames
+emits each selected alternative, rebases retained indexes and drops losers;
+finish drains an incomplete window, including an earlier retained keyframe.
+Only codec dispatch was extracted into an internal helper; candidate algorithms
+and public still APIs were not changed.
+
+4d remains separate: when the effective policy enables insertion, an interval
+that would split the pending duration returns KeyframeDurationOverflow before
+mutation, including at finish. The caller may retry; failed finish preserves
+output. The explicit test uses a wide origin near u64::MAX and checks counters,
+both alternatives, canvases and saved configs before/after rejection, then
+successfully retries and verifies terminal state. Minimize-size normalizes to
+disabled insertion and retains the established fixed-hold route. Full keyframe
+support is not advertised at this staged boundary.
+
+### Observations and named corpus
+
+The existing AnimationCache observer gains optional history flag bit 4 (V3),
+requiring V2/window bit 3 and extended codec bit 2. After each V2 snapshot with
+at least one submitted input, it appends the established V1 extended observation:
+submitted/reversed configs, pending controls, area and original/carryover words.
+There are 19 fixed appended words, followed by two packed canvases when a slot
+remains; no uninitialized constructor configs are observed. Before/after-add
+snapshots, all original codec calls/losers, final timing and pre-reconstruction
+assembly remain in the same order. The wrapper only observes original C
+functions/state and checks available output capacity; it adds no selection
+logic. Old V1/V2 requests and fixtures remain valid.
+
+`selection_cases` contains **126 deterministic traces / 1,584 submitted inputs**:
+
+- Sprite/overlap, fade, sparse-change, disposal/mask and palette-switch histories
+  cross raw intervals (0,1), (0,2), (0,3), (2,5), (3,7), (0,100), with mixed
+  disabled/enabled and minimize-size overriding insertion. Per-input primary,
+  quality, method, near-lossless, exact, alpha and SharpYUV settings vary.
+- Long 24-input histories cross 1x1, 8x8 and 19x17 canvases; VP8-only, VP8L-only
+  and mixed settings; all-frames and bounded (0,3), (2,5), (4,9) policies.
+  Global replacements create equal penalties; sparse edits, entropy changes,
+  fades, clearing and returns to simple canvases change winners. Repeats also
+  change configuration. Histories exercise repeated flush/rebase cycles and
+  finish before the window closes. All requests use optional row padding,
+  wide timestamp origins and ordinary intervals, including zero.
+
+The live test asserts that the corpus actually reaches negative penalties,
+equal-penalty replacement, an earlier retained selection with multiple slots,
+a skip while the preceding candidate is undecided and a partially filled
+selected window at finish. It compares both alternatives/controls/sizes, every
+ordered original codec trial (including losers), all counters/selection/flush
+state, saved configs, both raw canvases and complete files. The three formerly
+reference-only V2 enabled traces now compare to Rust as well.
+
+`animation_keyframe_selection.txt` commits **25 traces / 344 submitted inputs**,
+selected explicitly to retain negative penalties, equal ties, early/late winners,
+retained windows, skips, disposal/masks, all codec routes and interval branches.
+No older fixture was regenerated. The existing independent container parser
+and exact straight-alpha playback helper moved to shared test support so both
+codec-cache and keyframe tests reuse it. Portable tests parse and independently
+decode/composite the committed outputs. Live tests compare all **126 playback
+sequences** to pinned WebPAnimDecoder, checking every canvas and delay. Piecewise
+input/output intervals verify total and per-input timing without expanding a
+millisecond timeline. All file comparisons use mode 0, before
+OptimizeSingleFrame; they make no reconstruction or public RGBA parity claim.
+
+### Provenance, growth and validation
+
+The pin and toolchain are unchanged from 4b: clean upstream
+`1844042d1ca751e62e61df7617dba19c98588339`, rustc
+`1.101.0-nightly (7189d39d9 2026-10-22)`, GCC 15.2.0, CMake 4.2.3. Reviewed the
+wrapper/protocol changes against original source; the native harness validates
+the pin/clean checkout and records actual flags in provenance.txt before
+fixture generation. The new file is generated separately:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_keyframes animation_keyframe_selection_fixtures_match_pinned_reference -- --nocapture
+```
+
+Growth: production +204/-70 lines; test/evaluator/oracle +495/-147 lines,
+including the shared playback-helper move; fixtures +27 lines / 4,375,220 bytes
+including requests and raw-canvas snapshots. Documentation is separate.
+Implementation/review was approximately 20 minutes of interactive work
+(excluding command waits); build and test costs are recorded separately below.
+
+Focused validation:
+
+```sh
+cargo test -p libwebpop --features native-oracle --lib --test animation_keyframes --test animation_cache --test animation_codec_cache --test animation_near_lossless --test animation_mixed --test animation_candidates --test animation_lossy_candidates --test animation_carryover --test animation_lossy_carryover -- --nocapture
+```
+
+Passed in 17.03 s total (3.62 s Cargo build, 13.41 s tests/oracle/launches),
+including unchanged disabled-cache and candidate suites. An initial focused
+build found private helper imports after moving the playback parser; shared
+visibility/imports were fixed before this successful run. No encoder mismatch
+was found. The library-only build passed in 0.41 s (0.40 s Cargo build).
+
+
+Final integration gate, all passed:
+
+| Command | Cargo build | Post-build wall (tests/oracle/launches) | Total wall |
+| --- | ---: | ---: | ---: |
+| `cargo build -p libwebpop --lib` | 0.40 s | — | 0.41 s |
+| `cargo test -p libwebpop --release --features native-oracle animation -- --nocapture` | 29.09 s | 11.14 s | 40.23 s |
+| `cargo test -p cwebpop` | 2.52 s | 0.88 s | 3.40 s |
+| `cargo test --workspace` | 32.16 s | 15.16 s | 47.32 s |
+| `cargo test --workspace --features native-oracle -- --nocapture` | 43.92 s | 53.71 s | 97.63 s |
+| `cargo fmt --all -- --check` | — | — | 5.24 s |
+
+The release run passed 88 animation tests. Workspace totals, including doctests,
+were 334 passing portable tests (two manual baselines ignored) and 474 passing
+native tests (four manual baselines ignored). Existing unused native-helper
+warnings in unrelated targets remain. These are validation timings, not a
+resource baseline. Final format/diff checks passed; upstream remained clean.
+4c is complete at the ordinary-duration, pre-reconstruction boundary. Enabled
+keyframes with duration overflow (4d), public RGBA Optimized (4e), sequence CLI,
+resource evidence and the single-frame discussion gate remain open.

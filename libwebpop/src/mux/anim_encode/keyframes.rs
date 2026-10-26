@@ -2,7 +2,7 @@
 // Derived from upstream/src/mux/anim_encode.c at
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
-//! Keyframe option/storage foundation. Deferred selection is not implemented.
+//! Keyframe options and owned alternatives used by deferred cache selection.
 
 use super::AnimationCandidateError;
 use crate::mux::{ContainerFrameOptions, EncodedFrame, FrameBlend};
@@ -10,7 +10,8 @@ use crate::mux::{ContainerFrameOptions, EncodedFrame, FrameBlend};
 pub(super) const DELTA_INFINITY: i64 = 1i64 << 32;
 
 /// Low-level policy mapping, separate from the public RGBA encoder options.
-/// Enabled policies can be normalized but are not accepted for encoding yet.
+/// Enabled policies are supported by AnimationCache::new_with_keyframes for
+/// ordinary durations; duration overflow integration remains separate.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum KeyframePolicy {
     #[default]
@@ -65,7 +66,7 @@ impl KeyframePolicy {
 /// Normalize raw upstream signed intervals without verbose warnings. In this
 /// order: minimize-size disables, kmax=1 selects all frames, nonpositive kmax
 /// disables, then kmin/half-window/window-cap adjustments apply. This leaf does
-/// not enable keyframe insertion in AnimationCache or AnimationEncoder.
+/// not itself configure AnimationCache or AnimationEncoder.
 pub fn SanitizeEncoderOptions(
     mut kmin: i32,
     mut kmax: i32,
@@ -355,7 +356,7 @@ mod tests {
             assert_eq!(moved.sub_frame.control.duration_ms, 13);
             assert_eq!(moved.key_frame.control.duration_ms, 13);
             // Signed penalties and explicit no-selection are distinct; negative
-            // penalties must not wrap when this storage gains selection in 4c.
+            // penalties must not wrap during deferred selection.
             window.state.best_penalty = -7;
             window.state.selected_keyframe = Some(0);
             window.state.previous_candidate_undecided = true;

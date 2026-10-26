@@ -26,6 +26,10 @@ pub enum AnimationCandidateError {
     InvalidFirstFrame,
     #[error("animation candidate cache capacity exceeded")]
     CacheCapacityExceeded,
+    #[error(transparent)]
+    InvalidKeyframeIntervals(#[from] InvalidKeyframeIntervals),
+    #[error("duration overflow with enabled keyframes is not implemented")]
+    KeyframeDurationOverflow,
 }
 
 /// VP8L candidate controls without mixed/lossy trials. The lossless functions

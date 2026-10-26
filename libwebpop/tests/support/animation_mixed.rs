@@ -162,6 +162,16 @@ pub fn trials(
     previous_rect: FrameRectangle,
     options: &MixedCandidateOptions,
 ) -> Vec<Trial> {
+    trials_for_codecs(previous, current, previous_rect, options, true)
+}
+
+pub fn trials_for_codecs(
+    previous: ArgbView<'_>,
+    current: ArgbView<'_>,
+    previous_rect: FrameRectangle,
+    options: &MixedCandidateOptions,
+    allow_mixed: bool,
+) -> Vec<Trial> {
     let mut none = SubFrameParams::new(true, !options.is_first_frame);
     GetSubRects(
         previous,
@@ -172,7 +182,11 @@ pub fn trials(
         &mut none,
     )
     .unwrap();
-    if IsEmptyRect(&none.rect_ll) || IsEmptyRect(&none.rect_lossy) {
+    if ((allow_mixed || options.codec.primary == AnimationCandidateCodec::Vp8l)
+        && IsEmptyRect(&none.rect_ll))
+        || ((allow_mixed || options.codec.primary == AnimationCandidateCodec::Vp8)
+            && IsEmptyRect(&none.rect_lossy))
+    {
         return vec![];
     }
     let mut disposed: Vec<_> = (0..previous.height() as usize)
@@ -222,7 +236,11 @@ pub fn trials(
         }
         let eligible =
             mixed_candidate_eligibility(params.sub_frame_ll.unwrap(), options.minimize_size);
-        if eligible.lossless {
+        if if allow_mixed {
+            eligible.lossless
+        } else {
+            options.codec.primary == AnimationCandidateCodec::Vp8l
+        } {
             result.push(trial(
                 src,
                 current,
@@ -232,7 +250,11 @@ pub fn trials(
                 AnimationCandidateCodec::Vp8l,
             ));
         }
-        if eligible.lossy {
+        if if allow_mixed {
+            eligible.lossy
+        } else {
+            options.codec.primary == AnimationCandidateCodec::Vp8
+        } {
             result.push(trial(
                 src,
                 current,
