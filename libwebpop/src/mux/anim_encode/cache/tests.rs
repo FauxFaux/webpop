@@ -184,3 +184,27 @@ fn animation_keyframe_overflow_private_duration_and_flush_match_c_snapshots() {
     }
     assert_eq!(checked, 26);
 }
+
+#[test]
+fn animation_rgba_cache_post_validation_candidate_failure_is_terminal() {
+    let mut cache = AnimationCache::new(1, 1, Default::default()).unwrap();
+    let config = MixedEncodingConfig::default();
+    cache.add_rgba(&[12, 34, 56, 255], 4, 0, &config).unwrap();
+    // Inject an internal candidate failure after valid public layout/config/
+    // timing checks, without exhausting the allocator or changing caller data.
+    cache.status.previous_rect.width = 2;
+    assert!(matches!(
+        cache.add_rgba(&[56, 34, 12, 255], 4, 1, &config),
+        Err(AnimationError::Candidate { frame_index: 1, .. })
+    ));
+    assert!(matches!(
+        cache.add_rgba(&[56, 34, 12, 255], 4, 1, &config),
+        Err(AnimationError::InvalidState)
+    ));
+    let mut output = vec![11, 22, 33];
+    assert!(matches!(
+        cache.finish(1, &mut output),
+        Err(AnimationError::InvalidState)
+    ));
+    assert_eq!(output, [11, 22, 33]);
+}

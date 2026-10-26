@@ -4,7 +4,8 @@ Planned 2026-10-24; remaining work replanned 2026-10-25 against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339`. Prepared-frame containers and the
 full-frame RGBA sequence API are usable. Candidate selection, shared timestamp
 caching and deferred keyframes support all three codec routes, including duration
-overflow holds. The public optimized RGBA policy and sequence CLI remain open.
+overflow holds. The RGBA sequence API supports the optimized policy under its
+existing `internal` namespace; the sequence CLI remains open.
 
 This expands the [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building
 on the completed [lossless](LOSSLESS_PORT_PLAN.md),
@@ -29,6 +30,7 @@ Milestone numbers 0–5 retain their original meaning; remaining work is split b
 | 4b. Keyframe normalization/storage | Ordered option sanitization, checked typed controls, bounded owned alternatives and expanded C observer | `anim_encode/keyframes.rs`, `tests/animation_keyframes.rs` |
 | 4c. Deferred selection | Ordinary-duration keyframe windows across VP8L/VP8/mixed routes, signed penalties, ties, disposal and prefix flushing | `anim_encode/cache.rs`, `tests/animation_keyframes.rs` |
 | 4d. Keyframes with duration overflow | Both alternative durations, saved-config holds, selected-keyframe freezing/rebasing and prefix flush before the next candidate | `anim_encode/cache.rs`, `tests/animation_keyframes.rs`, `anim_encode/cache/tests.rs` |
+| 4e. Optimized RGBA facade | Checked optimizer/Mixed controls, owned RGBA import, shared cache state, explicit timing and pre-reconstruction parity | `src/mux/sequence.rs`, `tests/animation_optimized.rs`, `examples/animation.rs` |
 
 Paths in the table are relative to `libwebpop/`; candidate module paths are
 relative to `libwebpop/src/mux/`. Existing candidate generators and canvas
@@ -43,7 +45,8 @@ and flush the committed prefix before the next candidate.
 
 There is no production decoder or C/Wasm dependency. The low-level cache stops
 before decode-dependent single-frame reconstruction. `AnimationEncoder::new`
-still rejects `AnimationEncodingPolicy::Optimized`. Candidate/carryover sequence
+accepts FullFrame (default) and Optimized with checked options. These APIs retain
+the existing unsupported `internal` compatibility boundary. Candidate/carryover sequence
 tests with unit durations do not establish timestamp-cache or public API parity.
 
 ## Scope and compatibility boundaries
@@ -90,8 +93,8 @@ Two boundaries must remain explicit:
 
 | Surface | Contract |
 | --- | --- |
-| `AnimationOptions` | Encoding policy and owned container options; dimensions are passed to `AnimationEncoder::new`; optimizer options still need a checked mapping |
-| `AnimationFrameOptions` | Lossless, near-lossless or lossy still settings; mixed primary/reversal mapping remains to be defined for optimized input |
+| `AnimationOptions` | Encoding policy and owned container options; dimensions are passed to `AnimationEncoder::new`; optimizer controls have a checked mapping |
+| `AnimationFrameOptions` | Lossless, near-lossless or lossy still settings; explicit Mixed settings retain primary/reversal fields and f32 quality |
 | `add_rgba` | Immutable full-canvas straight-alpha RGBA, positive byte stride, no retained caller borrow, unchanged input |
 | `finish` | Required explicit final u64 timestamp and `&mut Vec<u8>` output; no implicit average duration |
 | Errors/state | Zero-based submitted-frame indexes, including skips; finish refers to the final input; validation failures allow retry, post-validation allocation/encoding/assembly failures are terminal |
@@ -181,7 +184,7 @@ that invalidate their results; avoid unchanged broad reruns within one package.
 | 4b. Keyframe normalization and storage — complete | 4a | Effective options, bounded owned candidate slots and observer protocol |
 | 4c. Deferred selection — complete | 4b | Candidate decisions and cache flushing without overflow interactions |
 | 4d. Keyframes plus duration overflow — complete | 4c | Complete keyframe timing/cache branch integration |
-| 4e. Public optimized RGBA | 4a; 4d for keyframe controls | Checked public policy and settings for an advertised subset |
+| 4e. Public optimized RGBA — complete | 4a; 4d for keyframe controls | Checked public policy and settings for an advertised subset |
 | Single-frame discussion gate | Existing reference evidence | A separately discussed scope decision; no decoder change is assumed |
 | 5a. Sequence CLI | Existing milestone 2; 4e for optimizer switches | Useful full-frame frontend, then supported optimized controls |
 | 5b. Resource baseline | A usable measured route | Paired timing/size/memory evidence for that route |
@@ -274,7 +277,7 @@ in 4e. Storage extraction alone does not complete keyframe support.
 Completed: CacheFrame/FlushFrames keyframe transitions with all 4a codec routes
 at the ordinary-duration boundary. See the [4c reference record](../libwebpop/tests/reference/ANIMATION.md#4c-deferred-selection-and-ordinary-flushing-2026-10-26).
 The subsequent 4d package integrates duration splits with these transitions.
-Public RGBA Optimized remains gated until 4e.
+The RGBA facade now wires this route through 4e.
 
 - [x] Port first-frame, kmin subframe-only, candidate-window and kmax reset paths,
   including all-keyframes. Settle skips before attempting the keyframe variant;
@@ -305,7 +308,7 @@ Completed: IncreasePreviousDuration is integrated with the full keyframe cache.
 See the [4d reference record](../libwebpop/tests/reference/ANIMATION.md#4d-keyframes-with-duration-overflow-2026-10-26)
 for intermediate-state, public-add/assembly and playback comparisons. Both
 established disabled routes and enabled keyframes use the shared timing owner;
-public RGBA Optimized and single-frame reconstruction remain separate.
+the RGBA facade is delivered by 4e and single-frame reconstruction remains separate.
 
 - [x] Increase the pending subframe and keyframe durations together on ordinary
   merging. On overflow, insert the fixed hold selected from saved config, freeze
@@ -325,23 +328,26 @@ keyframe cache/timing support complete.
 
 ### 4e. Public optimized RGBA contract and integration
 
-Boundary: connect already validated optimizer routes to AnimationEncoder;
-retain FullFrame as the default and preserve its bytes/state behavior.
+Completed: AnimationEncoder connects the validated optimizer routes while
+retaining FullFrame defaults/bytes/state. See the [4e reference record](../libwebpop/tests/reference/ANIMATION.md#4e-optimized-rgba-facade-2026-10-26).
+The existing `internal` namespace compatibility boundary is unchanged. Mixed
+frames require Optimized with allow-mixed; single-frame reconstruction remains
+the documented exception.
 
-- [ ] Finalize checked optimizer options: minimize-size, allow-mixed and the
+- [x] Finalize checked optimizer options: minimize-size, allow-mixed and the
   supported keyframe policies, with disabled insertion, minimize_size=false and
   allow_mixed=false by default. Retain white background/infinite loop defaults.
   Document which routes are available if keyframe support is staged.
-- [ ] Define per-frame mapping to the shared mixed config, including primary
+- [x] Define per-frame mapping to the shared mixed config, including primary
   selection, f32 quality, near-lossless/exact and dormant reversed-codec fields.
   Reuse still option types where their meanings fit; do not silently round VP8
   quality or promise a common fidelity scale across codecs. Reject unsupported
   combinations before import, timing mutation or encoding, including on repeats.
-- [ ] Reuse checked RGBA import with owned optimizer state. Preserve arbitrary
+- [x] Reuse checked RGBA import with owned optimizer state. Preserve arbitrary
   timestamp origin, explicit end timing, submitted-index errors, validation
   retry, terminal failures and unchanged output on finish errors. Test full-frame
   and optimized policies independently through the public API.
-- [ ] Add compiled examples and document settings, near-lossless/mixed/exact
+- [x] Add compiled examples and document settings, near-lossless/mixed/exact
   caveats, buffered output and the single-frame parity exception. Match supported
   public WebPAnimEncoder configurations at the advertised assembly boundary.
 
@@ -449,9 +455,9 @@ Record exact commands/results in the reference record, including the comparison
 boundary and any still-open branch. Documentation-only plan updates need link,
 consistency and diff checks; they do not require rebuilding the encoder.
 
-Basic full-frame library support is complete; its CLI remains 5a. Keyframe-disabled
-optimized support requires 4a and 4e; advertised keyframe support additionally
-requires 4b–4d. Full pinned animation completion still requires resolving the
+Full-frame and optimized RGBA support (4a–4e) are complete at their declared
+assembly boundaries; the sequence CLI remains 5a. These APIs retain the existing
+`internal` compatibility boundary. Full pinned animation completion still requires resolving the
 single-frame discussion gate and implementing its agreed follow-up, plus all
 advertised settings, CLI and resource evidence. Update the parent completion
 checklist at those boundaries. Valid playback alone does not close parity gaps.

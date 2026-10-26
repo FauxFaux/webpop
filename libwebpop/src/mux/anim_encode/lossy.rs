@@ -226,7 +226,7 @@ pub(super) fn generate_candidate(
 /// a fresh canvas copy, then flattens on the global 8×8 grid before cropping and
 /// codec conversion. Returns None for lossy-similar changes; the caller owns
 /// timing merging, canvas updates and preceding-frame control changes.
-/// This does not enable the public RGBA Optimized policy or insert keyframes.
+/// Timestamp caching and keyframes belong to the shared cache used by RGBA Optimized.
 pub fn SetFrameLossy(
     previous: ArgbView<'_>,
     current: ArgbView<'_>,

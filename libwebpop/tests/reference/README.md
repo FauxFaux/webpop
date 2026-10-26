@@ -116,9 +116,12 @@ Lossy SetFrame/FlattenSimilarBlocks and carryover updates add 73 fixtures and
 decoder comparisons. Mixed selection/config reversal adds 75 fixtures and
 4,237 live cases, observing all 9,008 original C trial files, 52 distinct-stream
 ties and both saved configurations. There are 2,688 mixed carryover transitions
-and ten exact all-frame decoder comparisons. Lossy/mixed timestamp caching,
-deferred keyframes and decode-dependent single-frame parity remain open; the RGBA
-Optimized policy is rejected.
+and ten exact all-frame decoder comparisons. Shared timestamp caching, deferred keyframes/duration holds
+and the checked RGBA Optimized facade are implemented. RGBA comparisons reuse
+these requests and add complete-file fixtures, independent/native playback and
+public C assembly checks before decode-dependent single-frame reconstruction;
+that reconstruction branch remains open. See the animation reference record for
+current counts, controls and validation evidence.
 
 This native backend was selected because it can expose internal/header leaves
 directly from the pinned checkout. The older lossless-only bundled Wasm regression has been

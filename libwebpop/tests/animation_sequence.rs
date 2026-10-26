@@ -242,11 +242,14 @@ fn animation_sequence_rejects_layout_and_settings_without_poisoning() {
             1,
             1,
             AnimationOptions {
-                policy: AnimationEncodingPolicy::Optimized,
+                optimizer: AnimationOptimizerOptions {
+                    allow_mixed: true,
+                    ..Default::default()
+                },
                 ..Default::default()
             }
         ),
-        Err(AnimationError::UnsupportedPolicy)
+        Err(AnimationError::UnsupportedOptimizerOptions)
     ));
     let mut encoder = AnimationEncoder::new(1, 2, Default::default()).unwrap();
     let rgba = [128; 9]; // stride 5, no final padding

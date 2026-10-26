@@ -92,9 +92,11 @@ libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
 
 The unsupported `internal` API also encodes full-canvas RGBA sequences with explicit millisecond
 timestamps. Each frame can select lossless, near-lossless or lossy methods 0–6
-settings. Repeats and zero durations are preserved; encoded frames stay in
-memory until `finish`. This full-frame policy has pinned WebPMux parity;
-animation optimization and a sequence CLI remain future work.
+settings. The default FullFrame policy preserves repeats and zero durations;
+encoded frames stay in memory until `finish`. This default full-frame policy has pinned WebPMux parity.
+The optimized policy selects rectangles, blending/disposal, merges repeats and
+supports mixed codecs, keyframes and duration holds. A sequence CLI remains
+future work.
 
 ```rust
 use libwebpop::internal::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
@@ -104,6 +106,41 @@ encoder.add_rgba(&[0, 0, 255, 128], 4, 600, &AnimationFrameOptions::default())?;
 let mut output = Vec::new();
 encoder.finish(640, &mut output)?; // 100 ms, then 40 ms.
 ```
+
+Select `AnimationEncodingPolicy::Optimized` and configure
+`AnimationOptions::optimizer` with `AnimationOptimizerOptions`. Its defaults are
+`minimize_size: false`, `allow_mixed: false` and
+`AnimationKeyframePolicy::Disabled`; white background and infinite looping remain
+the container defaults. Keyframes can use `AllFrames` or checked `Bounded`
+intervals. Minimize-size disables keyframe insertion. Nondefault optimizer
+controls require the optimized policy.
+
+Existing lossless/near-lossless/lossy frame variants work with either policy.
+With optimized mixed trials enabled, `AnimationFrameOptions::Mixed` additionally
+sets the primary codec, shared `LossyOptions` (fractional quality retained),
+VP8L near-lossless strength and codec exact. The primary can differ from the
+winner. VP8 interprets quality as fidelity; VP8L truncates it to compression
+effort. For ordinary lossless variants, reversed VP8 defaults are alpha quality
+100 and SharpYUV off; ordinary lossy variants use reversed VP8L strength 100 and
+exact false. Mixed settings require Optimized plus `allow_mixed: true`.
+
+Near-lossless can change RGB and intermediate alpha; switching to strength 100
+does not repair unchanged pixels already carried over. Exact cannot preserve
+invisible RGB removed by animation blending. Optimized output matches pinned
+WebPAnimEncoder before its decode-dependent `OptimizeSingleFrame`: a lone cropped
+ANMF (also reachable by merging inputs) remains animated, while C may reconstruct
+a smaller full-canvas still. Full-canvas single-frame mux cleanup is supported.
+Both policies buffer all output; adds do not stream it. Inputs are borrowed only
+during each add, timestamps are nondecreasing with arbitrary u64 origin, each
+interval fits 24 bits, and final timing is explicit. Validation errors allow
+retry; later failures are terminal. All finish errors preserve caller output.
+
+A compiled example generates an optimized mixed/keyframe animation:
+
+```sh
+cargo run -p libwebpop --example animation -- /tmp/animation.webp
+```
+
 
 
 ### Docs

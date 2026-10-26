@@ -1812,3 +1812,198 @@ baseline. Final diff/format and documentation-link checks passed; upstream
 remained clean. 4d completes the shared low-level keyframe timing/cache branch.
 Public RGBA Optimized (4e), sequence CLI, resource evidence and the single-frame
 reconstruction discussion/follow-up remain open.
+
+## 4e acceptance contract (2026-10-26)
+
+Connect AnimationEncoder's Optimized policy to the validated shared cache;
+retain FullFrame/default bytes and the existing `internal` namespace compatibility
+boundary. Global optimizer controls are minimize-size, allow-mixed and checked
+typed keyframes, disabled by default. Reject nondefault optimizer controls with
+FullFrame. Existing per-frame variants map to primary VP8L/near-lossless/VP8 with
+explicit dormant defaults. Add a Mixed variant for fractional shared quality,
+primary, near-lossless/exact and reversed VP8 alpha/SharpYUV fields; require
+Optimized plus allow-mixed for this variant. Validate settings before import or
+any timing mutation, including on repeats. Reuse the checked RGBA importer and
+keep terminal allocation/encoding failures in the shared cache owner.
+
+Named corpus: default policy/settings; all three codecs and per-input changes;
+mixed primary/reversal and fractional quality; keyframes/all-frames/minimize-size;
+padded byte strides and absent final-row padding; hidden RGB and fades; repeats
+and merely similar skips with changed settings; zero/max durations, wide origins,
+overflow holds and explicit final timing; supplied metadata; retry and terminal
+states. Compare public RGBA output with committed/live existing C cache requests
+at mode-0 assembly (before OptimizeSingleFrame), and live public C assembly where
+reconstruction does not change bytes. Reuse the current protocol and fixtures;
+add focused requests if mapping coverage needs them. Independently/native decode
+all frames and check piecewise timing. Document and test the cropped/merged
+single-frame reconstruction exception, retain the reference-only evidence, and
+add compiled examples without production decoding or CLI scope changes.
+
+## 4e optimized RGBA facade (2026-10-26)
+
+AnimationEncoder now accepts both FullFrame (default) and Optimized. The existing
+`libwebpop::internal` namespace and its unsupported compatibility boundary are
+unchanged; this package does not expand the crate-root still API guarantee.
+The facade dispatches to the existing full-frame implementation or AnimationCache.
+FullFrame retains its algorithm, bytes, replacement behavior and state. Optimized
+reuses the validated shared timing/cache owner, including keyframes, skips,
+codec/config switches and duration holds. No production decoder or CLI was added.
+
+### Checked settings and frame mapping
+
+`AnimationOptions::optimizer` is an AnimationOptimizerOptions with minimize_size,
+allow_mixed and AnimationKeyframePolicy. Defaults are false/false/Disabled;
+container defaults remain white background/infinite loop. FullFrame rejects
+nondefault optimizer controls. The keyframe type reuses the checked 4b policy;
+bounded values outside i32 or max<2 fail even with minimize-size. Ordered
+normalization still makes minimize-size disable keyframe insertion.
+
+AnimationFrameCodec reexports the existing VP8L/VP8 selector. Mixed per-frame
+settings are explicit and require Optimized plus allow_mixed. Mapping is:
+
+| Frame settings | Primary/shared codec settings | VP8L strength/exact | Dormant reversed settings |
+| --- | --- | --- | --- |
+| Lossless(options) | VP8L; integer effort becomes exactly represented f32 quality; method retained | 100 / supplied exact | VP8 alpha 100, SharpYUV off |
+| NearLossless(strength, options) | Same as Lossless | Supplied strength/exact | VP8 alpha 100, SharpYUV off |
+| Lossy(options) | VP8; fractional quality, method, alpha quality and SharpYUV retained | 100 / false | Those VP8L defaults, with shared quality/method |
+| Mixed(primary, options, near_lossless, exact) | Supplied primary and shared LossyOptions; f32 quality retained | Supplied strength/exact | Every field retained on reversal; only primary flips |
+
+Lossless effort is checked before conversion, so invalid large u32 values cannot
+be rounded into a valid setting. Quality means VP8 fidelity or VP8L effort;
+only the VP8L codec adapter truncates it. Mixed settings validate both codecs
+and dormant fields before palette eligibility, skipping or import. The ordinary
+variants also work when global mixed trials are enabled and supply the documented
+dormant defaults. FullFrame rejects Mixed frames, and Optimized rejects them
+without allow_mixed, before importing pixels or changing timing.
+
+### Input ownership, errors and reconstruction boundary
+
+The cache's RGBA adapter uses checked_rgba_geometry and WebPPictureImportRGBA.
+It shares existing interval/config validation and error indexes with ARGB adds.
+The imported ARGB picture lives only during the add; accepted history and deferred
+payloads remain owned by the cache. Byte stride need not align to ARGB words,
+final-row padding is optional and borrowed bytes remain unchanged. An import
+allocation failure marks the same cache owner inactive before returning; codec/
+candidate/container failures after validation retain its existing terminal policy.
+No second timestamp/state implementation was added for the optimized facade.
+
+Public tests cover invalid layouts, settings/dormant fields on skipped inputs,
+invalid intervals and indexes after multiple skips, empty finish, retry, zero/max
+intervals, wide origins including u64::MAX, final-output preservation and permanent
+closure after success. A private fault-injection test forces a candidate error
+after valid RGBA import/config/timing and verifies the shared owner becomes
+terminal and finish preserves output. It does not force allocator exhaustion.
+The unchanged full-frame suites still compare their complete mux bytes.
+
+Optimized assembly matches pinned C before OptimizeSingleFrame. A lone cropped
+rectangle, including one remaining after repeat merging, retains ANMF; ordinary
+full-canvas mux cleanup becomes a still and loses playback duration/loop. Six
+explicit transparent VP8L/near-lossless/VP8 cases cross one/eight submitted inputs:
+Rust equals pre-reconstruction C, while public C reconstruction yields a smaller
+still with the same transparent canvas. The earlier 94-to-44 and 90-to-34 evidence
+is preserved. No original input is substituted for decoded pixels to close this
+gap. Codec exact, near-lossless changes, unchanged-word carryover and mixed quality
+caveats are documented in rustdoc/README and remain unchanged from the low-level
+contracts. Output remains wholly buffered; cache flushing does not stream bytes.
+
+### Corpus, fixtures and compiled example
+
+The new public evaluator uses the existing AnimationCache C protocol, retaining
+its original functions/trial observations and mode-0 assembly. No wrapper or
+protocol change was needed. It converts each source word canvas into borrowed
+RGBA with deliberately unaligned byte strides and no final-row padding, calls
+AnimationEncoder, verifies unchanged source bytes, then overwrites/reuses the
+caller buffer before the next add/finish. Mixed-capable cases choose ordinary
+frame variants when their dormant defaults fit, and explicit Mixed otherwise.
+
+The **209 cases / 1,776 submitted inputs** combine 1x1/skinny/odd canvases,
+sprite/fade/sparse/disposal/palette histories, methods 0/4/6, disabled/bounded/all
+keyframes, minimize-size, repeats/similarity skips, both codec primaries and
+fractional mixed quality, metadata and saved-config switches. They reuse the
+named 4c/4d selection/overflow histories, normalizing dormant fields only when
+mapping to ordinary public variants. Invalid settings and unsupported combinations
+have separate retry tests rather than oracle requests.
+
+Every complete public file matches C at the declared pre-reconstruction boundary.
+**202** cases also match public C assembly (multiple ANMFs or existing still
+cleanup); the remaining seven single-ANMF cases retain the explicit reconstruction
+exception. **200** animated files have independent exact rectangle-composited
+playback matching every pinned WebPAnimDecoder canvas and cumulative delay;
+the other nine are decoded stills. Piecewise intervals verify per-input/total
+timing without expanding a millisecond timeline. Portable tests additionally
+reuse the unchanged committed mixed selection/overflow evidence.
+
+`animation_public.txt` commits **37 requests / 284 inputs**, storing complete
+file bytes extracted from the original C observations (not the intermediate
+snapshot/trial words). Its header explicitly identifies this output boundary;
+requests retain the AnimationCache name/protocol. Existing fixtures are unchanged.
+The deterministic subset includes all settings/geometry branches and all six
+cropped/merged reconstruction exceptions.
+
+The compiled rustdoc example demonstrates checked optimized keyframes, while
+`examples/animation.rs` generates a mixed animation with explicit durations,
+primary/config switches and bounded keyframes. The existing README full-frame
+example remains. The generated optimized example was run successfully:
+
+```sh
+cargo run -p libwebpop --example animation -- /tmp/webpop-4e-example.webp
+```
+
+### Provenance, growth and validation
+
+Reviewed source/mapping/protocol use before generating the new fixture against
+clean upstream `1844042d1ca751e62e61df7617dba19c98588339`; rustc remains
+`1.101.0-nightly (7189d39d9 2026-10-22)`, GCC 15.2.0 and CMake 4.2.3. Actual
+scalar/unthreaded flags remain in native provenance. Generate only the new file:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_optimized animation_optimized_public_fixtures_match -- --nocapture
+```
+
+Growth: production +265/-39 lines; test/evaluator/oracle +767/-2 lines (including
+24 unit-test lines); compiled example +65 lines; fixtures +39 lines / 766,456 bytes
+including requests and complete C files. Documentation is separate. Implementation/
+review took approximately 25 minutes of interactive work (wall estimate excluding
+command waits). Build/test costs are recorded separately below.
+
+Focused validation:
+
+```sh
+cargo test -p libwebpop --features native-oracle --lib --test animation_optimized --test animation_sequence --test animation_keyframes --test animation_codec_cache --test animation_cache --test animation_near_lossless -- --nocapture
+```
+
+Passed in 11.72 s (3.34 s Cargo build; 8.38 s tests/oracle/launches), including
+all unchanged cache/keyframe/overflow and full-frame mux comparisons. An initial
+compile found a missing error-type import, which was fixed before validation.
+No encoder or playback mismatch was found.
+
+Final integration gate, all passed:
+
+| Command | Cargo build | Post-build wall (tests/oracle/launches) | Total wall |
+| --- | ---: | ---: | ---: |
+| `cargo build -p libwebpop --lib` | 0.02 s | — | 0.04 s |
+| `cargo test -p libwebpop --release --features native-oracle animation -- --nocapture` | 29.43 s | 12.55 s | 41.98 s |
+| `cargo test -p cwebpop` | 1.53 s | 0.82 s | 2.35 s |
+| `cargo test --workspace` | 18.90 s | 15.01 s | 33.91 s |
+| `cargo test --workspace --features native-oracle -- --nocapture` | 21.89 s | 55.11 s | 77.00 s |
+| `cargo fmt --all -- --check` | — | — | 5.29 s |
+
+Release passed 101 animation tests. Workspace totals including doctests were
+342 passing portable tests (two manual baselines ignored) and 487 passing native
+tests (four manual baselines ignored). The final public-corpus refinement also
+exercises ordinary variants with mixed trials enabled; after that test-only
+change, the affected target was rerun in portable and release/native modes:
+
+```sh
+cargo test -p libwebpop --test animation_optimized
+cargo test -p libwebpop --release --features native-oracle --test animation_optimized -- --nocapture
+```
+
+Both passed (0.82 s and 2.91 s total respectively), retaining all 209 C files,
+202 public C assemblies and 200 independent/native playbacks. Existing unused
+native-helper warnings in unrelated targets remain. These are validation timings,
+not a resource baseline. Final diff/format and documentation-link checks passed;
+upstream remained clean. 4e completes the checked RGBA optimizer at the declared
+assembly boundary, within the existing unsupported `internal` namespace. Sequence
+CLI, resource evidence and the single-frame reconstruction discussion/follow-up
+remain open.

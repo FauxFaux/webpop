@@ -312,10 +312,12 @@ The animation plan's shared VP8L/VP8/mixed timestamp cache and overflow holds
 (4a) are complete; the established lossless cache adapts to the shared owner.
 Keyframe normalization/storage (4b), deferred selection (4c) and keyframes with
 duration overflow (4d) are complete. A separate low-level constructor enables
-keyframes with the shared timing/cache owner; the public RGBA policy remains
-gated. The remaining work includes public optimized RGBA wiring (4e). The plan
-defines acceptance cases before
-implementation and focused comparisons before broad validation. Production decoding remains excluded;
+keyframes with the shared timing/cache owner. The RGBA facade now exposes the
+checked optimized policy (4e), retaining its existing unsupported `internal`
+namespace and pre-reconstruction comparison boundary. Sequence CLI, resource
+evidence and single-frame reconstruction remain open. The plan defines acceptance
+cases before implementation and focused comparisons before broad validation.
+Production decoding remains excluded;
 discussion must precede any decision to change that boundary. The full-frame
 sequence CLI and initial resource baseline can proceed independently.
 

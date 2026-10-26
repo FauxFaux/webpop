@@ -9,7 +9,7 @@ use crate::mux::{ContainerFrameOptions, EncodedFrame, FrameBlend};
 
 pub(super) const DELTA_INFINITY: i64 = 1i64 << 32;
 
-/// Low-level policy mapping, separate from the public RGBA encoder options.
+/// Checked keyframe controls shared by the ARGB and RGBA encoder options.
 /// Enabled policies are supported by AnimationCache::new_with_keyframes,
 /// including duration overflow holds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

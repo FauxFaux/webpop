@@ -1,7 +1,7 @@
 //! Checked raw RGBA sequences and output containers for encoded rectangles.
-//! Both preserve frame order and durations. Pixel/rectangle optimizer leaves
-//! and the lossless ARGB cache are in [`anim_encode`]; the public RGBA Optimized
-//! policy is not yet available.
+//! The default FullFrame policy preserves every input. Optimized selects
+//! rectangles/codecs and merges timing using the shared cache in [`anim_encode`].
+//! Both buffer output and stop before decode-dependent single-frame reconstruction.
 
 pub mod anim_encode;
 mod muxedit;
@@ -9,8 +9,8 @@ pub(crate) mod muxinternal;
 mod sequence;
 
 pub use sequence::{
-    AnimationEncoder, AnimationEncodingPolicy, AnimationError, AnimationFrameOptions,
-    AnimationOptions,
+    AnimationEncoder, AnimationEncodingPolicy, AnimationError, AnimationFrameCodec,
+    AnimationFrameOptions, AnimationKeyframePolicy, AnimationOptimizerOptions, AnimationOptions,
 };
 
 use crate::{WebPEncodingError, internal::LosslessOptions, internal::LossyOptions};

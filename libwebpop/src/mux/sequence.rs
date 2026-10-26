@@ -1,16 +1,22 @@
-//! Full-canvas sequence API. This is an explicit encoding policy, separate from
-//! the pinned WebPAnimEncoder's candidate selection and frame merging.
+//! Checked full-canvas RGBA sequences, using explicit full-frame or optimized
+//! encoding policies. Both own their encoded output until final assembly.
 
 use super::*;
 use crate::enc::config_enc::{LossyConfig, WebPValidateConfig};
 use crate::enc::picture_csp_enc::checked_rgba_geometry;
+use anim_encode::{AnimationCache, AnimationCacheOptions, MixedEncodingConfig};
+
+pub use anim_encode::{
+    AnimationCandidateCodec as AnimationFrameCodec, KeyframePolicy as AnimationKeyframePolicy,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AnimationEncodingPolicy {
     /// Encode every submitted canvas, including repeats and zero durations.
     #[default]
     FullFrame,
-    /// Reserved for the upstream optimizer; currently rejected at construction.
+    /// Select rectangles, blending/disposal, repeats and keyframes using the
+    /// pinned optimizer, before its decode-dependent single-frame reconstruction.
     Optimized,
 }
 
@@ -20,6 +26,18 @@ pub enum AnimationEncodingPolicy {
 pub struct AnimationOptions {
     pub policy: AnimationEncodingPolicy,
     pub container: AnimationContainerOptions,
+    /// Requires Optimized when any setting differs from its default.
+    pub optimizer: AnimationOptimizerOptions,
+}
+
+/// Optimizer controls, with insertion/mixed/minimize-size disabled by default.
+/// Keyframe intervals are checked and normalized using the pinned ordering;
+/// minimize-size disables insertion. Output remains buffered in memory.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AnimationOptimizerOptions {
+    pub minimize_size: bool,
+    pub allow_mixed: bool,
+    pub keyframes: AnimationKeyframePolicy,
 }
 
 /// Codec settings for one complete display canvas. Lossless quality controls
@@ -34,6 +52,16 @@ pub enum AnimationFrameOptions {
         options: LosslessOptions,
     },
     Lossy(LossyOptions),
+    /// Requires Optimized and allow_mixed. Quality/method apply to both codecs;
+    /// VP8 retains f32 quality, while VP8L truncates effort. Alpha/SharpYUV apply
+    /// to VP8, including reversed trials. Primary affects geometry, not trial
+    /// order or the winner. Both codecs and dormant fields are always validated.
+    Mixed {
+        primary: AnimationFrameCodec,
+        options: LossyOptions,
+        near_lossless: i32,
+        exact: bool,
+    },
 }
 
 impl Default for AnimationFrameOptions {
@@ -56,7 +84,57 @@ impl AnimationFrameOptions {
                 LossyConfig::from_options(options)?;
                 Ok(())
             }
+            Self::Mixed {
+                primary,
+                options,
+                near_lossless,
+                exact,
+            } => {
+                MixedEncodingConfig {
+                    primary: *primary,
+                    codec: *options,
+                    near_lossless: *near_lossless,
+                    exact: *exact,
+                }
+                .validate()?;
+                Ok(())
+            }
         }
+    }
+
+    fn optimized_config(&self) -> Result<MixedEncodingConfig, WebPEncodingError> {
+        self.validate()?;
+        let lossless = |options: &LosslessOptions, strength| MixedEncodingConfig {
+            primary: AnimationFrameCodec::Vp8l,
+            codec: LossyOptions {
+                quality: options.quality as f32,
+                method: options.method,
+                ..Default::default()
+            },
+            near_lossless: strength,
+            exact: options.exact,
+        };
+        Ok(match self {
+            Self::Lossless(options) => lossless(options, 100),
+            Self::NearLossless { strength, options } => lossless(options, *strength),
+            Self::Lossy(options) => MixedEncodingConfig {
+                primary: AnimationFrameCodec::Vp8,
+                codec: *options,
+                near_lossless: 100,
+                exact: false,
+            },
+            Self::Mixed {
+                primary,
+                options,
+                near_lossless,
+                exact,
+            } => MixedEncodingConfig {
+                primary: *primary,
+                codec: *options,
+                near_lossless: *near_lossless,
+                exact: *exact,
+            },
+        })
     }
 }
 
@@ -65,8 +143,10 @@ impl AnimationFrameOptions {
 pub enum AnimationError {
     #[error("raw canvas axes must be in 1..=16383")]
     InvalidCanvas,
-    #[error("optimized animation encoding is not implemented")]
-    UnsupportedPolicy,
+    #[error("nondefault optimizer settings require the Optimized policy")]
+    UnsupportedOptimizerOptions,
+    #[error("frame {frame_index}: mixed settings require Optimized with allow_mixed")]
+    UnsupportedFrameOptions { frame_index: usize },
     #[error("animation needs at least one frame")]
     NoFrames,
     #[error("animation has already finished or failed")]
@@ -109,37 +189,141 @@ enum State {
     Failed,
 }
 
-/// Encode immutable full-canvas, straight-alpha RGBA frames as replacements at
-/// (0,0), without blending, disposal or merging. This policy matches WebPMux
-/// given identical payloads and controls; it does not match WebPAnimEncoder's
-/// optimized output. Frame codecs may vary within a sequence.
+/// Encode immutable straight-alpha RGBA canvases with explicit final timing.
+/// FullFrame (the default) writes every input as a replacement and matches
+/// WebPMux. Optimized owns original/carryover canvases, merges unchanged inputs,
+/// selects rectangles/blending/disposal/codecs and supports deferred keyframes.
+/// Both policies buffer encoded output; flushing does not stream or bound it.
 ///
-/// Input is borrowed only during `add_rgba`; no raw canvas is retained. Encoded
-/// frames remain buffered until `finish`, so memory grows with encoded output.
-/// This is not a streaming writer. A single frame becomes a still image and
-/// loses playback timing and loop settings, following WebPMux cleanup.
+/// Optimized matches pinned WebPAnimEncoder before OptimizeSingleFrame. A lone
+/// cropped ANMF, including one produced by merged inputs, remains animated;
+/// the pin may decode/re-encode it as a smaller full-canvas still. Full-canvas
+/// single-frame mux cleanup is supported and loses timing/loop settings.
+///
+/// Existing frame variants map VP8L effort/method/exact or VP8 fidelity/method/
+/// alpha/SharpYUV. Dormant VP8 defaults for VP8L are alpha 100/SharpYUV off;
+/// dormant VP8L defaults for VP8 are strength 100/exact false. Mixed settings
+/// control these explicitly. Quality has different meanings across codecs.
+/// Near-lossless may change RGB/intermediate alpha. Original words drive skips;
+/// later strength 100 does not repair carried pixels. Codec exact cannot retain
+/// invisible RGB discarded by optimizer blending.
 ///
 /// ```
-/// use libwebpop::internal::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
-/// let mut encoder = AnimationEncoder::new(1, 1, AnimationOptions::default())?;
+/// use libwebpop::internal::{AnimationEncoder, AnimationEncodingPolicy, AnimationOptions,
+///     AnimationOptimizerOptions, AnimationKeyframePolicy, AnimationFrameOptions};
+/// let mut encoder = AnimationEncoder::new(1, 1, AnimationOptions {
+///     policy: AnimationEncodingPolicy::Optimized,
+///     optimizer: AnimationOptimizerOptions {
+///         keyframes: AnimationKeyframePolicy::Bounded { min_interval: 2, max_interval: 5 },
+///         ..Default::default()
+///     },
+///     ..Default::default()
+/// })?;
 /// encoder.add_rgba(&[255, 0, 0, 255], 4, 500, &AnimationFrameOptions::default())?;
 /// encoder.add_rgba(&[0, 0, 255, 128], 4, 600, &AnimationFrameOptions::default())?;
-/// let mut webp = Vec::new();
-/// encoder.finish(640, &mut webp)?; // Stored durations: 100 ms and 40 ms.
+/// let mut output = Vec::new();
+/// encoder.finish(640, &mut output)?;
 /// # Ok::<(), libwebpop::internal::AnimationError>(())
 /// ```
 #[derive(Debug)]
 pub struct AnimationEncoder {
+    backend: Backend,
+}
+
+#[derive(Debug)]
+enum Backend {
+    FullFrame(FullFrameEncoder),
+    Optimized {
+        cache: AnimationCache,
+        allow_mixed: bool,
+    },
+}
+
+impl AnimationEncoder {
+    pub fn new(width: u32, height: u32, options: AnimationOptions) -> Result<Self, AnimationError> {
+        let backend = match options.policy {
+            AnimationEncodingPolicy::FullFrame => {
+                if options.optimizer != AnimationOptimizerOptions::default() {
+                    return Err(AnimationError::UnsupportedOptimizerOptions);
+                }
+                Backend::FullFrame(FullFrameEncoder::new(width, height, options)?)
+            }
+            AnimationEncodingPolicy::Optimized => Backend::Optimized {
+                allow_mixed: options.optimizer.allow_mixed,
+                cache: AnimationCache::new_with_keyframes(
+                    width,
+                    height,
+                    AnimationCacheOptions {
+                        minimize_size: options.optimizer.minimize_size,
+                        allow_mixed: options.optimizer.allow_mixed,
+                        container: options.container,
+                    },
+                    options.optimizer.keyframes,
+                )?,
+            },
+        };
+        Ok(Self { backend })
+    }
+
+    /// Submit one complete display canvas. Stride is positive and at least
+    /// width*4; final-row padding is optional and input is never changed or
+    /// borrowed after this call. Timestamps are nondecreasing u64 values with
+    /// arbitrary origin and intervals in 0..=0x00ff_ffff milliseconds.
+    /// Validation failures allow retry, including on skipped inputs. Allocation
+    /// or encoding failures after validation permanently fail this encoder.
+    /// Error indexes count every submitted input, including skips.
+    pub fn add_rgba(
+        &mut self,
+        rgba: &[u8],
+        stride: usize,
+        timestamp_ms: u64,
+        options: &AnimationFrameOptions,
+    ) -> Result<(), AnimationError> {
+        match &mut self.backend {
+            Backend::FullFrame(encoder) => encoder.add_rgba(rgba, stride, timestamp_ms, options),
+            Backend::Optimized { cache, allow_mixed } => {
+                cache.check_active()?;
+                let frame_index = cache.status().submitted_frames;
+                if matches!(options, AnimationFrameOptions::Mixed { .. }) && !*allow_mixed {
+                    return Err(AnimationError::UnsupportedFrameOptions { frame_index });
+                }
+                let codec =
+                    options
+                        .optimized_config()
+                        .map_err(|source| AnimationError::Encoding {
+                            frame_index,
+                            source,
+                        })?;
+                cache.add_rgba(rgba, stride, timestamp_ms, &codec)
+            }
+        }
+    }
+
+    /// Supply the final input's explicit end timestamp and assemble. Empty or
+    /// invalid timing allows retry; later failures are terminal. Every error
+    /// preserves output. Success releases buffers and permanently closes the
+    /// encoder. All output remains buffered until this call.
+    pub fn finish(
+        &mut self,
+        timestamp_ms: u64,
+        output: &mut Vec<u8>,
+    ) -> Result<(), AnimationError> {
+        match &mut self.backend {
+            Backend::FullFrame(encoder) => encoder.finish(timestamp_ms, output),
+            Backend::Optimized { cache, .. } => cache.finish(timestamp_ms, output),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct FullFrameEncoder {
     container: AnimationContainer,
     last_timestamp_ms: Option<u64>,
     state: State,
 }
 
-impl AnimationEncoder {
+impl FullFrameEncoder {
     pub fn new(width: u32, height: u32, options: AnimationOptions) -> Result<Self, AnimationError> {
-        if options.policy != AnimationEncodingPolicy::FullFrame {
-            return Err(AnimationError::UnsupportedPolicy);
-        }
         if !(1..=16383).contains(&width) || !(1..=16383).contains(&height) {
             return Err(AnimationError::InvalidCanvas);
         }
@@ -201,6 +385,9 @@ impl AnimationEncoder {
         self.check_active()?;
         let duration = self.interval(timestamp_ms)?;
         let frame_index = self.container.frames.len();
+        if matches!(options, AnimationFrameOptions::Mixed { .. }) {
+            return Err(AnimationError::UnsupportedFrameOptions { frame_index });
+        }
         let (width, height) = (self.container.width, self.container.height);
         checked_rgba_geometry(rgba.len(), width, height, stride)
             .map_err(WebPEncodingError::from)
@@ -223,6 +410,7 @@ impl AnimationEncoder {
             AnimationFrameOptions::Lossy(options) => {
                 EncodedFrame::encode_lossy_rgba(rgba, width, height, stride, options)
             }
+            AnimationFrameOptions::Mixed { .. } => unreachable!("validated full-frame settings"),
         }
         .map_err(|source| AnimationError::Encoding {
             frame_index,

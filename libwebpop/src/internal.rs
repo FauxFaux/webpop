@@ -25,6 +25,7 @@ pub use crate::encode::{
 };
 pub use mux::{
     AnimationContainer, AnimationContainerOptions, AnimationEncoder, AnimationEncodingPolicy,
-    AnimationError, AnimationFrameOptions, AnimationOptions, BackgroundColor,
-    ContainerFrameOptions, EncodedFrame, FrameBlend, FrameDispose, MuxError,
+    AnimationError, AnimationFrameCodec, AnimationFrameOptions, AnimationKeyframePolicy,
+    AnimationOptimizerOptions, AnimationOptions, BackgroundColor, ContainerFrameOptions,
+    EncodedFrame, FrameBlend, FrameDispose, MuxError,
 };

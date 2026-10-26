@@ -69,7 +69,7 @@ impl MixedEncodingConfig {
         }
     }
 
-    pub(super) fn validate(&self) -> Result<u32, WebPEncodingError> {
+    pub(crate) fn validate(&self) -> Result<u32, WebPEncodingError> {
         // Both codecs must be valid before palette heuristics or an empty-frame
         // shortcut can bypass encoding. VP8L's config uses integer effort.
         LossyConfig::from_options(&self.codec)?;
@@ -313,7 +313,7 @@ fn GenerateCandidates(
 /// before trying codecs, regardless of palette or primary. Ties retain the
 /// first encoded candidate, its preceding disposal and carryover mask.
 /// Caller owns timing, saved original/reversed config, canvas updates and
-/// keyframe insertion. Public RGBA Optimized remains unavailable.
+/// keyframe insertion; the RGBA Optimized policy wires those through the shared cache.
 pub fn SetFrameMixed(
     previous: ArgbView<'_>,
     current: ArgbView<'_>,

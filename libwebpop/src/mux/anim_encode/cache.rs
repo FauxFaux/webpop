@@ -3,15 +3,16 @@
 // 1844042d1ca751e62e61df7617dba19c98588339. See COPYING and PATENTS.
 
 //! Shared CacheFrame/FlushFrames with deferred keyframe selection. This is
-//! separate from the public RGBA policy until the remaining optimizer gates land.
+//! the cache owner used by the optimized RGBA sequence policy.
 
 use super::*;
 use crate::enc::config_enc::WebPValidateConfig;
+use crate::enc::picture_csp_enc::{WebPPictureImportRGBA, checked_rgba_geometry};
 use crate::mux::{
     AnimationContainer, AnimationContainerOptions, AnimationError, ContainerFrameOptions,
     EncodedFrame, FrameBlend,
 };
-use crate::{internal::LosslessOptions, internal::LossyOptions};
+use crate::{WebPEncodingError, internal::LosslessOptions, internal::LossyOptions};
 
 use super::keyframes::{CachedFrame, CandidateWindow, DELTA_INFINITY, FrameAlternative};
 
@@ -49,7 +50,7 @@ pub struct LosslessCacheStatus {
 /// during `add_argb`. Explicit final timing, validation recovery and terminal
 /// failures follow AnimationEncoder. A lone cropped frame retains ANMF: the
 /// decode-dependent OptimizeSingleFrame step is not performed. This does not
-/// enable AnimationEncodingPolicy::Optimized or promise complete pinned parity.
+/// promise complete pinned parity; the RGBA Optimized policy uses the same cache.
 ///
 /// ```
 /// use libwebpop::internal::mux::anim_encode::{ArgbView, LosslessAnimationCache};
@@ -145,7 +146,7 @@ impl LosslessAnimationCache {
     }
 }
 
-/// Options for a keyframe-disabled cache. Defaults disable mixed trials and
+/// Shared codec/container options. Defaults disable mixed trials and
 /// minimize-size; container defaults are white background and infinite looping.
 #[derive(Debug, Default)]
 pub struct AnimationCacheOptions {
@@ -157,8 +158,8 @@ pub struct AnimationCacheOptions {
 /// Low-level ARGB cache, with keyframes disabled by `new`. Codec selection may
 /// change on every input. Mixed mode tries eligible codecs with the supplied shared config.
 /// Owns original-word history and buffered output; skips save settings and merge
-/// timing. This does not enable the public RGBA Optimized policy or perform
-/// decode-dependent single-frame reconstruction. Validation errors allow retry;
+/// timing. The public RGBA Optimized policy uses this owner; neither route
+/// performs decode-dependent single-frame reconstruction. Validation errors allow retry;
 /// errors after validation are terminal. Explicit final timing is required.
 /// `new_with_keyframes` also supports deferred keyframe selection and duration
 /// overflow holds.
@@ -249,7 +250,7 @@ impl AnimationCache {
         self.window.frames.iter().map(CachedFrame::status)
     }
 
-    fn check_active(&self) -> Result<(), AnimationError> {
+    pub(crate) fn check_active(&self) -> Result<(), AnimationError> {
         if self.active {
             Ok(())
         } else {
@@ -305,6 +306,42 @@ impl AnimationCache {
     /// Pending frame controls. Payloads and timing remain owned by this cache.
     pub fn pending_control(&self) -> Option<ContainerFrameOptions> {
         self.window.frames.last().map(|f| f.selected().control)
+    }
+
+    // RGBA facade adapter. Validation uses the same timing/config implementation
+    // as ARGB adds. An import allocation failure is terminal in this owner too.
+    pub(crate) fn add_rgba(
+        &mut self,
+        rgba: &[u8],
+        stride: usize,
+        timestamp_ms: u64,
+        codec: &MixedEncodingConfig,
+    ) -> Result<(), AnimationError> {
+        self.check_active()?;
+        let frame_index = self.status.submitted_frames;
+        self.interval(timestamp_ms)?;
+        let (width, height) = (self.container.width, self.container.height);
+        checked_rgba_geometry(rgba.len(), width, height, stride)
+            .map_err(WebPEncodingError::from)
+            .and_then(|_| codec.validate().map(|_| ()))
+            .map_err(|source| AnimationError::Encoding {
+                frame_index,
+                source,
+            })?;
+        self.active = false;
+        let picture = WebPPictureImportRGBA(rgba, width, height, stride).map_err(|source| {
+            AnimationError::Encoding {
+                frame_index,
+                source,
+            }
+        })?;
+        self.active = true;
+        self.add_argb(
+            ArgbView::new(&picture.argb, width as i32, height as i32, width as usize)
+                .expect("checked owned RGBA import"),
+            timestamp_ms,
+            codec,
+        )
     }
 
     /// Validate all participating settings, dimensions and timing before mutation,
