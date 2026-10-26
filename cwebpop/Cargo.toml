@@ -12,8 +12,10 @@ license = "BSD-3-Clause"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 libwebpop = { path = "../libwebpop", version = "0.1.0" }
+# image supplies composited RGBA canvases; gif exposes exact repeat metadata.
+gif = "0.14"
 
 [dependencies.image]
 version = "0.25.1"
 default-features = false
-features = ["jpeg", "png", "pnm", "tga", "tiff", "bmp", "webp"]
+features = ["jpeg", "png", "pnm", "tga", "tiff", "bmp", "webp", "gif"]

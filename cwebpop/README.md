@@ -1,6 +1,7 @@
 # cwebpop
 
 Encode image files as lossless, near-lossless or lossy WebP using Rust `libwebpop`.
+Animated GIF input is encoded as animated WebP.
 
 ```sh
 cargo run -p cwebpop -- --help
@@ -11,13 +12,14 @@ cargo run --release -p cwebpop -- --near_lossless 60 -q 90 -m 6 input.png -o out
 cargo run --release -p cwebpop -- --lossy -q 98.5 --alpha_q 70 input.png -o output.webp
 cargo run --release -p cwebpop -- --lossy -q 75 -m 6 input.png -o output.webp
 cargo run --release -p cwebpop -- --lossy --sharp_yuv input.png -o output.webp
+cargo run --release -p cwebpop -- animation.gif -o animation.webp
 cat input.png | target/release/cwebpop --quiet - -o - > output.webp
 ```
 
 Lossless encoding is the default; `--lossless` is optional and `-o` is required.
 The CLI reads bytes, decodes them with `image`, converts them to RGBA, calls
 the selected `libwebpop` encoder, and writes the complete WebP. Supported
-input formats are PNG, JPEG, PNM, TGA, TIFF, BMP and WebP. Content determines the input
+input formats are PNG, JPEG, PNM, TGA, TIFF, BMP, WebP and GIF. Content determines the input
 format, with the filename extension as a fallback for formats such as TGA.
 Use `-` for stdin or stdout. Diagnostics and statistics go to stderr.
 

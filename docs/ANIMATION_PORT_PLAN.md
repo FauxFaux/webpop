@@ -4,8 +4,9 @@ Planned 2026-10-24; remaining work replanned 2026-10-25 against pinned libwebp
 `1844042d1ca751e62e61df7617dba19c98588339`. Prepared-frame containers and the
 full-frame RGBA sequence API are usable. Candidate selection, shared timestamp
 caching and deferred keyframes support all three codec routes, including duration
-overflow holds. The RGBA sequence API supports the optimized policy under its
-existing `internal` namespace; the sequence CLI remains open.
+overflow holds. The supported crate-root `OpAnimEncoder` wraps the RGBA sequence
+API with durations and existing `OpImage`/`OpConfig` types. The CLI imports
+animated GIFs; an explicit ordered still-file sequence interface remains open.
 
 This expands the [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building
 on the completed [lossless](LOSSLESS_PORT_PLAN.md),
@@ -47,7 +48,8 @@ and flush the committed prefix before the next candidate.
 There is no production decoder or C/Wasm dependency. The low-level cache stops
 before decode-dependent single-frame reconstruction. `AnimationEncoder::new`
 accepts FullFrame (default) and Optimized with checked options. These APIs retain
-the existing unsupported `internal` compatibility boundary. Candidate/carryover sequence
+the existing unsupported `internal` compatibility boundary; the supported
+`OpAnimEncoder` is a separate facade over them. Candidate/carryover sequence
 tests with unit durations do not establish timestamp-cache or public API parity.
 
 ## Scope and compatibility boundaries
@@ -75,8 +77,9 @@ Production stays safe Rust with fallible allocations. Keep codec logic in
 Carry upstream WEBP_INLINE annotations as plain `#[inline]`. Reuse typed payloads
 from the existing still-writer boundaries; never strip a fixed RIFF header or
 nest a whole still file in ANMF. Arbitrary encoded-input parsing, general
-mux editing/demuxing, metadata extraction, animated input import, GIF/APNG/video
-and audio remain outside this work. The CLI may reuse existing still loaders.
+mux editing/demuxing and metadata extraction remain outside the library. The CLI
+reuses existing still loaders and imports GIF canvases through image/gif; other
+animated input import (APNG/WebP/video) and audio remain outside this work.
 SIMD, worker support and advanced still options are separate projects.
 
 Two boundaries must remain explicit:
@@ -191,7 +194,8 @@ that invalidate their results; avoid unchanged broad reruns within one package.
 | 5a. Sequence CLI | Existing milestone 2; 4e for optimizer switches | Useful full-frame frontend, then supported optimized controls |
 | 5b. Resource baseline | A usable measured route | Paired timing/size/memory evidence for that route |
 
-The CLI and an initial full-frame resource baseline can proceed now. Keyframe
+GIF import and the supported duration facade are delivered; the ordered
+still-file CLI and an initial full-frame resource baseline can proceed now. Keyframe
 support is complete through 4d and 4e. The single-frame omission is an agreed
 variation and does not block delivery; CLI and resource evidence remain open.
 
@@ -381,6 +385,17 @@ cleanup remains complete and needs no decoder.
 
 The full-frame frontend can ship now; add optimizer controls after 4e.
 
+- [x] Add the supported crate-root duration facade (`OpAnimEncoder`,
+  `OpAnimOptions`, `OpAnimPolicy`, `OpAnimKeyframes`, opaque `OpAnimError`) using
+  existing `OpImage`/`OpConfig`, buffered assembly and optimized defaults.
+- [x] Import animated GIFs through the existing cwebpop input path, one
+  composited RGBA canvas at a time, preserving exact delays and converting GIF
+  repeats to WebP total plays. Support existing codec flags, noalpha, sniffing,
+  stdin/stdout and failed-output preservation. GIF parsing stays CLI-only.
+
+The delivered GIF route is separate from the ordered still-file interface below.
+See the [supported API/GIF record](../libwebpop/tests/reference/ANIMATION.md#supported-duration-api-and-gif-cli-acceptance-2026-10-26).
+
 - [ ] Add a separate cwebpop animation subcommand/binary with an explicit ordered
   duration/path interface, for example `cwebpop animate --frame 100 first.png
   --frame 40 second.png --loop 0 -o out.webp`. Settle the parser shape and its
@@ -394,8 +409,8 @@ The full-frame frontend can ship now; add optimizer controls after 4e.
 - [ ] Test order/timing including zero duration, dimension mismatch, missing or
   malformed frames/options, overflow, animated-input rejection, stdout/stderr
   and failed-output preservation. Add supported codec/optimizer controls,
-  update cwebpop/README.md and library examples. GIF/APNG import and metadata
-  copying are separate work.
+  update cwebpop/README.md and library examples. APNG import and metadata
+  copying are separate work; GIF import is delivered above.
 
 ### 5b. Timing, size and memory baseline
 
@@ -458,7 +473,8 @@ boundary and any still-open branch. Documentation-only plan updates need link,
 consistency and diff checks; they do not require rebuilding the encoder.
 
 Full-frame and optimized RGBA support (4a–4e) are complete at their declared
-assembly boundaries; the sequence CLI remains 5a. These APIs retain the existing
+assembly boundaries. The supported duration facade and GIF CLI are delivered;
+the ordered still-file CLI remains 5a. The underlying timestamp APIs retain their
 `internal` compatibility boundary. Completion within this plan's agreed scope
 still requires all advertised settings, CLI and resource evidence. Single-frame
 reconstruction is intentionally omitted as recorded in

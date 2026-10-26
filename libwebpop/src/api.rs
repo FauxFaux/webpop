@@ -65,7 +65,7 @@ impl Default for OpQuality {
     }
 }
 
-/// Encoding configuration, validated by [`encode()`].
+/// Encoding configuration, validated by [`encode()`] and [`crate::OpAnimEncoder::add`].
 ///
 /// Construct with [`Self::new`] or [`Self::default`], then set public fields.
 /// The default matches [`crate::WebPEncodeLosslessRGBA`].

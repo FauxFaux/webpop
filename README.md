@@ -44,20 +44,7 @@ port well: we've kept the original C (for now).
  * `cargo run --release -- --lossless t.png -o t.webp`
  * `cargo run --release -- --near_lossless 60 -q 90 -m 6 input.png -o output.webp`
  * `cargo run --release -- --lossy -q 98.5 --alpha_q 70 -m 6 input.png -o output.webp`
-
-During the 0.1.x release series, compatibility is guaranteed only for the
-crate-root `encode`, `OpImage`, `OpConfig`, `OpQuality`,
-`WebPEncodeLosslessRGBA`, and `WebPEncodeRGBA` APIs,
-and `WebPEncodingError` as a `std::error::Error` with `Display`. Error variants,
-payloads, and exact messages are implementation details. Everything under
-`libwebpop::internal` is exposed for testing and integration, is unsupported,
-and may change or disappear in any release, including patch releases.
-
-The Rust `encode(image, &config)` API returns an owned WebP file. `OpConfig`
-selects method 0–6 and either `OpQuality::Lossless { near_lossless, effort,
-exact }` or `OpQuality::Lossy { quality, alpha_quality, sharp_yuv }`.
-The default is lossless, with near-lossless strength 100, effort 70, method 4,
-and transparent RGB cleanup. The CLI also defaults to lossless, with effort 75.
+ * `cargo run --release -- animation.gif -o animation.webp`
 
 ```rust
 use libwebpop::{OpConfig, OpImage, OpQuality, encode};
@@ -75,73 +62,18 @@ let output = encode(
 )?;
 ```
 
-`WebPEncodeRGBA(..., quality: f32, &mut output)` and
-`WebPEncodeLosslessRGBA(..., &mut output)` retain the pinned upstream simple
-API defaults and method 4. Both take a final `&mut Vec<u8>` and return
-`Result<(), _>`. Success replaces the buffer with a complete WebP file,
-reusing its capacity; errors leave its contents unchanged. Custom wrappers
-`WebPEncodeRGBAWithAlphaQuality` and `WebPEncodeRGBAWithNearLossless` remain
-available under `internal`; use `OpQuality` for their supported equivalents.
-
 ```rust
-let rgba = [12, 34, 56, 255];
-let mut output = Vec::new();
-libwebpop::WebPEncodeLosslessRGBA(&rgba, 1, 1, 4, &mut output)?;
-// The encoded size is output.len(); reuse output for the next image.
+use libwebpop::{OpAnimEncoder, OpAnimOptions, OpConfig, OpImage};
+let mut encoder = OpAnimEncoder::new(1, 1, OpAnimOptions::default())?;
+for (pixels, duration) in [([255, 0, 0, 255], 100), ([0, 0, 255, 128], 40)] {
+    encoder.add(
+        OpImage::Rgba { pixels: &pixels, width: 1, height: 1, stride: 4 },
+        duration,
+        &OpConfig::default(),
+    )?;
+}
+let output = encoder.finish()?;
 ```
-
-The unsupported `internal` API also encodes full-canvas RGBA sequences with explicit millisecond
-timestamps. Each frame can select lossless, near-lossless or lossy methods 0–6
-settings. The default FullFrame policy preserves repeats and zero durations;
-encoded frames stay in memory until `finish`. This default full-frame policy has pinned WebPMux parity.
-The optimized policy selects rectangles, blending/disposal, merges repeats and
-supports mixed codecs, keyframes and duration holds. A sequence CLI remains
-future work.
-
-```rust
-use libwebpop::internal::{AnimationEncoder, AnimationFrameOptions, AnimationOptions};
-let mut encoder = AnimationEncoder::new(1, 1, AnimationOptions::default())?;
-encoder.add_rgba(&[255, 0, 0, 255], 4, 500, &AnimationFrameOptions::default())?;
-encoder.add_rgba(&[0, 0, 255, 128], 4, 600, &AnimationFrameOptions::default())?;
-let mut output = Vec::new();
-encoder.finish(640, &mut output)?; // 100 ms, then 40 ms.
-```
-
-Select `AnimationEncodingPolicy::Optimized` and configure
-`AnimationOptions::optimizer` with `AnimationOptimizerOptions`. Its defaults are
-`minimize_size: false`, `allow_mixed: false` and
-`AnimationKeyframePolicy::Disabled`; white background and infinite looping remain
-the container defaults. Keyframes can use `AllFrames` or checked `Bounded`
-intervals. Minimize-size disables keyframe insertion. Nondefault optimizer
-controls require the optimized policy.
-
-Existing lossless/near-lossless/lossy frame variants work with either policy.
-With optimized mixed trials enabled, `AnimationFrameOptions::Mixed` additionally
-sets the primary codec, shared `LossyOptions` (fractional quality retained),
-VP8L near-lossless strength and codec exact. The primary can differ from the
-winner. VP8 interprets quality as fidelity; VP8L truncates it to compression
-effort. For ordinary lossless variants, reversed VP8 defaults are alpha quality
-100 and SharpYUV off; ordinary lossy variants use reversed VP8L strength 100 and
-exact false. Mixed settings require Optimized plus `allow_mixed: true`.
-
-Near-lossless can change RGB and intermediate alpha; switching to strength 100
-does not repair unchanged pixels already carried over. Exact cannot preserve
-invisible RGB removed by animation blending. Optimized output matches pinned
-WebPAnimEncoder before its decode-dependent `OptimizeSingleFrame`: a lone cropped
-ANMF (also reachable by merging inputs) remains animated, while C may reconstruct
-a smaller full-canvas still. Full-canvas single-frame mux cleanup is supported.
-Both policies buffer all output; adds do not stream it. Inputs are borrowed only
-during each add, timestamps are nondecreasing with arbitrary u64 origin, each
-interval fits 24 bits, and final timing is explicit. Validation errors allow
-retry; later failures are terminal. All finish errors preserve caller output.
-
-A compiled example generates an optimized mixed/keyframe animation:
-
-```sh
-cargo run -p libwebpop --example animation -- /tmp/animation.webp
-```
-
-
 
 ### Docs
 

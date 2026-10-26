@@ -11,6 +11,8 @@ use std::{
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
 use libwebpop::{OpConfig, OpImage, OpQuality, encode};
 
+mod animation;
+
 /// WebP encoder, based on upstream/examples/cwebp.c.
 #[derive(Debug, Parser)]
 #[command(
@@ -19,7 +21,7 @@ use libwebpop::{OpConfig, OpImage, OpQuality, encode};
     after_help = "Lossless encoding is the default; use --lossy for VP8. -o is required.\nUse --long_option for upstream's -long_option flags; -h/--help and -V/--version work."
 )]
 struct Args {
-    /// Input image (or - for stdin).
+    /// Input image or animated GIF (or - for stdin).
     #[arg(value_name = "INPUT")]
     input: PathBuf,
 
@@ -327,27 +329,36 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
     if let Ok(format) = image::ImageFormat::from_path(&args.input) {
         reader.set_format(format);
     }
-    let mut rgba = reader
-        .with_guessed_format()?
-        .decode()
-        .map_err(|e| format!("cannot decode {}: {e}", args.input.display()))?
-        .into_rgba8();
-    if args.noalpha {
-        for pixel in rgba.pixels_mut() {
-            pixel.0[3] = 255;
-        }
-    }
-    let (width, height) = rgba.dimensions();
+    let reader = reader.with_guessed_format()?;
+    let (encoded, (width, height), frame_count) =
+        if reader.format() == Some(image::ImageFormat::Gif) {
+            let input = reader.into_inner();
+            let gif = animation::encode_gif(input.get_ref(), &options, args.noalpha)
+                .map_err(|e| format!("cannot encode GIF {}: {e}", args.input.display()))?;
+            (gif.data, (gif.width, gif.height), gif.frames)
+        } else {
+            let mut rgba = reader
+                .decode()
+                .map_err(|e| format!("cannot decode {}: {e}", args.input.display()))?
+                .into_rgba8();
+            if args.noalpha {
+                for pixel in rgba.pixels_mut() {
+                    pixel.0[3] = 255;
+                }
+            }
+            let (width, height) = rgba.dimensions();
+            let encoded = encode(
+                OpImage::Rgba {
+                    pixels: rgba.as_raw(),
+                    width,
+                    height,
+                    stride: width as usize * 4,
+                },
+                &options,
+            )?;
+            (encoded, (width, height), 1)
+        };
     let near_lossless = args.near_lossless.unwrap_or(100);
-    let encoded = encode(
-        OpImage::Rgba {
-            pixels: rgba.as_raw(),
-            width,
-            height,
-            stride: width as usize * 4,
-        },
-        &options,
-    )?;
     if output.as_os_str() == "-" {
         let mut stdout = io::stdout().lock();
         stdout.write_all(&encoded)?;
@@ -367,10 +378,17 @@ fn run(matches: &ArgMatches) -> Result<(), Error> {
             } else {
                 "lossless"
             };
-            eprintln!(
-                "Encoded {width}x{height} {mode} WebP: {} bytes",
-                encoded.len()
-            );
+            if frame_count > 1 {
+                eprintln!(
+                    "Encoded {width}x{height} {mode} WebP from {frame_count} GIF frames: {} bytes",
+                    encoded.len()
+                );
+            } else {
+                eprintln!(
+                    "Encoded {width}x{height} {mode} WebP: {} bytes",
+                    encoded.len()
+                );
+            }
         }
         if args.verbose {
             eprintln!("Elapsed: {:.3}s", started.elapsed().as_secs_f64());

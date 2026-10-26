@@ -1,5 +1,73 @@
 # Animation reference record
 
+## Supported duration API and GIF CLI acceptance (2026-10-26)
+
+The supported crate-root facade will adapt explicit millisecond durations to
+the existing sequence encoder's checked timestamps. It reuses `OpImage` and
+`OpConfig`, defaults to Optimized, and retains upstream's buffered assembly.
+No codec, optimizer, native protocol, fixture or source-pin change is required.
+
+Acceptance cases: compare both policies and ordinary/mixed codec mappings with
+the established internal facade; independently inspect timing/container metadata
+and decode full-frame lossless playback. Cover zero/max durations, merged duration
+overflow, padded input, changing configs, dimension/settings validation and retry,
+empty finish, and one-frame cleanup. Existing optimized C fixture/native tests
+remain the pre-reconstruction parity boundary; the supported wrapper does not
+claim the omitted OptimizeSingleFrame behavior.
+
+GIF CLI cases use a small deterministic indexed-color corpus with full/offset
+frames, transparency, Keep/Background/Previous disposal, zero/variable delays,
+absent/infinite/finite repeat counts and damaged later frames. Compare decoded
+output canvases and exact timing, exercise lossless/near-lossless/lossy, noalpha,
+content sniffing and stdin/stdout, and preserve an existing output on failure.
+GIF decoding is CLI-only; the library still accepts borrowed RGBA canvases.
+Explicit ordered still-file sequences and resource baselines remain separate work.
+
+The GIF corpus reproduces the already documented image-webp 0.2.4 opaque-blend
+rounding issue: the second canvas's opaque green pixel at (1,0) is decoded as
+`[0,254,0,255]` instead of `[0,255,0,255]`. The existing harness and decoder are
+unchanged. GIF import checks compare exact output bytes against the supported
+encoder given hand-constructed expected display canvases, and separately check
+decoded frame counts/dimensions/delays and ANIM loop counts. Existing candidate
+and native playback tests remain the optimizer/compositing authority; no pixel
+tolerance or new compositor was added. See [Exact decoding and compositing](#exact-decoding-and-compositing).
+
+Delivered: `OpAnimEncoder::new(width, height, options)`,
+`add(OpImage, duration_ms, &OpConfig)` and consuming `finish() -> Vec<u8>` with
+opaque `OpAnimError`. GIF import uses image 0.25.10's composited frame iterator
+and gif 0.14.2's extension events for loop metadata, including late extensions.
+GIF delay units are converted exactly (no small-delay normalization). Missing
+repeat metadata means one play, zero means infinite, and finite N repeats map
+to N+1 plays with saturation at 65535, matching gif2webp's finite-loop mapping.
+`--noalpha` applies after compositing. Dependencies are CLI-only; the production
+Rust library has no image-loader dependency. Both paths retain buffered output.
+
+Validation passed:
+
+```sh
+cargo check --workspace --offline
+cargo build -p libwebpop --lib --offline
+cargo test --workspace --offline
+cargo test -p libwebpop --features native-oracle --test animation_optimized --test animation_api --offline -- --nocapture
+cargo run -p libwebpop --example animation --offline -- /tmp/webpop-supported-animation.webp
+cargo fmt --all -- --check
+git diff --check
+```
+
+Six supported-API tests and four GIF executable tests pass. The full workspace
+includes all 11 doctests and existing CLI/codec/mux regressions. The focused
+native run passes 14 tests: 209 RGBA files match pinned pre-reconstruction C,
+202 public C assemblies and 200 existing independent/native playbacks match.
+No fixture regeneration or oracle/harness change; the upstream checkout is clean.
+
+Measured Cargo build time for the workspace test was 39.54 s; total wall was
+54.97 s (15.43 s after build). The focused native build took 2.92 s; API tests
+took 0.03 s and optimized/native tests took 1.78 s. Implementation/review was
+interactive and not separately timed. Rust growth is production +453/-30 lines,
+tests +727 lines and compiled example +31/-41 lines; fixtures/oracle +0.
+Documentation is separate; READMEs retain usage examples, with contracts in
+rustdoc and this record.
+
 Source pin: `1844042d1ca751e62e61df7617dba19c98588339`, unchanged and clean.
 Recorded 2026-10-24 on Ubuntu x86_64 with GCC 15.2.0-16ubuntu1, CMake 4.2.3,
 Release `-O3 -DNDEBUG`, SIMD and threading disabled. The existing native build

@@ -1,11 +1,12 @@
 # Encoder completion plan
 
 For the initial 0.1.x release series, the crate-root `encode`, `OpImage`,
-`OpConfig`, `OpQuality`, `WebPEncodeRGBA`, `WebPEncodeLosslessRGBA`, and
-`WebPEncodingError` as an `Error`/`Display` type carry compatibility guarantees.
+`OpConfig`, `OpQuality`, `OpAnimEncoder`, `OpAnimOptions`, `OpAnimPolicy`,
+`OpAnimKeyframes`, `WebPEncodeRGBA`, `WebPEncodeLosslessRGBA`, and
+`OpAnimError`/`WebPEncodingError` as `Error`/`Display` types carry compatibility guarantees.
 The Rust API covers lossless and near-lossless fidelity, lossless effort/exact
 handling, lossy color/alpha quality and SharpYUV, and methods 0–6. Custom
-C-style wrappers, lower-level configurable encoders, animation APIs, and codec
+C-style wrappers, lower-level configurable encoders, timestamp-based animation APIs, and codec
 helpers are exposed under `libwebpop::internal` and may change in patch
 releases. References below to implemented or public APIs describe availability,
 not additional stability guarantees.
@@ -18,11 +19,12 @@ separates remaining **core encoder behavior**, **utilities around the encoder**,
 and **performance work**. These have separate completion gates. This inventory
 compares with the pin, rather than a newer libwebp release.
 
-Language bindings and C ABI compatibility are excluded. So are compressed-image
+Language bindings and C ABI compatibility are excluded. The library excludes compressed-image
 decoding, image-file loaders, metadata extraction from input files, demuxing,
 and importing existing WebP containers for editing. Raw pixel layouts and
 RGB-to-YUV conversion remain in scope. Metadata writing and animation encoding
 from prepared frames belong to the utility/output track.
+The cwebpop CLI reuses external image loaders, including animated GIF import.
 
 ## Completion boundary
 
