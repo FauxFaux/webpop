@@ -9,6 +9,10 @@ near-lossless extension reuses VP8L and needs none of this plan's VP8/YUV/ALPH
 milestones. Both lossless and near-lossless are complete for the initial
 scalar scope, including their public APIs and pinned-reference validation.
 Lossy milestones 0–9 are complete, including public APIs and CLI integration.
+The luma-search DSP now uses unconditional portable `wide` kernels for
+prediction, transforms, quantization, distortion, statistics and residual
+classification/costing. Scalar kernels remain as correctness references;
+see [the intrinsics conventions and coverage](INTRINSICS.md#implemented-portable-encoder-kernels-2026-10-26).
 Preserve upstream function names and source layout where practical.
 The result is a
 pure Rust library accepting prepared RGBA pixels and writing a complete

@@ -1,12 +1,16 @@
 // Copyright 2011 Google Inc. All Rights Reserved.
-// Derived from upstream/src/enc/quant_enc.c, default scalar quantization/search.
+// Derived from upstream/src/enc/quant_enc.c, with portable wide DSP kernels.
 // See COPYING and PATENTS.
 #![allow(non_upper_case_globals)]
 
 use super::vp8i_enc::*;
 use super::{cost_enc::*, iterator_enc::*};
-use crate::dsp::quant::{IsFlat, IsFlatSource16};
-use crate::dsp::{dec::TransformWHT_C, enc::*};
+use crate::dsp::{
+    dec_wide::TransformWHT_wide,
+    enc::{BPS, Copy4x4_C, Copy16x8_C, kZigzag},
+    enc_wide::*,
+};
+use crate::dsp::{quant::IsFlatSource16, quant_wide::IsFlat_wide};
 
 pub const kWeightY: [u16; 16] = [38, 32, 20, 9, 32, 28, 17, 7, 20, 17, 10, 4, 9, 7, 4, 2];
 
@@ -264,16 +268,16 @@ pub fn PickBestIntra16WithObserver(
         cur.mode_i16 = mode as i32;
         cur.nz = ReconstructIntra16WithObserver(it, enc, &mut cur, &mut dst, mode, observe);
         it.yuv_out2 = dst;
-        cur.D = i64::from(SSE16x16_C(&it.yuv_in, &dst));
+        cur.D = i64::from(SSE16x16_wide(&it.yuv_in, &dst));
         cur.SD = if tlambda != 0 {
-            i64::from((tlambda * Disto16x16_C(&it.yuv_in, &dst, &kWeightY) + 128) >> 8)
+            i64::from((tlambda * Disto16x16_wide(&it.yuv_in, &dst, &kWeightY) + 128) >> 8)
         } else {
             0
         };
         cur.H = i64::from(VP8FixedCostsI16[mode]);
         cur.R = i64::from(VP8GetCostLuma16(it, enc, &cur));
         if flat {
-            flat = IsFlat(&cur.y_ac_levels, 0);
+            flat = IsFlat_wide(&cur.y_ac_levels, 0);
             if flat {
                 cur.D *= 2;
                 cur.SD *= 2;
@@ -375,14 +379,16 @@ pub fn PickBestIntra4WithObserver(
             } else {
                 Copy4x4_C(&dst, &mut it.yuv_out2[offset..]);
             }
-            cur.D = i64::from(SSE4x4_C(&it.yuv_in[offset..], &dst));
+            cur.D = i64::from(SSE4x4_wide(&it.yuv_in[offset..], &dst));
             cur.SD = if tlambda != 0 {
-                i64::from((tlambda * Disto4x4_C(&it.yuv_in[offset..], &dst, &kWeightY) + 128) >> 8)
+                i64::from(
+                    (tlambda * Disto4x4_wide(&it.yuv_in[offset..], &dst, &kWeightY) + 128) >> 8,
+                )
             } else {
                 0
             };
             cur.H = i64::from(costs[mode]);
-            cur.R = if mode > 0 && IsFlat(&[levels], 3) {
+            cur.R = if mode > 0 && IsFlat_wide(&[levels], 3) {
                 140
             } else {
                 0
@@ -457,11 +463,11 @@ pub fn PickBestUVWithObserver(
         } else {
             Copy16x8_C(&dst, &mut it.yuv_out[U_OFF_ENC..]);
         }
-        cur.D = i64::from(SSE16x8_C(&it.yuv_in[U_OFF_ENC..], &dst));
+        cur.D = i64::from(SSE16x8_wide(&it.yuv_in[U_OFF_ENC..], &dst));
         cur.SD = 0;
         cur.H = i64::from(VP8FixedCostsUV[mode]);
         cur.R = i64::from(VP8GetCostUV(it, enc, &cur));
-        if mode > 0 && IsFlat(&cur.uv_levels, 2) {
+        if mode > 0 && IsFlat_wide(&cur.uv_levels, 2) {
             cur.R += 140 * 8;
         }
         SetRDScore(lambda, &mut cur);
@@ -563,7 +569,8 @@ pub fn RefineUsingDistortion(
     if is_i16 {
         let mut best_mode = 0;
         for (mode, &offset) in VP8I16ModeOffsets.iter().enumerate() {
-            let score = i64::from(SSE16x16_C(&it.yuv_in[Y_OFF_ENC..], &it.yuv_p[offset..])) * 256
+            let score = i64::from(SSE16x16_wide(&it.yuv_in[Y_OFF_ENC..], &it.yuv_p[offset..]))
+                * 256
                 + i64::from(VP8FixedCostsI16[mode]) * 106;
             if mode > 0 && i64::from(VP8FixedCostsI16[mode]) > bit_limit {
                 continue;
@@ -591,7 +598,7 @@ pub fn RefineUsingDistortion(
             let mut best_mode = 0;
             let mut best_i4_score = MAX_COST;
             for (mode, &pred_offset) in VP8I4ModeOffsets.iter().enumerate() {
-                let score = i64::from(SSE4x4_C(
+                let score = i64::from(SSE4x4_wide(
                     &it.yuv_in[Y_OFF_ENC + offset..],
                     &it.yuv_p[pred_offset..],
                 )) * 256
@@ -638,7 +645,7 @@ pub fn RefineUsingDistortion(
         let mut best_mode = 0;
         let mut best_uv_score = MAX_COST;
         for (mode, &offset) in VP8UVModeOffsets.iter().enumerate() {
-            let score = i64::from(SSE16x8_C(&it.yuv_in[U_OFF_ENC..], &it.yuv_p[offset..])) * 256
+            let score = i64::from(SSE16x8_wide(&it.yuv_in[U_OFF_ENC..], &it.yuv_p[offset..])) * 256
                 + i64::from(VP8FixedCostsUV[mode]) * 120;
             if score < best_uv_score {
                 best_mode = mode;
@@ -723,18 +730,18 @@ pub const VP8I4ModeOffsets: [usize; 10] = [
 pub fn VP8MakeLuma16Preds(it: &mut VP8EncIterator, enc: &VP8Encoder) {
     let left = (it.x != 0).then_some(&it.y_left[..]);
     let top = (it.y != 0).then(|| <[u8; 16]>::try_from(&it.y_top(enc)[..16]).unwrap());
-    crate::dsp::enc::Intra16Preds_C(&mut it.yuv_p, left, top.as_ref().map(|t| &t[..]));
+    crate::dsp::enc_wide::Intra16Preds_wide(&mut it.yuv_p, left, top.as_ref().map(|t| &t[..]));
 }
 
 pub fn VP8MakeChroma8Preds(it: &mut VP8EncIterator, enc: &VP8Encoder) {
     let left = (it.x != 0).then_some(&it.uv_left[..]);
     let top = (it.y != 0).then(|| <[u8; 16]>::try_from(&it.uv_top(enc)[..16]).unwrap());
-    crate::dsp::enc::IntraChromaPreds_C(&mut it.yuv_p, left, top.as_ref().map(|t| &t[..]));
+    crate::dsp::enc_wide::IntraChromaPreds_wide(&mut it.yuv_p, left, top.as_ref().map(|t| &t[..]));
 }
 
 pub fn MakeIntra4Preds(it: &mut VP8EncIterator) {
     let top = *it.i4_window();
-    Intra4Preds_C(&mut it.yuv_p, &top);
+    Intra4Preds_wide(&mut it.yuv_p, &top);
 }
 
 /// Reconstruct luma16 with scalar WHT/DC and optional AC trellis. Trellis
@@ -764,14 +771,14 @@ pub fn ReconstructIntra16WithObserver(
     let mut tmp = [0i16; 256];
     let mut dc = [0i16; 16];
     for n in (0..16).step_by(2) {
-        FTransform2_C(
+        FTransform2_wide(
             &it.yuv_in[VP8Scan[n]..],
             &reference[VP8Scan[n]..],
             (&mut tmp[16 * n..16 * n + 32]).try_into().unwrap(),
         );
     }
-    FTransformWHT_C(&tmp, &mut dc);
-    let mut nz = u32::from(QuantizeBlock_C(&mut dc, &mut rd.y_dc_levels, &dqm.y2)) << 24;
+    FTransformWHT_wide(&tmp, &mut dc);
+    let mut nz = u32::from(QuantizeBlock_wide(&mut dc, &mut rd.y_dc_levels, &dqm.y2)) << 24;
     if it.do_trellis {
         VP8IteratorNzToBytes(it, enc);
         for n in 0..16 {
@@ -795,7 +802,7 @@ pub fn ReconstructIntra16WithObserver(
         for n in (0..16).step_by(2) {
             tmp[16 * n] = 0;
             tmp[16 * (n + 1)] = 0;
-            nz |= Quantize2Blocks_C(
+            nz |= Quantize2Blocks_wide(
                 (&mut tmp[16 * n..16 * n + 32]).try_into().unwrap(),
                 (&mut rd.y_ac_levels.as_flattened_mut()[16 * n..16 * n + 32])
                     .try_into()
@@ -805,9 +812,9 @@ pub fn ReconstructIntra16WithObserver(
         }
     }
     let reference = &it.yuv_p[VP8I16ModeOffsets[mode]..];
-    TransformWHT_C(&dc, &mut tmp);
+    TransformWHT_wide(&dc, &mut tmp);
     for n in (0..16).step_by(2) {
-        ITransform_C(
+        ITransform_wide(
             &reference[VP8Scan[n]..],
             &tmp[16 * n..],
             &mut yuv_out[VP8Scan[n]..],
@@ -842,7 +849,7 @@ pub fn ReconstructIntra4WithObserver(
     let reference = &it.yuv_p[VP8I4ModeOffsets[mode]..];
     let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
     let mut tmp = [0i16; 16];
-    FTransform_C(src, reference, &mut tmp);
+    FTransform_wide(src, reference, &mut tmp);
     let nz = if it.do_trellis {
         let ctx = usize::from(it.top_nz[it.i4 & 3] + it.left_nz[it.i4 >> 2]);
         TrellisQuantizeBlock(
@@ -855,9 +862,9 @@ pub fn ReconstructIntra4WithObserver(
             dqm.lambda_trellis_i4,
         )
     } else {
-        QuantizeBlock_C(&mut tmp, levels, &dqm.y1)
+        QuantizeBlock_wide(&mut tmp, levels, &dqm.y1)
     };
-    ITransform_C(reference, &tmp, yuv_out, false);
+    ITransform_wide(reference, &tmp, yuv_out, false);
     nz
 }
 
@@ -947,7 +954,7 @@ pub fn ReconstructUVWithObserver(
     let dqm = &enc.dqm[usize::from(enc.mb_info[it.y * enc.mb_w + it.x].segment)];
     let mut tmp = [[0i16; 16]; 8];
     for n in (0..8).step_by(2) {
-        FTransform2_C(
+        FTransform2_wide(
             &src[VP8ScanUV[n]..],
             &reference[VP8ScanUV[n]..],
             (&mut tmp.as_flattened_mut()[16 * n..16 * n + 32])
@@ -960,7 +967,7 @@ pub fn ReconstructUVWithObserver(
     }
     let mut nz = 0;
     for n in (0..8).step_by(2) {
-        nz |= Quantize2Blocks_C(
+        nz |= Quantize2Blocks_wide(
             (&mut tmp.as_flattened_mut()[16 * n..16 * n + 32])
                 .try_into()
                 .unwrap(),
@@ -969,7 +976,7 @@ pub fn ReconstructUVWithObserver(
                 .unwrap(),
             &dqm.uv,
         ) << n;
-        ITransform_C(
+        ITransform_wide(
             &reference[VP8ScanUV[n]..],
             &tmp.as_flattened()[16 * n..],
             &mut yuv_out[VP8ScanUV[n]..],

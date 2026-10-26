@@ -1,5 +1,82 @@
 # SIMD in libwebpop
 
+## Implemented portable encoder kernels (2026-10-26)
+
+The lossy encoder now uses `wide` 1.7.1 unconditionally for the luma-search
+DSP. The predictor prototype in `tokenslop/perf-research` commit `1f84b45`
+established that safe array loads and `wide` integer operations fit the crate's
+unsafe-code policy;
+this change ports the lossy kernels independently of that lossless prototype.
+
+### Naming and selection convention
+
+- Mirror upstream's translation-unit suffix in the module filename:
+  `dsp/enc_wide.rs`, `dsp/dec_wide.rs`, and `dsp/cost_wide.rs` correspond to
+  `enc_sse2.c`, `dec_neon.c`, etc. Retain the upstream function stem and use the
+  literal suffix `_wide`, for example `QuantizeBlock_wide` and
+  `Intra4Preds_wide`. Rust-only private helpers use descriptive snake_case.
+- Call `_wide` functions directly from encoder code on every target. Do not
+  add a CPU check, feature flag, function-pointer table, or a separate scalar
+  dispatch path. `wide` selects hardware instructions or its scalar fallback
+  at **build time**. The `_C` functions remain available as test references.
+- Keep vectors behind ordinary slice/array interfaces, retain checked bounds,
+  preserve row padding, and use plain `#[inline]` on upstream inline helpers
+  and small Rust-specific helpers. Keep `#![forbid(unsafe_code)]` intact.
+- Distinguish a portable operation from an algorithmic technique. Let `wide`
+  choose SSE2/SSE4.1/NEON implementations of abs, multiply, min, and transpose.
+  If different upstream techniques merit separate ports, name the private
+  helpers for the technique, keep one `_wide` entry point, and select the
+  technique with `cfg(target_feature = ...)` inside that module. Do not expose
+  architecture choices to callers. Test every retained technique against the
+  same scalar cases and benchmark before choosing a default.
+
+### Upstream coverage and technique choices
+
+| Kernels | Upstream counterparts and portable choice |
+| --- | --- |
+| `FTransform`, `FTransform2`, `ITransform` | `enc_sse2.c` and `enc_neon.c`; separable vector butterfly passes and 4x4 transpose. Signed 32-bit intermediates preserve the scalar Rust kernel's full i16 input domain, whereas upstream's packed 16-bit implementations rely on coefficient bounds. Split fixed-point multiplication preserves exact widened scalar rounding without i64 vector arithmetic. Two-block entry points process both adjacent blocks. |
+| `FTransformWHT`, `TransformWHT` | `enc_{sse2,neon}.c` and `dec_{sse2,neon}.c`; vector Walsh passes, exact rounding, and scalar DC-slot scatter. AC slots stay untouched. |
+| `QuantizeBlock`, `Quantize2Blocks` | `enc_{sse2,sse41,neon}.c`; process contiguous raster coefficients, restore signs, dequantize, then zigzag. Use unsigned 32-bit wrapping multiply/add and retain the threshold mask, including for arbitrary test matrices. SSE2/SSE4.1 high/low-product reconstruction and NEON widening/halving implement the same arithmetic for encoder matrices; `wide` handles native versus emulated multiplication. The explicit threshold and full sharpen sum preserve the broader scalar test contract. Use four 32-bit lanes on every target. WHT matrices have zero sharpening and use the same kernel. |
+| `Intra4Preds` | `enc_sse2.c` has individual predictors; AArch64 `enc_neon.c` batches shared averages. Use the latter technique: compute two-/three-tap averages in parallel once, then arrange directional rows. True motion widens before clipped narrowing. |
+| `Intra16Preds`, `IntraChromaPreds` | `enc_{sse2,neon}.c`; vector true motion and fixed-size row replication with the same four missing-border cases. Chroma shares the helpers used by luma. |
+| `SSE4x4`, `SSE8x8`, `SSE16x8`, `SSE16x16`, `Mean16x4` | `enc_sse2.c` / `enc_neon.c`; vector differences, products and integer reductions. |
+| `Disto4x4`, `Disto16x16` | `enc_{sse2,sse41,neon}.c`; vector Hadamard transforms and weighted absolute coefficients. Keep 32-bit products so full u16 weights work as in scalar Rust; upstream uses narrower domain-specific packing. |
+| `CollectHistogram` | `enc_{sse2,sse41,neon}.c`; wide forward transform, absolute/shift/clamp classification, scalar bin increments to preserve repeated indices. |
+| `SetResidualCoeffs`, `GetResidualCost` | `cost_{sse2,neon}.c`; nonzero bitmask and batched magnitude/level/context classification, followed by the scalar dependent cost-table walk. |
+| `IsFlat` | NEON specialization in `quant.h`, ported in `quant_wide.rs`; vector nonzero AC counts, masking out each block's DC. Retain scalar early exits and empty-input behavior. `IsFlatSource16` has only a scalar upstream implementation and stays scalar. |
+
+There are no duplicate architecture-specific Rust backends: the differences
+above are represented by portable operations or a shared technique. An
+alternative packed 16-bit transform or paired-block layout should be retained
+only with parity evidence and measurements on the targets that select it.
+An eight-lane AVX2 quantizer was also tried: the full-photo q80/m4 comparison
+measured 1.680 s versus 1.665 s for four lanes (five samples, same code otherwise).
+It supplied no end-to-end benefit on this host and was not retained. This does
+not establish the best technique for AArch64 or other CPUs.
+
+`Copy4x4_C` and `Copy16x8_C` have no upstream SIMD dispatch replacement. They
+remain scalar, using fixed-array assignments rather than dynamic slice-copy
+helpers. This removes four helper/libc calls from the 4x4 hot path.
+
+Avoid `array::map` for tiny hot-path casts and fixed shuffles on the current
+compiler: inspected non-LTO release code left out-of-line iterator helpers.
+Whole-array bytemuck casts, explicit fixed shuffles, and fixed-array stores
+keep these operations within the kernel. This is a code-generation finding,
+not a general prohibition on arrays or iterators.
+
+`tests/lossy_wide.rs` compares every ported family with scalar Rust, including
+signed extrema, arbitrary quantization matrices, threshold ties, all prediction
+modes and missing borders, unaligned inputs, minimum transform slices, and
+untouched padding. Existing C-oracle reconstruction, search and complete-file
+tests exercise the unconditional production calls. No fixtures or source pin
+are regenerated by this port.
+
+The [benchmark and validation record](benchmarks/2026-10-26-lossy-wide.md)
+includes baseline SSE2, Wasm SIMD/scalar parity and the matched q80/m4 photo
+measurement.
+
+## Original assessment (2026-10-22)
+
 Examined on 2026-10-22 against upstream revision
 `1844042d1ca751e62e61df7617dba19c98588339`. External Rust API and crate status
 below is a dated assessment; recheck it before selecting a dependency.

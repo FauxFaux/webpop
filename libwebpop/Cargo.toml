@@ -16,6 +16,7 @@ native-oracle = []
 
 [dependencies]
 thiserror = "2"
+wide = "1"
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["webp"] }

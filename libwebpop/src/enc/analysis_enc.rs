@@ -3,7 +3,10 @@
 // See COPYING and PATENTS.
 
 use super::{iterator_enc::*, picture_enc::WebPYUVAPicture, quant_enc::*, vp8i_enc::*};
-use crate::dsp::enc::{BPS, CollectHistogram_C, Mean16x4_C, VP8Histogram};
+use crate::dsp::{
+    enc::{BPS, VP8Histogram},
+    enc_wide::{CollectHistogram_wide, Mean16x4_wide},
+};
 
 const MAX_ALPHA: usize = 255;
 const ALPHA_SCALE: i32 = 2 * MAX_ALPHA as i32;
@@ -118,7 +121,7 @@ pub fn MBAnalyzeBestIntra16Mode(it: &mut VP8EncIterator, enc: &mut VP8Encoder) -
     VP8MakeLuma16Preds(it, enc);
     for (mode, &offset) in VP8I16ModeOffsets[..2].iter().enumerate() {
         let mut histo = InitHistogram();
-        CollectHistogram_C(
+        CollectHistogram_wide(
             &it.yuv_in[Y_OFF_ENC..],
             &it.yuv_p[offset..],
             0,
@@ -141,7 +144,7 @@ pub fn FastMBAnalyze(it: &mut VP8EncIterator, enc: &mut VP8Encoder) -> i32 {
     let threshold = (8 + 9 * q / 100) as u64;
     let mut dc = [0u32; 16];
     for k in (0..16).step_by(4) {
-        Mean16x4_C(
+        Mean16x4_wide(
             &it.yuv_in[Y_OFF_ENC + k * BPS..],
             (&mut dc[k..k + 4]).try_into().unwrap(),
         );
@@ -165,7 +168,7 @@ pub fn MBAnalyzeBestUVMode(it: &mut VP8EncIterator, enc: &mut VP8Encoder) -> i32
     VP8MakeChroma8Preds(it, enc);
     for (mode, &offset) in VP8UVModeOffsets[..2].iter().enumerate() {
         let mut histo = InitHistogram();
-        CollectHistogram_C(
+        CollectHistogram_wide(
             &it.yuv_in[U_OFF_ENC..],
             &it.yuv_p[offset..],
             16,

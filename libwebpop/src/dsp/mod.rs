@@ -1,10 +1,14 @@
 pub mod alpha_processing;
 pub mod cost;
+pub mod cost_wide;
 pub mod dec;
+pub mod dec_wide;
 pub mod enc;
+pub mod enc_wide;
 pub mod filters;
 pub mod lossless;
 pub mod lossless_common;
 pub mod lossless_enc;
 pub mod quant;
+pub mod quant_wide;
 pub mod yuv;

@@ -1,0 +1,385 @@
+{
+  "run": "target/benchmarks/2026-10-26-lossy-wide",
+  "started_utc": "2026-10-26T13:48:47.789057+00:00",
+  "input": [
+    {
+      "source": "/home/faux/code/webpop/target/benchmarks/2026-10-26-matrix/inputs/3-photo-japan-p50.pam",
+      "source_sha256": "d748dd970415226104045160aaaa7b88bcbd8fc3a02ebe66cfd68ca86786b9f6",
+      "prepared": "/home/faux/code/webpop/target/benchmarks/2026-10-26-lossy-wide/inputs/0-3-photo-japan-p50.pam",
+      "sha256": "d748dd970415226104045160aaaa7b88bcbd8fc3a02ebe66cfd68ca86786b9f6",
+      "bytes": 80666567,
+      "layout": "packed RGBA8 PAM",
+      "width": 5492,
+      "height": 3672
+    }
+  ],
+  "summary": {
+    "image": 0,
+    "mode": "lossy",
+    "near_lossless": 100,
+    "quality": 80,
+    "method": 4,
+    "exact": false,
+    "results": {
+      "c": {
+        "median_seconds": 1.1244434155,
+        "min_seconds": 1.120765686,
+        "max_seconds": 1.132929924,
+        "iqr_percent": 0.3429788192841452,
+        "megapixels_per_second": 17.934761075578553,
+        "matches_c_bytes": true,
+        "decoded_metrics": {
+          "rgb_sse": 1015537791,
+          "rgb_samples": 60499872,
+          "alpha_sse": 0,
+          "alpha_samples": 20166624,
+          "rgb_psnr_db": 35.881387,
+          "alpha_psnr_db": null
+        },
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      "scalar": {
+        "median_seconds": 2.5452693705,
+        "min_seconds": 2.538617337,
+        "max_seconds": 2.56377919,
+        "iqr_percent": 0.4349446222984881,
+        "megapixels_per_second": 7.923178675598651,
+        "matches_c_bytes": true,
+        "decoded_metrics": {
+          "rgb_sse": 1015537791,
+          "rgb_samples": 60499872,
+          "alpha_sse": 0,
+          "alpha_samples": 20166624,
+          "rgb_psnr_db": 35.881387,
+          "alpha_psnr_db": null
+        },
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce",
+        "paired_geomean_speedup": 0.4419036243276202,
+        "bootstrap_95_percent": [
+          0.4408839813944635,
+          0.44300069527551106
+        ],
+        "versus_first_rust": {
+          "paired_geomean_speedup": 1.0,
+          "bootstrap_95_percent": [
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "wide": {
+        "median_seconds": 1.6247099779999998,
+        "min_seconds": 1.614721445,
+        "max_seconds": 1.626669529,
+        "iqr_percent": 0.36876747734233545,
+        "megapixels_per_second": 12.412445466005504,
+        "matches_c_bytes": true,
+        "decoded_metrics": {
+          "rgb_sse": 1015537791,
+          "rgb_samples": 60499872,
+          "alpha_sse": 0,
+          "alpha_samples": 20166624,
+          "rgb_psnr_db": 35.881387,
+          "alpha_psnr_db": null
+        },
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce",
+        "paired_geomean_speedup": 0.6936434616658621,
+        "bootstrap_95_percent": [
+          0.6921866862866677,
+          0.6950974108146002
+        ],
+        "versus_first_rust": {
+          "paired_geomean_speedup": 1.5696713570097494,
+          "bootstrap_95_percent": [
+            1.565383224392855,
+            1.574236000554787
+          ]
+        }
+      }
+    }
+  },
+  "timings_seconds": {
+    "c": [
+      1.130437812,
+      1.125578101,
+      1.12301889,
+      1.124992265,
+      1.132929924,
+      1.120765686,
+      1.123894566,
+      1.122689034
+    ],
+    "scalar": [
+      2.538617337,
+      2.553408234,
+      2.539501029,
+      2.549185765,
+      2.56377919,
+      2.550222136,
+      2.540097188,
+      2.541352976
+    ],
+    "wide": [
+      1.623938977,
+      1.619486932,
+      1.6257499,
+      1.626669529,
+      1.62549482,
+      1.614721445,
+      1.625480979,
+      1.61959394
+    ]
+  },
+  "warmup_seconds": {
+    "c": [
+      1.123291783
+    ],
+    "scalar": [
+      2.538948563
+    ],
+    "wide": [
+      1.623312736
+    ]
+  },
+  "build_note": "Final complete port including IsFlat: Release x86-64-v3 opt3 LTO off codegen-units16 debug0 assertions/overflow/incremental off panic unwind; wide1.7.1, four u32 quantization lanes; full changed-source snapshot and build log archived in provenance/source and provenance/rust-build.log",
+  "binaries": {
+    "c": {
+      "source": "/home/faux/code/webpop/reference-cwebp/artifacts/cwebp",
+      "sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+      "linkage": {
+        "command": [
+          "ldd",
+          "/home/faux/code/webpop/target/benchmarks/2026-10-26-lossy-wide/bin/c"
+        ],
+        "status": 0,
+        "stdout": "\tlinux-vdso.so.1 (0x0000770a5160c000)\n\tlibm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x0000770a513a5000)\n\tlibc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x0000770a51000000)\n\t/lib64/ld-linux-x86-64.so.2 (0x0000770a5160e000)\n",
+        "stderr": ""
+      }
+    },
+    "scalar": {
+      "source": "/home/faux/code/webpop/target/benchmarks/2026-10-26-matrix/bin/rust-v3",
+      "sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+      "linkage": {
+        "command": [
+          "ldd",
+          "/home/faux/code/webpop/target/benchmarks/2026-10-26-lossy-wide/bin/scalar"
+        ],
+        "status": 0,
+        "stdout": "\tlinux-vdso.so.1 (0x00007f426db21000)\n\tlibgcc_s.so.1 => /usr/lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f426d7ac000)\n\tlibm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x00007f426d686000)\n\tlibc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x00007f426d400000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f426db23000)\n",
+        "stderr": ""
+      }
+    },
+    "wide": {
+      "source": "/home/faux/code/webpop/target/benchmark-v3/release/cwebpop",
+      "sha256": "29375aae2378d12f0c791b80cf51905618fcd33fc151cee027d0506ce7ebdf1e",
+      "linkage": {
+        "command": [
+          "ldd",
+          "/home/faux/code/webpop/target/benchmarks/2026-10-26-lossy-wide/bin/wide"
+        ],
+        "status": 0,
+        "stdout": "\tlinux-vdso.so.1 (0x00007f4bc0b84000)\n\tlibgcc_s.so.1 => /usr/lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f4bc0b28000)\n\tlibm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x00007f4bc06da000)\n\tlibc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x00007f4bc0400000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f4bc0b86000)\n",
+        "stderr": ""
+      }
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "status": 0,
+      "stdout": "070bbd0f70b4f3b8fc576053e996c9e13f47396d\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "status": 0,
+      "stdout": " M AGENTS.md\n M Cargo.lock\n M docs/INTRINSICS.md\n M docs/LOSSY_PORT_PLAN.md\n M libwebpop/Cargo.toml\n M libwebpop/src/dsp/enc.rs\n M libwebpop/src/dsp/mod.rs\n M libwebpop/src/enc/analysis_enc.rs\n M libwebpop/src/enc/cost_enc.rs\n M libwebpop/src/enc/frame_enc.rs\n M libwebpop/src/enc/quant_enc.rs\n?? libwebpop/src/dsp/cost_wide.rs\n?? libwebpop/src/dsp/dec_wide.rs\n?? libwebpop/src/dsp/enc_wide.rs\n?? libwebpop/src/dsp/quant_wide.rs\n?? libwebpop/tests/lossy_wide.rs\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "submodule",
+        "status"
+      ],
+      "status": 0,
+      "stdout": " 1844042d1ca751e62e61df7617dba19c98588339 upstream (v1.6.0-362-g1844042d)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "-C",
+        "upstream",
+        "status",
+        "--short"
+      ],
+      "status": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "rustc",
+        "-vV"
+      ],
+      "status": 0,
+      "stdout": "rustc 1.101.0-nightly (76456a688 2026-10-25)\nbinary: rustc\ncommit-hash: 76456a688bc0ed897fa23a677d4ddb5b3fdb575a\ncommit-date: 2026-10-25\nhost: x86_64-unknown-linux-gnu\nrelease: 1.101.0-nightly\nLLVM version: 23.1.4\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "cargo",
+        "--version"
+      ],
+      "status": 0,
+      "stdout": "cargo 1.101.0-nightly (cad07cf8e 2026-10-23)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "lscpu"
+      ],
+      "status": 0,
+      "stdout": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           39 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  32\nOn-line CPU(s) list:                     0-31\nVendor ID:                               GenuineIntel\nModel name:                              13th Gen Intel(R) Core(TM) i9-13900KF\nCPU family:                              6\nModel:                                   183\nThread(s) per core:                      2\nCore(s) per socket:                      24\nSocket(s):                               1\nStepping:                                1\nCPU(s) scaling MHz:                      36%\nCPU max MHz:                             5800.0000\nCPU min MHz:                             800.0000\nBogoMIPS:                                5990.40\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku ospke waitpkg gfni vaes vpclmulqdq rdpid movdiri movdir64b fsrm md_clear serialize arch_lbr ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nL1d cache:                               896 KiB (24 instances)\nL1i cache:                               1.3 MiB (24 instances)\nL2 cache:                                32 MiB (12 instances)\nL3 cache:                                36 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-31\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Mitigation; Clear Register File\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "uname",
+        "-a"
+      ],
+      "status": 0,
+      "stdout": "Linux astoria 7.0.0-38-generic #38-Ubuntu SMP PREEMPT_DYNAMIC Fri Sep  4 09:10:14 UTC 2026 x86_64 GNU/Linux\n",
+      "stderr": ""
+    }
+  ],
+  "affinity": [
+    2
+  ],
+  "width_experiment": {
+    "run": "target/benchmarks/2026-10-26-lossy-wide-widths",
+    "summary": {
+      "image": 0,
+      "mode": "lossy",
+      "near_lossless": 100,
+      "quality": 80,
+      "method": 4,
+      "exact": false,
+      "results": {
+        "c": {
+          "median_seconds": 1.124339879,
+          "min_seconds": 1.123449637,
+          "max_seconds": 1.130599386,
+          "iqr_percent": 0.23330080601010575,
+          "megapixels_per_second": 17.936412624567236,
+          "matches_c_bytes": true,
+          "decoded_metrics": {
+            "rgb_sse": 1015537791,
+            "rgb_samples": 60499872,
+            "alpha_sse": 0,
+            "alpha_samples": 20166624,
+            "rgb_psnr_db": 35.881387,
+            "alpha_psnr_db": null
+          },
+          "bytes": 2346540,
+          "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+        },
+        "wide128": {
+          "median_seconds": 1.664779727,
+          "min_seconds": 1.659414775,
+          "max_seconds": 1.682910386,
+          "iqr_percent": 0.5672974536408352,
+          "megapixels_per_second": 12.113689080261127,
+          "matches_c_bytes": true,
+          "decoded_metrics": {
+            "rgb_sse": 1015537791,
+            "rgb_samples": 60499872,
+            "alpha_sse": 0,
+            "alpha_samples": 20166624,
+            "rgb_psnr_db": 35.881387,
+            "alpha_psnr_db": null
+          },
+          "bytes": 2346540,
+          "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce",
+          "paired_geomean_speedup": 0.6750637382908712,
+          "bootstrap_95_percent": [
+            0.6729728105157918,
+            0.6770551727950384
+          ],
+          "versus_first_rust": {
+            "paired_geomean_speedup": 1.0,
+            "bootstrap_95_percent": [
+              1.0,
+              1.0
+            ]
+          }
+        },
+        "wide256": {
+          "median_seconds": 1.679510406,
+          "min_seconds": 1.671662768,
+          "max_seconds": 1.698608084,
+          "iqr_percent": 0.8834892565708837,
+          "megapixels_per_second": 12.007442125964417,
+          "matches_c_bytes": true,
+          "decoded_metrics": {
+            "rgb_sse": 1015537791,
+            "rgb_samples": 60499872,
+            "alpha_sse": 0,
+            "alpha_samples": 20166624,
+            "rgb_psnr_db": 35.881387,
+            "alpha_psnr_db": null
+          },
+          "bytes": 2346540,
+          "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce",
+          "paired_geomean_speedup": 0.6692552810093341,
+          "bootstrap_95_percent": [
+            0.6662050438676952,
+            0.6716204619909943
+          ],
+          "versus_first_rust": {
+            "paired_geomean_speedup": 0.9913956905813918,
+            "bootstrap_95_percent": [
+              0.9844537957314015,
+              0.9972414456889456
+            ]
+          }
+        }
+      }
+    },
+    "timings_seconds": {
+      "c": [
+        1.130599386,
+        1.123449637,
+        1.126732776,
+        1.124109682,
+        1.124339879
+      ],
+      "wide128": [
+        1.682910386,
+        1.659414775,
+        1.66117518,
+        1.664779727,
+        1.670619433
+      ],
+      "wide256": [
+        1.688185048,
+        1.673346754,
+        1.698608084,
+        1.679510406,
+        1.671662768
+      ]
+    }
+  }
+}

@@ -595,17 +595,17 @@ pub fn Quantize2Blocks_C(input: &mut [i16; 32], out: &mut [i16; 32], mtx: &VP8Ma
     )) << 1)
 }
 
-#[inline]
-fn Copy(src: &[u8], dst: &mut [u8], w: usize, h: usize) {
-    assert!(src.len() >= (h - 1) * BPS + w && dst.len() >= (h - 1) * BPS + w);
-    for y in 0..h {
-        dst[y * BPS..y * BPS + w].copy_from_slice(&src[y * BPS..y * BPS + w]);
+pub fn Copy4x4_C(src: &[u8], dst: &mut [u8]) {
+    assert!(src.len() >= 3 * BPS + 4 && dst.len() >= 3 * BPS + 4);
+    for y in 0..4 {
+        let row: [u8; 4] = src[y * BPS..y * BPS + 4].try_into().unwrap();
+        *<&mut [u8; 4]>::try_from(&mut dst[y * BPS..y * BPS + 4]).unwrap() = row;
     }
 }
-
-pub fn Copy4x4_C(src: &[u8], dst: &mut [u8]) {
-    Copy(src, dst, 4, 4);
-}
 pub fn Copy16x8_C(src: &[u8], dst: &mut [u8]) {
-    Copy(src, dst, 16, 8);
+    assert!(src.len() >= 7 * BPS + 16 && dst.len() >= 7 * BPS + 16);
+    for y in 0..8 {
+        let row: [u8; 16] = src[y * BPS..y * BPS + 16].try_into().unwrap();
+        *<&mut [u8; 16]>::try_from(&mut dst[y * BPS..y * BPS + 16]).unwrap() = row;
+    }
 }

@@ -8,7 +8,7 @@ use super::{
     picture_enc::WebPYUVAPicture, quant_enc::*, token_enc::*, tree_enc::*, vp8i_enc::*,
 };
 use crate::{
-    dsp::cost::{SetResidualCoeffs_C, VP8EncBands},
+    dsp::{cost::VP8EncBands, cost_wide::SetResidualCoeffs_wide},
     utils::bit_writer_utils::*,
 };
 use std::collections::TryReserveError;
@@ -240,7 +240,7 @@ pub fn CodeResiduals(
     let pos1 = VP8BitWriterPos(bw);
     if i16 {
         let mut res = VP8InitResidual(0, 1);
-        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+        SetResidualCoeffs_wide(&rd.y_dc_levels, &mut res);
         let nz = u8::from(PutCoeffs(
             bw,
             usize::from(it.top_nz[8] + it.left_nz[8]),
@@ -253,7 +253,7 @@ pub fn CodeResiduals(
     for n in 0..16 {
         let (x, y) = (n % 4, n / 4);
         let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
-        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
+        SetResidualCoeffs_wide(&rd.y_ac_levels[n], &mut res);
         let nz = u8::from(PutCoeffs(
             bw,
             usize::from(it.top_nz[x] + it.left_nz[y]),
@@ -267,7 +267,7 @@ pub fn CodeResiduals(
     for n in 0..8 {
         let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
         let mut res = VP8InitResidual(0, 2);
-        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
+        SetResidualCoeffs_wide(&rd.uv_levels[n], &mut res);
         let nz = u8::from(PutCoeffs(
             bw,
             usize::from(it.top_nz[x] + it.left_nz[y]),
@@ -291,7 +291,7 @@ pub fn RecordResiduals(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8Mo
     let i16 = enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1;
     if i16 {
         let mut res = VP8InitResidual(0, 1);
-        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+        SetResidualCoeffs_wide(&rd.y_dc_levels, &mut res);
         let nz = u8::from(VP8RecordCoeffs(
             usize::from(it.top_nz[8] + it.left_nz[8]),
             &res,
@@ -303,7 +303,7 @@ pub fn RecordResiduals(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8Mo
     for n in 0..16 {
         let (x, y) = (n % 4, n / 4);
         let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
-        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
+        SetResidualCoeffs_wide(&rd.y_ac_levels[n], &mut res);
         let nz = u8::from(VP8RecordCoeffs(
             usize::from(it.top_nz[x] + it.left_nz[y]),
             &res,
@@ -315,7 +315,7 @@ pub fn RecordResiduals(it: &mut VP8EncIterator, enc: &mut VP8Encoder, rd: &VP8Mo
     for n in 0..8 {
         let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
         let mut res = VP8InitResidual(0, 2);
-        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
+        SetResidualCoeffs_wide(&rd.uv_levels[n], &mut res);
         let nz = u8::from(VP8RecordCoeffs(
             usize::from(it.top_nz[x] + it.left_nz[y]),
             &res,
@@ -347,7 +347,7 @@ pub fn RecordTokens(
     let i16 = enc.mb_info[it.y * enc.mb_w + it.x].r#type == 1;
     if i16 {
         let mut res = VP8InitResidual(0, 1);
-        SetResidualCoeffs_C(&rd.y_dc_levels, &mut res);
+        SetResidualCoeffs_wide(&rd.y_dc_levels, &mut res);
         let nz = u8::from(VP8RecordCoeffTokens(
             usize::from(it.top_nz[8] + it.left_nz[8]),
             &res,
@@ -360,7 +360,7 @@ pub fn RecordTokens(
     for n in 0..16 {
         let (x, y) = (n % 4, n / 4);
         let mut res = VP8InitResidual(usize::from(i16), if i16 { 0 } else { 3 });
-        SetResidualCoeffs_C(&rd.y_ac_levels[n], &mut res);
+        SetResidualCoeffs_wide(&rd.y_ac_levels[n], &mut res);
         let nz = u8::from(VP8RecordCoeffTokens(
             usize::from(it.top_nz[x] + it.left_nz[y]),
             &res,
@@ -373,7 +373,7 @@ pub fn RecordTokens(
     for n in 0..8 {
         let (x, y) = (4 + 2 * (n / 4) + n % 2, 4 + 2 * (n / 4) + (n % 4) / 2);
         let mut res = VP8InitResidual(0, 2);
-        SetResidualCoeffs_C(&rd.uv_levels[n], &mut res);
+        SetResidualCoeffs_wide(&rd.uv_levels[n], &mut res);
         let nz = u8::from(VP8RecordCoeffTokens(
             usize::from(it.top_nz[x] + it.left_nz[y]),
             &res,
