@@ -1,0 +1,1591 @@
+{
+  "configuration": {
+    "mode": "lossy",
+    "quality": 80,
+    "method": 4,
+    "alpha_quality": 100,
+    "cpu": 2,
+    "event": "cpu_core/cycles/u",
+    "frequency_hz": 99,
+    "dwarf_stack_bytes": 64000,
+    "encodes_per_capture": 24,
+    "stat_repeats": 5,
+    "thread_level": 0
+  },
+  "comparison": {
+    "mode": "lossy",
+    "stage_patterns_in_priority_order": {
+      "rgba_to_yuv": "WebPPictureImport|import_rgba_to_yuva|ImportYUVA|ConvertARGBToYUV|WebPPictureARGBToYUVA",
+      "analysis": "VP8EncAnalyze|DoSegmentsJob|MBAnalyze|CollectHistogram",
+      "intra4_search": "PickBestIntra4",
+      "intra16_search": "PickBestIntra16",
+      "chroma_search": "PickBestUV",
+      "other_decimation": "VP8Decimate|\\bDecimate\\* volatile",
+      "token_recording": "VP8RecordCoeffTokens|RecordTokens",
+      "token_emission": "VP8EmitTokens",
+      "probability_updates": "VP8CalculateLevelCosts|FinalizeTokenProbas|FinalizeSkipProba|VP8EstimateTokenSize",
+      "other_residuals": "VP8RecordCoeffs|RecordResiduals|CodeResiduals",
+      "other_encode_loop": "VP8EncTokenLoop|VP8EncLoop"
+    },
+    "kernel_patterns_in_priority_order": {
+      "inverse_transform": "ITransform",
+      "forward_transform": "FTransform",
+      "quantization": "QuantizeBlock|Quantize2Blocks",
+      "spectral_distortion": "Disto4x4|Disto16x16|TTransform",
+      "pixel_distortion": "SSE16x16|SSE16x8|SSE8x8|SSE4x4|GetSSE",
+      "residual_cost": "GetResidualCost|SetResidualCoeffs|VP8GetCostLuma|VP8GetCostUV",
+      "prediction": "Intra4Preds|Intra16Preds|IntraChromaPreds|TrueMotion",
+      "copy_or_initialize": "memcpy|memmove|memset|copy_from_slice|default\\b"
+    },
+    "profiles": {
+      "c": {
+        "samples": 2583,
+        "estimated_cycles": 138728561597,
+        "unknown_leaf_percent": 0.30035904878077446,
+        "main_in_stack_percent": 99.96036258477203,
+        "stages": {
+          "other": {
+            "percent": 2.1564165811005513,
+            "estimated_cycles": 2991565705,
+            "samples": 61
+          },
+          "rgba_to_yuv": {
+            "percent": 2.6422946196533394,
+            "estimated_cycles": 3665617319,
+            "samples": 97
+          },
+          "analysis": {
+            "percent": 7.721562307492163,
+            "estimated_cycles": 10712012322,
+            "samples": 214
+          },
+          "intra16_search": {
+            "percent": 14.92628637868598,
+            "estimated_cycles": 20707022393,
+            "samples": 377
+          },
+          "intra4_search": {
+            "percent": 49.083414292008705,
+            "estimated_cycles": 68092714630,
+            "samples": 1240
+          },
+          "chroma_search": {
+            "percent": 8.11742636077582,
+            "estimated_cycles": 11261188829,
+            "samples": 205
+          },
+          "token_recording": {
+            "percent": 5.303899213180566,
+            "estimated_cycles": 7358023087,
+            "samples": 134
+          },
+          "other_decimation": {
+            "percent": 0.15843235413806306,
+            "estimated_cycles": 219790926,
+            "samples": 4
+          },
+          "token_emission": {
+            "percent": 9.534207632327982,
+            "estimated_cycles": 13226669108,
+            "samples": 242
+          },
+          "other_encode_loop": {
+            "percent": 0.3560602606368275,
+            "estimated_cycles": 493957278,
+            "samples": 9
+          }
+        },
+        "inclusive_percent": {
+          "WebPPictureImport": 2.6422946196533394,
+          "VP8EncAnalyze": 7.721562307492163,
+          "Intra16Preds": 0.3871365015375566,
+          "CollectHistogram": 7.263496332695995,
+          "FTransform": 11.019432968250845,
+          "PickBestIntra16": 14.92628637868598,
+          "Disto4x4": 8.355037154980963,
+          "Disto16x16": 1.8621416154406838,
+          "PickBestIntra4": 49.083414292008705,
+          "ReconstructIntra4": 23.630543115001142,
+          "ITransform": 12.232853265860564,
+          "ReconstructIntra16": 6.692347323523875,
+          "QuantizeBlock": 9.263399539405231,
+          "Quantize2Blocks": 3.0101301440224146,
+          "PickBestUV": 8.11742636077582,
+          "GetResidualCost": 8.70839935765704,
+          "VP8GetCostUV": 2.4154814195611642,
+          "ReconstructUV": 4.513699328325921,
+          "VP8RecordCoeffTokens": 4.473060022078533,
+          "SSE4x4": 7.084725182656649,
+          "VP8GetCostLuma16": 5.502374454926282,
+          "VP8GetCostLuma4": 4.8285030118447185,
+          "Intra4Preds": 1.622959298417961,
+          "VP8EmitTokens": 9.534207632327982,
+          "SSE16x16": 0.3164893075698802
+        },
+        "kernels": {
+          "copy_or_initialize": {
+            "percent": 0.05410945167734175,
+            "estimated_cycles": 75065264
+          },
+          "other": {
+            "percent": 36.204935471691755,
+            "estimated_cycles": 50226586207
+          },
+          "prediction": {
+            "percent": 2.0100957999555176,
+            "estimated_cycles": 2788576990
+          },
+          "forward_transform": {
+            "percent": 11.019432968250845,
+            "estimated_cycles": 15287100853
+          },
+          "spectral_distortion": {
+            "percent": 8.355037154980963,
+            "estimated_cycles": 11590822866
+          },
+          "inverse_transform": {
+            "percent": 12.232853265860564,
+            "estimated_cycles": 16970461378
+          },
+          "quantization": {
+            "percent": 9.342668235580033,
+            "estimated_cycles": 12960949258
+          },
+          "residual_cost": {
+            "percent": 13.221209659970004,
+            "estimated_cycles": 18341593987
+          },
+          "pixel_distortion": {
+            "percent": 7.559657992032975,
+            "estimated_cycles": 10487404794
+          }
+        }
+      },
+      "rust": {
+        "samples": 5826,
+        "estimated_cycles": 317682849100,
+        "unknown_leaf_percent": 0.23434507185676082,
+        "main_in_stack_percent": 100.0,
+        "stages": {
+          "other": {
+            "percent": 1.1693482252895093,
+            "estimated_cycles": 3714818758,
+            "samples": 86
+          },
+          "rgba_to_yuv": {
+            "percent": 2.469803205375496,
+            "estimated_cycles": 7846141190,
+            "samples": 195
+          },
+          "analysis": {
+            "percent": 5.200319636959589,
+            "estimated_cycles": 16520523585,
+            "samples": 299
+          },
+          "intra4_search": {
+            "percent": 53.85805963360079,
+            "estimated_cycles": 171097818314,
+            "samples": 3099
+          },
+          "intra16_search": {
+            "percent": 19.152972907532387,
+            "estimated_cycles": 60845710020,
+            "samples": 1102
+          },
+          "chroma_search": {
+            "percent": 7.455521064199623,
+            "estimated_cycles": 23684911732,
+            "samples": 429
+          },
+          "token_recording": {
+            "percent": 3.6492550610910524,
+            "estimated_cycles": 11593057449,
+            "samples": 210
+          },
+          "other_decimation": {
+            "percent": 1.2516372143679568,
+            "estimated_cycles": 3976236763,
+            "samples": 72
+          },
+          "other_encode_loop": {
+            "percent": 0.5559937330592267,
+            "estimated_cycles": 1766296732,
+            "samples": 32
+          },
+          "token_emission": {
+            "percent": 5.219723063419227,
+            "estimated_cycles": 16582164943,
+            "samples": 301
+          },
+          "probability_updates": {
+            "percent": 0.017366255105145365,
+            "estimated_cycles": 55169614,
+            "samples": 1
+          }
+        },
+        "inclusive_percent": {
+          "import_rgba_to_yuva": 2.469803205375496,
+          "VP8EncAnalyze": 5.200319636959589,
+          "CollectHistogram": 4.05201451808561,
+          "FTransform": 10.86250704775614,
+          "VP8Decimate": 81.71819081970075,
+          "PickBestIntra4": 53.85805963360079,
+          "Intra4Preds": 3.5803580250628015,
+          "ReconstructIntra4": 27.582033088735603,
+          "ITransform": 16.127898292007607,
+          "PickBestIntra16": 19.152972907532387,
+          "ReconstructIntra16": 12.14783145024369,
+          "PickBestUV": 7.455521064199623,
+          "GetResidualCost": 5.596471418387313,
+          "VP8GetCostLuma4": 3.909784920145379,
+          "QuantizeBlock": 17.41507944565963,
+          "Disto4x4": 9.541014401900867,
+          "Disto16x16": 2.9030041351388776,
+          "VP8RecordCoeffTokens": 2.971497904826616,
+          "VP8GetCostLuma16": 3.476493534129539,
+          "ReconstructUV": 5.856321526235015,
+          "VP8GetCostUV": 1.1299217053011503,
+          "Quantize2Blocks": 5.909527169057362,
+          "IntraChromaPreds": 0.8866875608740566,
+          "SSE4x4": 2.5895154360097306,
+          "Intra16Preds": 1.0953608370292094,
+          "VP8EmitTokens": 5.219723063419227,
+          "SSE16x16": 0.20854669456563998
+        },
+        "kernels": {
+          "copy_or_initialize": {
+            "percent": 6.581905529126659,
+            "estimated_cycles": 20909585010
+          },
+          "other": {
+            "percent": 21.222159816621968,
+            "estimated_cycles": 67419161946
+          },
+          "forward_transform": {
+            "percent": 10.86250704775614,
+            "estimated_cycles": 34508321873
+          },
+          "prediction": {
+            "percent": 5.562406422966068,
+            "estimated_cycles": 17670811203
+          },
+          "inverse_transform": {
+            "percent": 16.127898292007607,
+            "estimated_cycles": 51235566794
+          },
+          "residual_cost": {
+            "percent": 8.967962318932754,
+            "estimated_cycles": 28489678201
+          },
+          "quantization": {
+            "percent": 18.005909754666703,
+            "estimated_cycles": 57201687115
+          },
+          "spectral_distortion": {
+            "percent": 9.714795702202105,
+            "estimated_cycles": 30862239771
+          },
+          "pixel_distortion": {
+            "percent": 2.9544551157200005,
+            "estimated_cycles": 9385797187
+          }
+        }
+      }
+    }
+  },
+  "unprofiled": {
+    "summary": [
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "results": {
+          "c": {
+            "median_seconds": 1.114649936,
+            "min_seconds": 1.113116494,
+            "max_seconds": 1.120574114,
+            "iqr_percent": 0.35177019469186194,
+            "megapixels_per_second": 18.092338543856517,
+            "matches_c_bytes": true,
+            "decoded_metrics": {
+              "rgb_sse": 1015537791,
+              "rgb_samples": 60499872,
+              "alpha_sse": 0,
+              "alpha_samples": 20166624,
+              "rgb_psnr_db": 35.881387,
+              "alpha_psnr_db": null
+            },
+            "bytes": 2346540,
+            "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+          },
+          "baseline": {
+            "median_seconds": 2.54338468,
+            "min_seconds": 2.53479447,
+            "max_seconds": 2.595319359,
+            "iqr_percent": 0.34579761249486635,
+            "megapixels_per_second": 7.929049883244559,
+            "matches_c_bytes": true,
+            "decoded_metrics": {
+              "rgb_sse": 1015537791,
+              "rgb_samples": 60499872,
+              "alpha_sse": 0,
+              "alpha_samples": 20166624,
+              "rgb_psnr_db": 35.881387,
+              "alpha_psnr_db": null
+            },
+            "bytes": 2346540,
+            "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce",
+            "paired_geomean_speedup": 0.4378523590461337,
+            "bootstrap_95_percent": [
+              0.43595729458141397,
+              0.4390881186193053
+            ],
+            "versus_first_rust": {
+              "paired_geomean_speedup": 1.0,
+              "bootstrap_95_percent": [
+                1.0,
+                1.0
+              ]
+            }
+          },
+          "profile": {
+            "median_seconds": 2.4740446055,
+            "min_seconds": 2.468686257,
+            "max_seconds": 2.478913258,
+            "iqr_percent": 0.1408974899745288,
+            "megapixels_per_second": 8.151277448744446,
+            "matches_c_bytes": true,
+            "decoded_metrics": {
+              "rgb_sse": 1015537791,
+              "rgb_samples": 60499872,
+              "alpha_sse": 0,
+              "alpha_samples": 20166624,
+              "rgb_psnr_db": 35.881387,
+              "alpha_psnr_db": null
+            },
+            "bytes": 2346540,
+            "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce",
+            "paired_geomean_speedup": 0.4510968056121827,
+            "bootstrap_95_percent": [
+              0.4506361217060736,
+              0.45170739032856166
+            ],
+            "versus_first_rust": {
+              "paired_geomean_speedup": 1.0302486586914872,
+              "bootstrap_95_percent": [
+                1.0266653879616237,
+                1.0359525741579598
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "samples": [
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 0,
+        "warmup": true,
+        "seconds": 1.107839976,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 0,
+        "warmup": true,
+        "seconds": 2.527700675,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 0,
+        "warmup": true,
+        "seconds": 2.464031372,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 0,
+        "warmup": false,
+        "seconds": 2.543036528,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 0,
+        "warmup": false,
+        "seconds": 2.472699431,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 0,
+        "warmup": false,
+        "seconds": 1.114151034,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 1,
+        "warmup": false,
+        "seconds": 1.120574114,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 1,
+        "warmup": false,
+        "seconds": 2.473777037,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 1,
+        "warmup": false,
+        "seconds": 2.595319359,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 2,
+        "warmup": false,
+        "seconds": 2.543732832,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 2,
+        "warmup": false,
+        "seconds": 1.114502889,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 2,
+        "warmup": false,
+        "seconds": 2.475371832,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 3,
+        "warmup": false,
+        "seconds": 2.468686257,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 3,
+        "warmup": false,
+        "seconds": 1.113116494,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 3,
+        "warmup": false,
+        "seconds": 2.540745772,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 4,
+        "warmup": false,
+        "seconds": 1.114796983,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 4,
+        "warmup": false,
+        "seconds": 2.474312174,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 4,
+        "warmup": false,
+        "seconds": 2.535093801,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 5,
+        "warmup": false,
+        "seconds": 2.547344851,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 5,
+        "warmup": false,
+        "seconds": 2.478913258,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 5,
+        "warmup": false,
+        "seconds": 1.119086604,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 6,
+        "warmup": false,
+        "seconds": 2.550476418,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 6,
+        "warmup": false,
+        "seconds": 1.117666511,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 6,
+        "warmup": false,
+        "seconds": 2.476771369,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "profile",
+        "block": 7,
+        "warmup": false,
+        "seconds": 2.470845105,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-profile.webp"
+        ],
+        "binary_sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "c",
+        "block": 7,
+        "warmup": false,
+        "seconds": 1.11394901,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c",
+          "-quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-c.webp"
+        ],
+        "binary_sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      },
+      {
+        "image": 0,
+        "mode": "lossy",
+        "near_lossless": 100,
+        "quality": 80,
+        "method": 4,
+        "exact": false,
+        "label": "baseline",
+        "block": 7,
+        "warmup": false,
+        "seconds": 2.53479447,
+        "command": [
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline",
+          "--quiet",
+          "-q",
+          "80",
+          "-m",
+          "4",
+          "--lossy",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/inputs/0-input.pam",
+          "-o",
+          "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/outputs/0-lossy-n100-q80-m4-baseline.webp"
+        ],
+        "binary_sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+        "bytes": 2346540,
+        "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+      }
+    ],
+    "provenance": {
+      "started_utc": "2026-10-26T13:10:47.034060+00:00",
+      "argv": [
+        "scripts/benchmark.py",
+        "--c",
+        "/home/faux/code/webpop/target/profile-lossy-photo/run/c",
+        "--rust",
+        "baseline=/home/faux/code/webpop/target/profile-lossy-photo/run/baseline",
+        "--rust",
+        "profile=/home/faux/code/webpop/target/profile-lossy-photo/run/rust",
+        "--helper",
+        "target/benchmarks/2026-10-26-matrix/bin/benchmark_images",
+        "--case",
+        "lossy:80:4",
+        "--runs",
+        "8",
+        "--warmups",
+        "1",
+        "--cpu",
+        "2",
+        "--seed",
+        "20261026",
+        "--output",
+        "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled",
+        "--build-note",
+        "Same release baseline as matrix; profiling build commands in /home/faux/code/webpop/target/profile-lossy-photo/run/commands.log",
+        "/home/faux/code/webpop/target/profile-lossy-photo/run/input.pam"
+      ],
+      "cwd": "/home/faux/code/webpop",
+      "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 13.3.0]",
+      "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.43",
+      "binaries": {
+        "c": {
+          "source": "/home/faux/code/webpop/target/profile-lossy-photo/run/c",
+          "sha256": "b050fab0ad92d00e1a88c142d1b6c6a35199627e9b845e01f2fceb0605a669c3",
+          "linkage": {
+            "command": [
+              "ldd",
+              "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/c"
+            ],
+            "status": 0,
+            "stdout": "\tlinux-vdso.so.1 (0x00007bf32d603000)\n\tlibm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x00007bf32d39c000)\n\tlibc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x00007bf32d000000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007bf32d605000)\n",
+            "stderr": "/bin/bash: BASH_XTRACEFD: 3: invalid value for trace file descriptor\n"
+          }
+        },
+        "baseline": {
+          "source": "/home/faux/code/webpop/target/profile-lossy-photo/run/baseline",
+          "sha256": "7fc378de555031f70eac5eac934b5939b881f1c0d48470b717b3c1c92eef6e7c",
+          "linkage": {
+            "command": [
+              "ldd",
+              "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/baseline"
+            ],
+            "status": 0,
+            "stdout": "\tlinux-vdso.so.1 (0x00007a53f9404000)\n\tlibgcc_s.so.1 => /usr/lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007a53f93a8000)\n\tlibm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x00007a53f8eda000)\n\tlibc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x00007a53f8c00000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007a53f9406000)\n",
+            "stderr": "/bin/bash: BASH_XTRACEFD: 3: invalid value for trace file descriptor\n"
+          }
+        },
+        "profile": {
+          "source": "/home/faux/code/webpop/target/profile-lossy-photo/run/rust",
+          "sha256": "ecad306afc79c455563e5c0081ce332292f2708261a94b11b4e686148744c7e2",
+          "linkage": {
+            "command": [
+              "ldd",
+              "/home/faux/code/webpop/target/profile-lossy-photo/run/unprofiled/bin/profile"
+            ],
+            "status": 0,
+            "stdout": "\tlinux-vdso.so.1 (0x000079a10eacb000)\n\tlibgcc_s.so.1 => /usr/lib/x86_64-linux-gnu/libgcc_s.so.1 (0x000079a10ea6f000)\n\tlibm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x000079a10e949000)\n\tlibc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x000079a10e200000)\n\t/lib64/ld-linux-x86-64.so.2 (0x000079a10eacd000)\n",
+            "stderr": "/bin/bash: BASH_XTRACEFD: 3: invalid value for trace file descriptor\n"
+          }
+        }
+      },
+      "build_note": "Same release baseline as matrix; profiling build commands in /home/faux/code/webpop/target/profile-lossy-photo/run/commands.log",
+      "environment": {
+        "RUSTFLAGS": "-Ctarget-cpu=native",
+        "LD_LIBRARY_PATH": "/home/faux/lib"
+      },
+      "affinity": [
+        2
+      ],
+      "load_average": [
+        0.296875,
+        0.275390625,
+        0.2607421875
+      ],
+      "commands": [
+        {
+          "command": [
+            "git",
+            "rev-parse",
+            "HEAD"
+          ],
+          "status": 0,
+          "stdout": "fa125e0fc74ccc99a11cd218f670713056fcaabc\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "git",
+            "status",
+            "--short"
+          ],
+          "status": 0,
+          "stdout": " M scripts/compare-profiles.py\n?? scripts/profile-lossy.sh\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "git",
+            "submodule",
+            "status"
+          ],
+          "status": 0,
+          "stdout": " 1844042d1ca751e62e61df7617dba19c98588339 upstream (v1.6.0-362-g1844042d)\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "git",
+            "-C",
+            "upstream",
+            "status",
+            "--short"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "rustc",
+            "-vV"
+          ],
+          "status": 0,
+          "stdout": "rustc 1.101.0-nightly (76456a688 2026-10-25)\nbinary: rustc\ncommit-hash: 76456a688bc0ed897fa23a677d4ddb5b3fdb575a\ncommit-date: 2026-10-25\nhost: x86_64-unknown-linux-gnu\nrelease: 1.101.0-nightly\nLLVM version: 23.1.4\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "cargo",
+            "--version"
+          ],
+          "status": 0,
+          "stdout": "cargo 1.101.0-nightly (cad07cf8e 2026-10-23)\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "lscpu"
+          ],
+          "status": 0,
+          "stdout": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           39 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  32\nOn-line CPU(s) list:                     0-31\nVendor ID:                               GenuineIntel\nModel name:                              13th Gen Intel(R) Core(TM) i9-13900KF\nCPU family:                              6\nModel:                                   183\nThread(s) per core:                      2\nCore(s) per socket:                      24\nSocket(s):                               1\nStepping:                                1\nCPU(s) scaling MHz:                      31%\nCPU max MHz:                             5800.0000\nCPU min MHz:                             800.0000\nBogoMIPS:                                5990.40\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku ospke waitpkg gfni vaes vpclmulqdq rdpid movdiri movdir64b fsrm md_clear serialize arch_lbr ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nL1d cache:                               896 KiB (24 instances)\nL1i cache:                               1.3 MiB (24 instances)\nL2 cache:                                32 MiB (12 instances)\nL3 cache:                                36 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-31\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Mitigation; Clear Register File\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Mitigation; IBPB before exit to userspace\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "uname",
+            "-a"
+          ],
+          "status": 0,
+          "stdout": "Linux astoria 7.0.0-38-generic #38-Ubuntu SMP PREEMPT_DYNAMIC Fri Sep  4 09:10:14 UTC 2026 x86_64 GNU/Linux\n",
+          "stderr": ""
+        }
+      ],
+      "/proc/meminfo": "MemTotal:       64537124 kB\nMemFree:         1647108 kB\nMemAvailable:   53768064 kB\nBuffers:            4284 kB\nCached:         52595232 kB\nSwapCached:            0 kB\nActive:         29145028 kB\nInactive:       30184144 kB\nActive(anon):    6589180 kB\nInactive(anon):  1086592 kB\nActive(file):   22555848 kB\nInactive(file): 29097552 kB\nUnevictable:        2600 kB\nMlocked:            2600 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              6056 kB\nWriteback:             4 kB\nAnonPages:       6732824 kB\nMapped:          3327128 kB\nShmem:            944344 kB\nKReclaimable:    1237876 kB\nSlab:            1946444 kB\nSReclaimable:    1237876 kB\nSUnreclaim:       708568 kB\nKernelStack:       37480 kB\nPageTables:        86536 kB\nSecPageTables:      6700 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    32268560 kB\nCommitted_AS:   30332764 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      131088 kB\nVmallocChunk:          0 kB\nPercpu:            48768 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:         0 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:       1181568 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     3254364 kB\nDirectMap2M:    45778944 kB\nDirectMap1G:    19922944 kB\n",
+      "governors": {
+        "/sys/devices/system/cpu/cpufreq/policy11/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy8/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy6/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy28/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy18/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy4/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy26/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy16/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy2/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy24/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy14/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy0/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy22/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy12/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy9/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy30/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy20/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy10/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy7/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy29/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy19/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy5/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy27/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy17/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy3/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy25/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy15/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy1/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy23/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy13/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy31/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpufreq/policy21/scaling_governor": "powersave"
+      }
+    }
+  },
+  "counters": {
+    "c": [
+      {
+        "counter-value": "5847963955.000000",
+        "unit": "",
+        "event": "cpu_core/cycles/u",
+        "variance": 0.33,
+        "event-runtime": 1135580155,
+        "pcnt-running": 99.0
+      },
+      {
+        "counter-value": "13875447791.000000",
+        "unit": "",
+        "event": "cpu_core/instructions/u",
+        "variance": 0.01,
+        "event-runtime": 1135580155,
+        "pcnt-running": 99.0
+      },
+      {
+        "counter-value": "964493331.000000",
+        "unit": "",
+        "event": "cpu_core/branches/u",
+        "variance": 0.01,
+        "event-runtime": 1135580155,
+        "pcnt-running": 99.0
+      },
+      {
+        "counter-value": "49015858.000000",
+        "unit": "",
+        "event": "cpu_core/branch-misses/u",
+        "variance": 0.05,
+        "event-runtime": 1135580155,
+        "pcnt-running": 99.0
+      }
+    ],
+    "rust": [
+      {
+        "counter-value": "13273768677.000000",
+        "unit": "",
+        "event": "cpu_core/cycles/u",
+        "variance": 0.09,
+        "event-runtime": 2471957382,
+        "pcnt-running": 100.0
+      },
+      {
+        "counter-value": "46184195045.000000",
+        "unit": "",
+        "event": "cpu_core/instructions/u",
+        "variance": 0.0,
+        "event-runtime": 2471957382,
+        "pcnt-running": 100.0
+      },
+      {
+        "counter-value": "5369761398.000000",
+        "unit": "",
+        "event": "cpu_core/branches/u",
+        "variance": 0.0,
+        "event-runtime": 2471957382,
+        "pcnt-running": 100.0
+      },
+      {
+        "counter-value": "84105406.000000",
+        "unit": "",
+        "event": "cpu_core/branch-misses/u",
+        "variance": 0.05,
+        "event-runtime": 2471957382,
+        "pcnt-running": 100.0
+      }
+    ]
+  },
+  "stat_commands": [
+    [
+      "perf",
+      "stat",
+      "-j",
+      "-o",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/c.stat.json",
+      "-r",
+      "5",
+      "-e",
+      "cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/branches/u,cpu_core/branch-misses/u",
+      "--",
+      "taskset",
+      "-c",
+      "2",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/c",
+      "-quiet",
+      "-q",
+      "80",
+      "-m",
+      "4",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/input.pam",
+      "-o",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/c.stat.webp"
+    ],
+    [
+      "perf",
+      "stat",
+      "-j",
+      "-o",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/rust.stat.json",
+      "-r",
+      "5",
+      "-e",
+      "cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/branches/u,cpu_core/branch-misses/u",
+      "--",
+      "taskset",
+      "-c",
+      "2",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/rust",
+      "--quiet",
+      "--lossy",
+      "-q",
+      "80",
+      "-m",
+      "4",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/input.pam",
+      "-o",
+      "/home/faux/code/webpop/target/profile-lossy-photo/run/rust.stat.webp"
+    ]
+  ],
+  "record_logs": {
+    "c": "[ perf record: Woken up 634 times to write data ]\n[ perf record: Captured and wrote 158.416 MB /home/faux/code/webpop/target/profile-lossy-photo/run/c.perf.data (2583 samples) ]\n",
+    "rust": "[ perf record: Woken up 1429 times to write data ]\n[ perf record: Captured and wrote 357.124 MB /home/faux/code/webpop/target/profile-lossy-photo/run/rust.perf.data (5826 samples) ]\n"
+  },
+  "toolchain": "rustc 1.101.0-nightly (76456a688 2026-10-25)\nbinary: rustc\ncommit-hash: 76456a688bc0ed897fa23a677d4ddb5b3fdb575a\ncommit-date: 2026-10-25\nhost: x86_64-unknown-linux-gnu\nrelease: 1.101.0-nightly\nLLVM version: 23.1.4\n",
+  "perf_version": "perf version 7.0.14\n",
+  "perf_event_paranoid": "-1",
+  "rust_build_commands": [
+    "     Running `CARGO=/home/faux/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/cargo CARGO_CRATE_NAME=libwebpop CARGO_MANIFEST_DIR=/home/faux/code/webpop/libwebpop CARGO_MANIFEST_PATH=/home/faux/code/webpop/libwebpop/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='A direct port of parts of the WebP encoder, with identical output' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE=BSD-3-Clause CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=libwebpop CARGO_PKG_README=README.md CARGO_PKG_REPOSITORY='https://github.com/FauxFaux/webpop' CARGO_PKG_RUST_VERSION='' CARGO_PKG_VERSION=0.1.0 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=1 CARGO_PKG_VERSION_PATCH=0 CARGO_PKG_VERSION_PRE='' LD_LIBRARY_PATH='/home/faux/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:/home/faux/lib' /home/faux/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rustc --crate-name libwebpop --edition=2024 libwebpop/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat,unused-externs-silent --crate-type lib --emit=dep-info,metadata,link -Z embed-metadata=no -C opt-level=3 -C lto=off -C embed-bitcode=no -C codegen-units=16 -C debuginfo=2 --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values(\"native-oracle\"))' -C metadata=eb4c4cace3679677 -C extra-filename=-b0bdf7a99cf82dfa --out-dir /home/faux/code/webpop/target/benchmark-v3/profiling/build/libwebpop/b0bdf7a99cf82dfa/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/thiserror-impl/ff0ce3db56d25d8c/out --extern thiserror=/home/faux/code/webpop/target/benchmark-v3/profiling/build/thiserror/1bc6d1f2654740dc/out/libthiserror-1bc6d1f2654740dc.rmeta -C target-cpu=x86-64-v3 -C link-arg=-Wl,--no-rosegment --force-warn=unused_crate_dependencies`",
+    "     Running `CARGO=/home/faux/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/cargo CARGO_BIN_NAME=cwebpop CARGO_CRATE_NAME=cwebpop CARGO_MANIFEST_DIR=/home/faux/code/webpop/cwebpop CARGO_MANIFEST_PATH=/home/faux/code/webpop/cwebpop/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='A cli for libwebpop, a port of libwebp' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE=BSD-3-Clause CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=cwebpop CARGO_PKG_README=README.md CARGO_PKG_REPOSITORY='https://github.com/FauxFaux/webpop' CARGO_PKG_RUST_VERSION='' CARGO_PKG_VERSION=0.1.0 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=1 CARGO_PKG_VERSION_PATCH=0 CARGO_PKG_VERSION_PRE='' CARGO_PRIMARY_PACKAGE=1 LD_LIBRARY_PATH='/home/faux/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:/home/faux/lib' /home/faux/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rustc --crate-name cwebpop --edition=2024 cwebpop/src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat,unused-externs-silent --crate-type bin --emit=dep-info,link -C opt-level=3 -C lto=off -C embed-bitcode=no -C codegen-units=16 -C debuginfo=2 --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=979b850af7ffa8e4 --out-dir /home/faux/code/webpop/target/benchmark-v3/profiling/build/cwebpop/2a4e5717f6f94070/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/adler2/89f914b1e89a9092/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/anstream/f235c16139a124a3/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/anstyle-parse/4c3287da494bcb7f/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/anstyle-query/b8491ae9e380b2de/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/anstyle/3d80b5b3b839337a/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/bitflags/cefa5c0154ad088a/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/bytemuck/94b2a12c483213ad/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/byteorder-lite/84fd270dc50458a6/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/cfg-if/5f47c575933a8647/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/clap_builder/715335089fbc8ed7/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/clap_derive/02b91a5fd120bea7/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/clap_lex/169868b73575ed06/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/color_quant/e44f43baae768014/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/colorchoice/b628317991f35370/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/crc32fast/e6c55fef789df646/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/fax/314eb40ba1c19e8b/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/fdeflate/3b3e6c9f25338f9f/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/flate2/26c7ecfb583d374f/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/gif/0b2d5def284c5e87/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/half/38e54896fa2addee/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/image-webp/3bd4bb605f1e2cbd/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/is_terminal_polyfill/1d72ed5d127f0869/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/miniz_oxide/d17a3f75d425290b/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/miniz_oxide/e97f548f3d2c3241/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/moxcms/3f928cce5eabf8b4/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/num-traits/1328a1cdc228eb66/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/png/30f7c06fb3f77dbe/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/pxfm/29568811a7b83891/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/quick-error/44680a1024cc74d4/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/simd-adler32/ba21933a38883257/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/strsim/64e1cfec0acc16dd/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/thiserror-impl/ff0ce3db56d25d8c/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/thiserror/1bc6d1f2654740dc/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/tiff/b116fe3f5285ea24/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/utf8parse/be47b94368c79fa3/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/weezl/2101c222da27feb9/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/zerocopy-derive/c1fb8844e1d83164/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/zerocopy/d4ad33b91385d13e/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/zune-core/4055f7873725fc0b/out -L dependency=/home/faux/code/webpop/target/benchmark-v3/profiling/build/zune-jpeg/0d1ffb040483c769/out --extern clap=/home/faux/code/webpop/target/benchmark-v3/profiling/build/clap/7f2a43db51bca99c/out/libclap-7f2a43db51bca99c.rlib --extern clap=/home/faux/code/webpop/target/benchmark-v3/profiling/build/clap/7f2a43db51bca99c/out/libclap-7f2a43db51bca99c.rmeta --extern gif=/home/faux/code/webpop/target/benchmark-v3/profiling/build/gif/0b2d5def284c5e87/out/libgif-0b2d5def284c5e87.rlib --extern gif=/home/faux/code/webpop/target/benchmark-v3/profiling/build/gif/0b2d5def284c5e87/out/libgif-0b2d5def284c5e87.rmeta --extern image=/home/faux/code/webpop/target/benchmark-v3/profiling/build/image/18708eb76dd046f6/out/libimage-18708eb76dd046f6.rlib --extern image=/home/faux/code/webpop/target/benchmark-v3/profiling/build/image/18708eb76dd046f6/out/libimage-18708eb76dd046f6.rmeta --extern libwebpop=/home/faux/code/webpop/target/benchmark-v3/profiling/build/libwebpop/b0bdf7a99cf82dfa/out/liblibwebpop-b0bdf7a99cf82dfa.rlib --extern libwebpop=/home/faux/code/webpop/target/benchmark-v3/profiling/build/libwebpop/b0bdf7a99cf82dfa/out/liblibwebpop-b0bdf7a99cf82dfa.rmeta -C target-cpu=x86-64-v3 -C link-arg=-Wl,--no-rosegment --force-warn=unused_crate_dependencies`"
+  ],
+  "artifacts": {
+    "profile-lossy.sh": {
+      "bytes": 4279,
+      "sha256": "5c8e11ed57ac4e62aa6c7f2fa49613399964b2fc186fc76cb5d52e891b54a88a"
+    },
+    "compare-profiles.py": {
+      "bytes": 6080,
+      "sha256": "79c1e4b92585b8ccd09304839212ca49256a7d68e5417201d785c6055e6b7b89"
+    },
+    "rustc.txt": {
+      "bytes": 214,
+      "sha256": "56e933985550edc4a4b611fd27f5897e37a610268c9cedf21261aece1d77e395"
+    },
+    "perf-version.txt": {
+      "bytes": 20,
+      "sha256": "496b3d503a88d37a5f9137643742e6101b6a7f183075dd04d279982e92dcc662"
+    },
+    "host.txt": {
+      "bytes": 3626,
+      "sha256": "62826859681668c71d7abe4dce6116ad80d3a0a85705b6e27ab3f93e6daaa814"
+    },
+    "revision.txt": {
+      "bytes": 41,
+      "sha256": "0992d291e1cc81f9b9c510beff7f4dfca78fde5f3ed195ec234a3b5b7a42799e"
+    },
+    "git-status.txt": {
+      "bytes": 59,
+      "sha256": "fc47d1794c99b3f148b504b5b8aaef466c7050f56eecd300b92e1fd3c2db9dd6"
+    },
+    "cpu.txt": {
+      "bytes": 2,
+      "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3"
+    },
+    "repeats.txt": {
+      "bytes": 3,
+      "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+    },
+    "event.txt": {
+      "bytes": 18,
+      "sha256": "df24a9da9676b060f7a652b7429a0f1bce1fbcfc6401def19899b07096bd166e"
+    },
+    "c.webp": {
+      "bytes": 2346540,
+      "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+    },
+    "c.perf.data": {
+      "bytes": 166149292,
+      "sha256": "ee818c18a46b4f76f54a0bfe583ddc4857da0ead348ef69298f74ca1d3580049"
+    },
+    "c.self.txt": {
+      "bytes": 3003,
+      "sha256": "8ef74fb646e5f8b700d62e3d6a154f86c4848da26ea39e0ab7d0e818507b4c27"
+    },
+    "c.children.txt": {
+      "bytes": 52360,
+      "sha256": "d2e7eb74c998aea7d25bf7a172fd451f8b8363b6298d007946a8b8097dfe17df"
+    },
+    "c.svg": {
+      "bytes": 118346,
+      "sha256": "6d6b2794a4c3a770066e41a79d9b2643c7b07dba37fcb6bd7ef0ec67aba8c732"
+    },
+    "rust.webp": {
+      "bytes": 2346540,
+      "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+    },
+    "rust.perf.data": {
+      "bytes": 374509548,
+      "sha256": "91b4082c5f8dd93542b1748c045c81cb0a28fe27be534f7d6a850f435ed199bf"
+    },
+    "rust.self.txt": {
+      "bytes": 13464,
+      "sha256": "ddcd1ddf5e62bd6839e847f381c025b1c92c9d5badf2b29cb0ebcf9ff4108541"
+    },
+    "rust.children.txt": {
+      "bytes": 1007203,
+      "sha256": "dad2fa3f8499e11cf01b51b656ed8d61439e4d982e0d109e3c16c1b59e1c7e0c"
+    },
+    "rust.svg": {
+      "bytes": 172994,
+      "sha256": "ab3cf22ae3755d8f345d6ce7f3a43f6fdd3c4d6598144e4fe7bc822c3f48ba41"
+    },
+    "c.stacks.txt": {
+      "bytes": 2183185,
+      "sha256": "e3e5ce8b6703289fef7d02267f5ff505d482ea01571ec0abf8a130b225685b2e"
+    },
+    "rust.stacks.txt": {
+      "bytes": 16021644,
+      "sha256": "f9edae934ac5a37f4827dbdddca670b37dd1918b0a3712a35a4bf5d39b6d6860"
+    },
+    "c.stat.webp": {
+      "bytes": 2346540,
+      "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+    },
+    "rust.stat.webp": {
+      "bytes": 2346540,
+      "sha256": "995b3727df8f8eb8227fb7fe88b610246f4ee7c9106f1c86fe9d02e6d4922bce"
+    },
+    "rust.QuantizeBlock.annotate.txt": {
+      "bytes": 6819,
+      "sha256": "6865276b18db6ef8f375334577373c56ed73a709497e05d0eebdb3fff2dc0b1b"
+    },
+    "c.QuantizeBlock.annotate.txt": {
+      "bytes": 5577,
+      "sha256": "ccadf8635c4fd82cf3c610af0ba475af4cb663b6cba0d001bb87492189ae3482"
+    },
+    "rust.ITransformOne.annotate.txt": {
+      "bytes": 33606,
+      "sha256": "9e53fa2f859b803f175e468cf6a906450f581d0db97bf16f63d6efd300c19b06"
+    },
+    "rust.VP8Decimate.annotate.txt": {
+      "bytes": 143090,
+      "sha256": "7ff73bfe7d9c968c830beefd2e812e62c112ff841c6cacab3c070d713c3ec93a"
+    },
+    "rust.Copy4x4_C.disassembly.txt": {
+      "bytes": 2854,
+      "sha256": "5732044b800328813149502a44efe6e22b0e348cb853201f68b8c2d3ef7f89e5"
+    },
+    "rust.ITransform_C.disassembly.txt": {
+      "bytes": 3777,
+      "sha256": "9e2e3b34aa68d87a62649d8ea149a30678f4a50848351b62fee31a7b88ab0031"
+    },
+    "rust.copy_from_slice_impl.disassembly.txt": {
+      "bytes": 910,
+      "sha256": "1bd85586345dbc6056148fc5de700e3f8c1703fe967cd386e2be8c4b2c8cabc4"
+    }
+  },
+  "source": {
+    "path": "samples/photo-japan-p50.webp",
+    "sha256": "a52ce587a9c5b1ee1ab60652ec7970db8c280bc8d4740e9b7497cbef36f85dd1",
+    "width": 5492,
+    "height": 3672,
+    "prepared_sha256": "d748dd970415226104045160aaaa7b88bcbd8fc3a02ebe66cfd68ca86786b9f6"
+  },
+  "copy_or_initialize_cycles_by_stage": {
+    "c": {
+      "other": 75065264
+    },
+    "rust": {
+      "other": 807613292,
+      "rgba_to_yuv": 58125639,
+      "intra4_search": 17448404351,
+      "chroma_search": 331386638,
+      "intra16_search": 607527865,
+      "other_encode_loop": 1159146850,
+      "analysis": 497380375
+    }
+  },
+  "repository_revision": "fa125e0fc74ccc99a11cd218f670713056fcaabc",
+  "baseline_repository_revision": "a04a157"
+}

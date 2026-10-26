@@ -166,6 +166,15 @@ All 50 timing distributions have IQRs below 1.9% of their medians. This
 comparison measures the current CLIs with normal C SIMD enabled; it does not
 attribute the timing differences to individual kernels or compiler decisions.
 
+## Photo lossy q80 / method 4 profiling
+
+The [perf follow-up](benchmarks/2026-10-26-lossy-photo-profile.md) reproduces the
+photo's gap at C 1.115 s versus Rust release 2.543 s. About 80% of the excess
+sampled cycles are in 4×4 and 16×16 luma mode searches. Quantization and inverse
+transforms account for about 44% of the excess, and copying/initialization
+another 12%. The report includes stage/kernel attribution, hardware counters,
+disassembly leads and reproduction commands.
+
 ## Reproduction and records
 
 Build before starting any timing. From the repository root:
