@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare real lossless CLI latency; Python stdlib only. See docs/BENCHMARKS.md."""
+"""Compare WebP CLI latency; Python stdlib only. See docs/BENCHMAKRS.md."""
 import argparse
 import datetime
 import hashlib
@@ -60,7 +60,9 @@ def main():
     parser.add_argument("--compare-c-noasm", action="store_true",
                         help="also time the same C executable with -noasm")
     parser.add_argument("--case", action="append", metavar="QUALITY:METHOD",
-                        help="repeat; defaults 75:4, 75:0, 100:6 (integer quality only)")
+                        help="repeat; QUALITY:METHOD (lossless), lossless:QUALITY:METHOD, "
+                             "near-lossless:QUALITY:METHOD:STRENGTH or lossy:QUALITY:METHOD; "
+                             "defaults 75:4, 75:0, 100:6 (integer quality only)")
     parser.add_argument("--exact", action="store_true")
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--warmups", type=int, default=1)
@@ -88,13 +90,28 @@ def main():
     cases = []
     for spec in args.case or ["75:4", "75:0", "100:6"]:
         try:
-            q, m = map(int, spec.split(":"))
-            if not (0 <= q <= 100 and 0 <= m <= 6):
+            fields = spec.split(":")
+            if len(fields) == 2:
+                fields.insert(0, "lossless")
+            mode = fields[0]
+            if mode not in {"lossless", "near-lossless", "lossy"}:
                 raise ValueError()
+            strength = 100
+            if mode == "near-lossless":
+                mode, q, m, strength = fields
+                strength = int(strength)
+            else:
+                mode, q, m = fields
+            q, m = int(q), int(m)
+            if not (0 <= q <= 100 and 0 <= m <= 6 and 0 <= strength <= 100):
+                raise ValueError()
+            if args.exact and mode == "lossy":
+                parser.error("--exact cannot be used with lossy cases")
         except ValueError:
-            parser.error(f"invalid QUALITY:METHOD: {spec}")
-        if (q, m) not in cases:
-            cases.append((q, m))
+            parser.error(f"invalid encoding case: {spec}")
+        case = (mode, q, m, strength)
+        if case not in cases:
+            cases.append(case)
     images = [p.resolve() for p in args.images] or sorted((ROOT / "samples").glob("*.webp"))
     if not images:
         parser.error("no images")
@@ -160,17 +177,22 @@ def main():
     save(out / "inputs.json", manifest)
     rng = random.Random(args.seed)
     summary = []
-    print("image / q:m / implementation: median seconds, IQR%, bytes; C/implementation paired speedup [95% bootstrap CI]", flush=True)
+    print("image / mode:q:m:strength / implementation: median seconds, IQR%, bytes; C/implementation paired speedup [95% bootstrap CI]", flush=True)
     with (out / "samples.jsonl").open("w", buffering=1) as raw:
         for image_index, item in enumerate(manifest):
-            for q, m in cases:
-                outputs, times, hashes = {}, {label: [] for label in variants}, {}
+            for mode, q, m, strength in cases:
+                outputs, times, hashes, metrics = {}, {label: [] for label in variants}, {}, {}
 
                 def run(label, block, warmup):
-                    output = out / "outputs" / f"{image_index}-q{q}-m{m}-{label}.webp"
+                    output = out / "outputs" / f"{image_index}-{mode}-n{strength}-q{q}-m{m}-{label}.webp"
                     prefix = "-" if label in c_labels else "--"
-                    command = [str(variants[label]), prefix + "quiet", prefix + "lossless",
-                               "-q", str(q), "-m", str(m)]
+                    command = [str(variants[label]), prefix + "quiet", "-q", str(q), "-m", str(m)]
+                    if mode == "lossless":
+                        command.append(prefix + "lossless")
+                    elif mode == "near-lossless":
+                        command += [prefix + "near_lossless", str(strength)]
+                    elif label not in c_labels:
+                        command.append("--lossy")
                     if args.compare_c_noasm and label == "c-noasm":
                         command.append("-noasm")
                     if args.exact:
@@ -183,13 +205,21 @@ def main():
                     # All validation and hashes are outside the timed process boundary.
                     data_hash = digest(output)
                     if label not in hashes:
-                        subprocess.run([str(helper), "verify", item["prepared"], str(output),
-                                        "exact" if args.exact else "visible"], check=True)
+                        if mode == "lossless":
+                            subprocess.run([str(helper), "verify", item["prepared"], str(output),
+                                            "exact" if args.exact else "visible"], check=True)
+                        else:
+                            decoded = subprocess.run([str(helper), "metrics", item["prepared"], str(output)],
+                                                     check=True, capture_output=True, text=True)
+                            metrics[label] = json.loads(decoded.stdout)
+                            if mode == "lossy" and metrics[label]["alpha_sse"] != 0:
+                                raise RuntimeError(f"alpha differs at default alpha quality 100 for {label}")
                         hashes[label] = data_hash
                     elif hashes[label] != data_hash:
                         raise RuntimeError(f"nondeterministic output for {label}")
                     outputs[label] = {"bytes": output.stat().st_size, "sha256": data_hash}
-                    raw.write(json.dumps({"image": image_index, "quality": q, "method": m,
+                    raw.write(json.dumps({"image": image_index, "mode": mode, "near_lossless": strength,
+                                          "quality": q, "method": m,
                                           "exact": args.exact, "label": label, "block": block,
                                           "warmup": warmup, "seconds": elapsed, "command": command,
                                           "binary_sha256": binary_records[label]["sha256"],
@@ -215,20 +245,22 @@ def main():
                     rows[label] = {"median_seconds": median, "min_seconds": min(values), "max_seconds": max(values),
                                    "iqr_percent": 100 * (quantile(values, .75) - quantile(values, .25)) / median,
                                    "megapixels_per_second": item["width"] * item["height"] / median / 1e6,
-                                   "matches_c_bytes": hashes[label] == hashes["c"], **outputs[label]}
+                                   "matches_c_bytes": hashes[label] == hashes["c"],
+                                   "decoded_metrics": metrics.get(label), **outputs[label]}
                     if label != "c":
                         rows[label].update(paired_interval(times["c"], values, args.seed))
                         if label not in c_labels:
                             baseline = next(name for name in variants if name not in c_labels)
                             rows[label]["versus_first_rust"] = paired_interval(times[baseline], values, args.seed)
                     row = rows[label]
-                    line = f"{Path(item['source']).name} / {q}:{m} / {label}: {median:.4f}s, {row['iqr_percent']:.1f}%, {row['bytes']} B"
+                    line = f"{Path(item['source']).name} / {mode}:{q}:{m}:{strength} / {label}: {median:.4f}s, {row['iqr_percent']:.1f}%, {row['bytes']} B"
                     if label != "c":
                         ci = row["bootstrap_95_percent"]
                         interval = f"[{ci[0]:.3f}, {ci[1]:.3f}]" if ci else "[too few samples]"
                         line += f"; {row['paired_geomean_speedup']:.3f}x {interval} byte-match={row['matches_c_bytes']}"
                     print(line, flush=True)
-                summary.append({"image": image_index, "quality": q, "method": m, "exact": args.exact, "results": rows})
+                summary.append({"image": image_index, "mode": mode, "near_lossless": strength,
+                                "quality": q, "method": m, "exact": args.exact, "results": rows})
                 save(out / "summary.json", summary)
     print(f"Saved raw samples, validated outputs, binaries and provenance to {out}")
 

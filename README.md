@@ -85,4 +85,4 @@ let output = encoder.finish()?;
  * [Remaining encoder features and performance work](docs/ENCODER_COMPLETION_PLAN.md)
  * [CLI documentation](cwebpop/README.md)
  * [reference Docker build](reference-cwebp/README.md)
- * [benchmark harness](docs/BENCHMARKS.md)
+ * [benchmark harness](docs/BENCHMAKRS.md)

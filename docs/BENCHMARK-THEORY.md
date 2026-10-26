@@ -4,7 +4,7 @@ Examined on 2026-10-22 against upstream revision
 `1844042d1ca751e62e61df7617dba19c98588339`. Tool capabilities below are a dated
 assessment; check the installed version before relying on particular options.
 This is a measurement plan. The implemented CLI harness, reproduction commands
-and initial results are in [BENCHMARKS.md](BENCHMARKS.md).
+and initial results are in [LOSSLESS-BENCHMARKS.md](LOSSLESS-BENCHMARKS.md).
 
 ## Recommendation
 

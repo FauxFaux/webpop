@@ -1,7 +1,7 @@
 # Palette-path performance investigation
 
 Experiments on 2026-10-23 follow the `graphic-map.webp`, quality-75/method-4
-investigation in [BENCHMARKS.md](BENCHMARKS.md). They target residual prediction
+investigation in [LOSSLESS-BENCHMARKS.md](LOSSLESS-BENCHMARKS.md). They target residual prediction
 in [`predictor_enc.rs`](../libwebpop/src/enc/predictor_enc.rs), which accounted
 for most of the map's measured C/Rust gap. The results apply to this input and
 configuration; broader corpus measurements remain outstanding.
@@ -11,7 +11,7 @@ configuration; broader corpus measurements remain outstanding.
 Disabling C's runtime SIMD dispatch narrowed the gap without closing it.
 Adding `#[inline(always)]` to Rust's `PredictPixel` improved map encoding by
 about 3%, leaving Rust 13.8% slower than C with `-noasm` in that comparison.
-See the final two sections of [BENCHMARKS.md](BENCHMARKS.md) for their raw data
+See the final two sections of [LOSSLESS-BENCHMARKS.md](LOSSLESS-BENCHMARKS.md) for their raw data
 and methodology. `-noasm` does not disable compiler auto-vectorization or SIMD
 inside libc.
 
@@ -180,7 +180,7 @@ Substitute `borrowed` for `copied` to compare counters, or use mode `7` for
 the control. Adapt CPU and PMU selection on other machines. Run builds before
 timing. Full-map repeats can use the repository benchmark runner with
 separately archived variant executables, as described in
-[BENCHMARKS.md](BENCHMARKS.md).
+[LOSSLESS-BENCHMARKS.md](LOSSLESS-BENCHMARKS.md).
 
 The original temporary build scripts, source copies, binaries, and full logs
 remain under `/tmp/webpop-predictor-probe/`; that directory is disposable and
