@@ -760,7 +760,7 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
   const int extended = n >= 8 && (in[2] & 4);
   const int window = n >= 8 && (in[2] & 8);
   if (n < 8 || !in[0] || !in[1] || in[0] > 96 || in[1] > 32 ||
-      in[2] > 31 || ((in[2] & 16) && !window) || (!extended && in[2] > 1) || (window && n < 10) || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
+      in[2] > 63 || ((in[2] & 32) && ((in[2] & 28) != 28 || in[3] != 0)) || ((in[2] & 16) && !window) || (!extended && in[2] > 1) || (window && n < 10) || in[3] > 2 || !in[4] || in[4] > 128 || in[5] > 1 ||
       !WebpopIncludedAnimOptionsInit(&options, WEBP_MUX_ABI_VERSION)) abort();
   options.minimize_size = in[2] & 1;
   options.allow_mixed = extended && (in[2] & 2);
@@ -824,7 +824,14 @@ static unsigned AnimationCache(const uint32_t* in, unsigned n, uint32_t* out,
   }
   if (at != n) abort();
   if (window) written += AnimationCacheSnapshot(enc, out + written, (1u << 20) - written, in[2] & 16);
-  {
+  if (in[2] & 32) {
+    // V4 observes final duration/flush transitions through original functions.
+    // Ordinary public-add timing remains exercised above and by V1-V3.
+    if (!IncreasePreviousDuration(enc, duration)) abort();
+    written += AnimationCacheSnapshot(enc, out + written, (1u << 20) - written, 1);
+    if (!FlushFrames(enc)) abort();
+    written += AnimationCacheSnapshot(enc, out + written, (1u << 20) - written, 1);
+  } else {
     int signed_timestamp;
     memcpy(&signed_timestamp, &timestamp, sizeof(timestamp));
     if (!WebpopIncludedAnimAdd(enc, NULL, signed_timestamp, NULL)) abort();

@@ -160,8 +160,8 @@ pub struct AnimationCacheOptions {
 /// timing. This does not enable the public RGBA Optimized policy or perform
 /// decode-dependent single-frame reconstruction. Validation errors allow retry;
 /// errors after validation are terminal. Explicit final timing is required.
-/// `new_with_keyframes` supports ordinary-duration deferred selection; enabled
-/// keyframes with duration overflow remain unsupported.
+/// `new_with_keyframes` also supports deferred keyframe selection and duration
+/// overflow holds.
 #[derive(Debug)]
 pub struct AnimationCache {
     container: AnimationContainer,
@@ -186,8 +186,7 @@ impl AnimationCache {
         Self::new_with_keyframes(width, height, options, KeyframePolicy::Disabled)
     }
 
-    /// Enable low-level deferred selection. Duration splits with enabled
-    /// insertion are rejected before mutation until overflow integration lands.
+    /// Enable low-level deferred selection, including duration overflow holds.
     /// This route retains the pre-OptimizeSingleFrame assembly boundary.
     pub fn new_with_keyframes(
         width: u32,
@@ -327,7 +326,6 @@ impl AnimationCache {
                 source,
             })?;
         self.validate_dimensions(current)?;
-        self.validate_duration_merge(duration)?;
         let submitted_frames = frame_index
             .checked_add(1)
             .ok_or_else(|| candidate_error(frame_index, AnimationLeafError::SizeOverflow.into()))?;
@@ -345,23 +343,6 @@ impl AnimationCache {
         Ok(())
     }
 
-    fn validate_duration_merge(&self, duration: Option<u32>) -> Result<(), AnimationError> {
-        let disabled = self.window.state.effective == SanitizeEncoderOptions(0, 0, false);
-        if !disabled
-            && duration.is_some_and(|d| {
-                self.status
-                    .pending_duration_ms
-                    .is_some_and(|pending| pending + d >= MAX_DURATION)
-            })
-        {
-            return Err(candidate_error(
-                self.status.submitted_frames.saturating_sub(1),
-                AnimationCandidateError::KeyframeDurationOverflow,
-            ));
-        }
-        Ok(())
-    }
-
     fn IncreasePreviousDuration(&mut self, duration: u32) -> Result<(), AnimationError> {
         let previous = self
             .window
@@ -372,7 +353,6 @@ impl AnimationCache {
         if new_duration < MAX_DURATION {
             previous.set_duration(new_duration);
         } else {
-            debug_assert_eq!(self.window.frames.len(), 1);
             // Typed payloads copied from the pin's fixed stills. These are
             // nested payload bytes, not stripped headers or a fresh encode.
             const VP8L: &[u8] = &[0x2f, 0, 0, 0, 0x10, 0x88, 0x88, 0x08];
@@ -427,6 +407,13 @@ impl AnimationCache {
                 ..Default::default()
             };
             self.status.count_since_key_frame += 1;
+            if let Some(selected) = self.window.state.selected_keyframe.take() {
+                // Freeze the chosen keyframe before flushing the prefix. The
+                // new hold counts toward the distance from that keyframe.
+                self.status.count_since_key_frame = self.window.frames.len() - 1 - selected;
+                self.window.state.best_penalty = DELTA_INFINITY;
+            }
+            self.window.state.previous_candidate_undecided = false;
             self.window.state.flush_count = self.window.frames.len() - 1;
         }
         self.refresh_pending_status();
@@ -660,7 +647,6 @@ impl AnimationCache {
         let duration = self
             .interval(end_timestamp_ms)?
             .ok_or(AnimationError::NoFrames)?;
-        self.validate_duration_merge(Some(duration))?;
         let frame_index = self.status.submitted_frames - 1;
         self.active = false;
         self.IncreasePreviousDuration(duration)?;
@@ -684,3 +670,6 @@ fn candidate_error(frame_index: usize, source: AnimationCandidateError) -> Anima
         source,
     }
 }
+
+#[cfg(test)]
+mod tests;

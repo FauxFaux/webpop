@@ -13,6 +13,8 @@ struct Trace<'a> {
     snapshots: Vec<&'a [u32]>,
     trials: Vec<Vec<&'a [u32]>>,
     file: Vec<u8>,
+    duration_stages: Vec<&'a [u32]>,
+    stage_range: std::ops::Range<usize>,
 }
 
 fn snapshot<'a>(case: &support::Case, words: &'a [u32], at: &mut usize) -> &'a [u32] {
@@ -88,6 +90,13 @@ fn parse<'a>(case: &support::Case, words: &'a [u32]) -> Trace<'a> {
         snapshots.push(after);
     }
     snapshots.push(snapshot(case, words, &mut at));
+    let stage_start = at;
+    let mut duration_stages = Vec::new();
+    if case.input[2] & 32 != 0 {
+        duration_stages.push(snapshot(case, words, &mut at));
+        duration_stages.push(snapshot(case, words, &mut at));
+    }
+    let stage_range = stage_start..at;
     snapshots.push(snapshot(case, words, &mut at));
     let len = words[at] as usize;
     at += 1;
@@ -97,11 +106,17 @@ fn parse<'a>(case: &support::Case, words: &'a [u32]) -> Trace<'a> {
         snapshots,
         trials,
         file,
+        duration_stages,
+        stage_range,
     }
 }
 
 fn check_trace(case: &support::Case, words: &[u32]) {
     let trace = parse(case, words);
+    assert_eq!(
+        trace.duration_stages.len(),
+        if case.input[2] & 32 != 0 { 2 } else { 0 }
+    );
     let expected = SanitizeEncoderOptions(
         case.input[8] as i32,
         case.input[9] as i32,
@@ -119,7 +134,9 @@ fn check_trace(case: &support::Case, words: &[u32]) {
     }
     assert_eq!(&trace.snapshots[0][15..19], &[0, 1, u32::MAX, 0]);
     assert_eq!(trace.trials.len(), case.input[4] as usize);
-    assert_eq!(case.rust(), words);
+    let mut public_boundary = words.to_vec();
+    public_boundary.drain(trace.stage_range.clone());
+    assert_eq!(case.rust(), public_boundary);
     if corpus::is_disabled(case) {
         let (_, base_file) = support::animation_codec_cache::encode(&corpus::base(case));
         assert_eq!(trace.file, base_file);
@@ -339,8 +356,147 @@ fn animation_keyframe_selection_fixtures_match_pinned_reference() {
 }
 
 #[test]
-fn animation_keyframe_staged_overflow_rejects_before_mutation_and_allows_retry() {
+fn animation_keyframe_overflow_committed_states_calls_files_and_playback() {
+    let fixtures =
+        fixture_support::fixtures(include_str!("fixtures/animation_keyframe_overflow.txt"));
+    let cases = corpus::overflow_fixtures();
+    assert_eq!(fixtures.len(), cases.len());
+    for ((stored, expected), case) in fixtures.iter().zip(&cases) {
+        assert_eq!(stored.input, case.input);
+        check_trace(case, expected);
+        support::animation_lossy_playback::playback(
+            &corpus::base(case),
+            &parse(case, expected).file,
+        );
+    }
+}
+
+#[cfg(feature = "native-oracle")]
+#[test]
+fn animation_keyframe_overflow_matches_pinned_reference() {
+    let cases = corpus::overflow_cases();
+    let outputs = native::run("animation-keyframe-overflow", &cases);
+    let public_cases: Vec<_> = cases
+        .iter()
+        .cloned()
+        .map(|mut case| {
+            case.input[2] &= !32;
+            case
+        })
+        .collect();
+    let public_outputs = native::run("animation-keyframe-overflow-public", &public_cases);
+    let mut playbacks = Vec::new();
+    let mut pixels = Vec::new();
+    let mut coverage = [false; 8];
+    for ((case, expected), public_expected) in cases.iter().zip(&outputs).zip(&public_outputs) {
+        let trace = parse(case, expected);
+        let mut public_boundary = expected.clone();
+        public_boundary.drain(trace.stage_range.clone());
+        native::compare(case, public_expected, &public_boundary);
+        native::compare(case, &public_boundary, &case.rust());
+        let before = trace.snapshots[trace.snapshots.len() - 2];
+        let increased = trace.duration_stages[0];
+        let flushed = trace.duration_stages[1];
+        let split = increased[2] == before[2] + 1;
+        if split {
+            coverage[0] |= before[17] == u32::MAX;
+            coverage[1] |= before[17] != u32::MAX && before[18] != 0;
+            coverage[2] |= before[17] != u32::MAX && before[2] > 1;
+            coverage[3] |= increased[2] == increased[12];
+            let hold = &increased[19 + (increased[2] as usize - 1) * 17..][..17];
+            coverage[4] |= hold[8] == 28;
+            coverage[5] |= hold[8] == 72;
+            assert_eq!(&increased[15..19], &[0, 1, u32::MAX, 0]);
+            assert_eq!(&increased[4..8], &[0, 0, 1, 1]);
+            assert_eq!(flushed[2], 1);
+            assert_eq!(flushed[14], 0);
+            // Both encoded alternatives/controls of every frozen slot survive
+            // the duration split unchanged; only the new hold is appended.
+            assert_eq!(
+                &before[19..19 + before[2] as usize * 17],
+                &increased[19..19 + before[2] as usize * 17]
+            );
+            let distance = if before[17] != u32::MAX {
+                before[2] - before[17]
+            } else {
+                before[3] + 1
+            };
+            assert_eq!(increased[3], distance);
+            assert_eq!(flushed[3], distance);
+        } else {
+            coverage[6] = true;
+            let pending = 19 + (before[2] as usize - 1) * 17;
+            assert_eq!(increased[pending + 1], increased[pending + 9]);
+            coverage[7] |= increased[pending + 1] == 0xffffff;
+        }
+        if let Some((request, rendered)) =
+            support::animation_lossy_playback::playback(&corpus::base(case), &trace.file)
+        {
+            playbacks.push(request);
+            pixels.push(rendered);
+        }
+    }
+    assert!(
+        coverage.into_iter().all(|v| v),
+        "missing overflow acceptance branches: {coverage:?}"
+    );
+    for ((case, actual), expected) in playbacks.iter().zip(&pixels).zip(native::run(
+        "animation-keyframe-overflow-playback",
+        &playbacks,
+    )) {
+        native::compare(case, &expected, actual);
+    }
+    eprintln!(
+        "{} overflow traces and {} independent/native playbacks match pinned C",
+        cases.len(),
+        playbacks.len()
+    );
+}
+
+#[cfg(feature = "native-oracle")]
+#[test]
+fn animation_keyframe_overflow_fixtures_match_pinned_reference() {
+    use std::fmt::Write;
+    let cases = corpus::overflow_fixtures();
+    let outputs = native::run("animation-keyframe-overflow-fixtures", &cases);
+    for (case, output) in cases.iter().zip(&outputs) {
+        let trace = parse(case, output);
+        let mut public_boundary = output.clone();
+        public_boundary.drain(trace.stage_range);
+        native::compare(case, &public_boundary, &case.rust());
+    }
+    if std::env::var_os("WEBPOP_UPDATE_FIXTURES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut text = format!(
+            "# Pinned scalar C keyframe overflow, pre-OptimizeSingleFrame.\n# upstream={} seed={:08x}\n",
+            support::UPSTREAM_REVISION,
+            support::SEED
+        );
+        for (case, output) in cases.iter().zip(outputs) {
+            text.push_str(&case.function);
+            for word in &case.input {
+                write!(text, " {word:08x}").unwrap();
+            }
+            text.push_str(" |");
+            for word in output {
+                write!(text, " {word:08x}").unwrap();
+            }
+            text.push('\n');
+        }
+        std::fs::write(
+            format!(
+                "{}/tests/fixtures/animation_keyframe_overflow.txt",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+            text,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn animation_keyframe_overflow_validation_retry_wide_timing_and_terminal_state() {
     use libwebpop::internal::AnimationError;
+    use support::animation_lossy_playback::{chunks, le24};
     for policy in [
         KeyframePolicy::AllFrames,
         KeyframePolicy::Bounded {
@@ -348,69 +504,94 @@ fn animation_keyframe_staged_overflow_rejects_before_mutation_and_allows_retry()
             max_interval: 5,
         },
     ] {
-        let mut cache =
-            AnimationCache::new_with_keyframes(1, 1, Default::default(), policy).unwrap();
-        let pixels = [0xff123456];
-        let view = ArgbView::new(&pixels, 1, 1, 1).unwrap();
-        let config = MixedEncodingConfig::default();
-        cache.add_argb(view, u64::MAX - 0x1000001, &config).unwrap();
-        cache.add_argb(view, u64::MAX - 2, &config).unwrap();
-        let before = (
-            cache.status(),
-            cache.window_status(),
-            cache.cached_candidates().collect::<Vec<_>>(),
-            cache.canvases().0.to_vec(),
-            cache.canvases().1.to_vec(),
-            cache.saved_configs(),
-        );
-        assert!(matches!(
-            cache.add_argb(view, u64::MAX - 1, &config),
-            Err(AnimationError::Candidate {
-                frame_index: 1,
-                source: AnimationCandidateError::KeyframeDurationOverflow
-            })
-        ));
-        let mut output = vec![11, 22, 33];
-        assert!(matches!(
-            cache.finish(u64::MAX - 1, &mut output),
-            Err(AnimationError::Candidate {
-                frame_index: 1,
-                source: AnimationCandidateError::KeyframeDurationOverflow
-            })
-        ));
-        assert_eq!(output, [11, 22, 33]);
-        assert_eq!(
-            before,
-            (
-                cache.status(),
-                cache.window_status(),
-                cache.cached_candidates().collect::<Vec<_>>(),
-                cache.canvases().0.to_vec(),
-                cache.canvases().1.to_vec(),
-                cache.saved_configs()
-            )
-        );
-        cache.add_argb(view, u64::MAX - 2, &config).unwrap();
-        cache.finish(u64::MAX - 2, &mut output).unwrap();
-        assert!(matches!(
-            cache.finish(u64::MAX - 2, &mut output),
-            Err(AnimationError::InvalidState)
-        ));
-        assert!(matches!(
-            cache.add_argb(view, u64::MAX - 2, &config),
-            Err(AnimationError::InvalidState)
-        ));
-    }
-    assert!(
-        AnimationCache::new_with_keyframes(
-            1,
-            1,
-            Default::default(),
-            KeyframePolicy::Bounded {
-                min_interval: 0,
-                max_interval: 1
+        for allow_mixed in [false, true] {
+            for primary in [AnimationCandidateCodec::Vp8l, AnimationCandidateCodec::Vp8] {
+                let mut cache = AnimationCache::new_with_keyframes(
+                    1,
+                    1,
+                    AnimationCacheOptions {
+                        allow_mixed,
+                        ..Default::default()
+                    },
+                    policy,
+                )
+                .unwrap();
+                let config = MixedEncodingConfig {
+                    primary,
+                    ..Default::default()
+                };
+                let words = [0xff123456];
+                let original = words;
+                let view = ArgbView::new(&words, 1, 1, 1).unwrap();
+                cache.add_argb(view, u64::MAX - 0x1000002, &config).unwrap();
+                cache.add_argb(view, u64::MAX - 3, &config).unwrap();
+                let observe = |c: &AnimationCache| {
+                    (
+                        corpus::snapshot(c),
+                        c.saved_configs(),
+                        c.canvases().0.to_vec(),
+                        c.canvases().1.to_vec(),
+                    )
+                };
+                let before = observe(&cache);
+                let invalid = MixedEncodingConfig {
+                    near_lossless: -1,
+                    ..config
+                };
+                assert!(matches!(
+                    cache.add_argb(view, u64::MAX - 2, &invalid),
+                    Err(AnimationError::Encoding { frame_index: 2, .. })
+                ));
+                assert!(matches!(
+                    cache.add_argb(view, u64::MAX - 4, &config),
+                    Err(AnimationError::InvalidTimestamp { frame_index: 1, .. })
+                ));
+                assert!(
+                    cache
+                        .add_argb(
+                            ArgbView::new(&[0; 2], 1, 2, 1).unwrap(),
+                            u64::MAX - 2,
+                            &config
+                        )
+                        .is_err()
+                );
+                assert_eq!(observe(&cache), before);
+                let changed = [0xff654321];
+                cache
+                    .add_argb(
+                        ArgbView::new(&changed, 1, 1, 1).unwrap(),
+                        u64::MAX - 2,
+                        &config.reversed(),
+                    )
+                    .unwrap();
+                assert_eq!(words, original);
+                let mut output = vec![11, 22, 33];
+                let before = observe(&cache);
+                assert!(matches!(
+                    cache.finish(u64::MAX - 4, &mut output),
+                    Err(AnimationError::InvalidTimestamp { frame_index: 2, .. })
+                ));
+                assert_eq!(output, [11, 22, 33]);
+                assert_eq!(observe(&cache), before);
+                cache.finish(u64::MAX - 1, &mut output).unwrap();
+                let durations: Vec<_> = chunks(&output[12..])
+                    .into_iter()
+                    .filter(|(tag, _)| *tag == b"ANMF")
+                    .map(|(_, data)| le24(&data[12..]))
+                    .collect();
+                assert_eq!(durations, [0xffffff, 1, 1]);
+                let finished = output.clone();
+                assert!(matches!(
+                    cache.finish(u64::MAX, &mut output),
+                    Err(AnimationError::InvalidState)
+                ));
+                assert!(matches!(
+                    cache.add_argb(view, u64::MAX, &config),
+                    Err(AnimationError::InvalidState)
+                ));
+                assert_eq!(output, finished);
+                assert!(cache.canvases().0.is_empty() && cache.canvases().1.is_empty());
             }
-        )
-        .is_err()
-    );
+        }
+    }
 }

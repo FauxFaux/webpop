@@ -56,7 +56,7 @@ pub fn snapshot(cache: &AnimationCache) -> Vec<u32> {
 
 pub fn base(case: &Case) -> Case {
     let mut input = case.input[..8].to_vec();
-    input[2] &= !(8 | 16);
+    input[2] &= !(8 | 16 | 32);
     input.extend_from_slice(&case.input[10..]);
     Case::new("AnimationCache", input)
 }
@@ -108,10 +108,18 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
         // Reuse the existing isolated-trial evaluator to compare every original
         // WebPEncode call, including losers. Timing overflow may reset prev_rect.
         let mut rect = cache.status().previous_rect;
-        if cache.status().pending_duration_ms.is_some_and(|d| {
+        let split = cache.status().pending_duration_ms.is_some_and(|d| {
             let previous_duration = frames[i - 1].duration;
             d + previous_duration >= 1 << 24
-        }) {
+        });
+        let mut distance = cache.status().count_since_key_frame;
+        if split {
+            distance = cache
+                .window_status()
+                .selected_keyframe
+                .map_or(distance + 1, |selected| {
+                    cache.status().cached_frames - selected
+                });
             rect = FrameRectangle {
                 width: 1,
                 height: 1,
@@ -135,7 +143,8 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
             is_key_frame: i == 0,
             is_first_frame: i == 0,
             minimize_size: a[2] & 1 != 0,
-            previous_candidate_undecided: cache.window_status().previous_candidate_undecided,
+            previous_candidate_undecided: !split
+                && cache.window_status().previous_candidate_undecided,
         };
         let previous_view =
             ArgbView::new(&restored, a[0] as i32, a[1] as i32, a[0] as usize).unwrap();
@@ -148,8 +157,7 @@ pub fn evaluate(case: &Case) -> Vec<u32> {
         );
         if i != 0
             && !trials.is_empty()
-            && cache.status().count_since_key_frame as i64 + 1
-                > i64::from(cache.window_status().effective.kmin)
+            && distance as i64 + 1 > i64::from(cache.window_status().effective.kmin)
         {
             trials.extend(animation_mixed::trials_for_codecs(
                 previous_view,
@@ -331,6 +339,109 @@ pub fn selection_fixtures() -> Vec<Case> {
     [
         0, 4, 5, 10, 15, 24, 30, 45, 47, 60, 62, 63, 64, 69, 75, 89, 90, 93, 101, 105, 109, 113,
         117, 121, 125,
+    ]
+    .into_iter()
+    .map(|i| cases[i].clone())
+    .collect()
+}
+
+// Prefixes end with no selection, an undecided selection, or an earlier
+// retained selection. These reuse the named 4c pixels/configs, changing timing.
+pub fn overflow_cases() -> Vec<Case> {
+    let sources = selection_cases();
+    let mut result = Vec::new();
+    for (source, prefix) in [
+        (0, 1),
+        (15, 1),
+        (15, 2),
+        (15, 3),
+        (47, 4),
+        (47, 5),
+        (63, 6),
+        (63, 7),
+        (69, 7),
+        (93, 9),
+        (105, 12),
+        (109, 12),
+        (117, 12),
+        (121, 12),
+        (125, 12),
+    ] {
+        for timing in 0..5 {
+            for reverse in [false, true] {
+                result.push(overflow_case(&sources[source], prefix, timing, reverse));
+            }
+        }
+    }
+    result
+}
+
+fn overflow_case(source: &Case, prefix: usize, timing: u32, reverse: bool) -> Case {
+    let base = base(source);
+    let frames = codec::frames(&base);
+    let target = &frames[prefix - 1];
+    let mut input = source.input[..10].to_vec();
+    input[2] |= 32;
+    input[4] = 0;
+    let mut append = |frame: &codec::Frame<'_>, config: MixedEncodingConfig, duration, change| {
+        input[4] += 1;
+        input.extend([duration, frame.stride as u32]);
+        input.extend(animation_mixed::config_words(config));
+        input.extend(
+            frame
+                .words
+                .iter()
+                .map(|&word| if change { word ^ 0x00770011 } else { word }),
+        );
+    };
+    for (i, frame) in frames[..prefix].iter().enumerate() {
+        append(
+            frame,
+            frame.config,
+            if i + 1 != prefix {
+                0
+            } else if timing == 0 {
+                0xfffffe
+            } else {
+                0xffffff
+            },
+            false,
+        );
+    }
+    let config = if reverse {
+        target.config.reversed()
+    } else {
+        target.config
+    };
+    append(target, config, if timing == 2 { 2 } else { 1 }, false);
+    if timing == 3 {
+        // The changed input splits timing before its settings can replace the
+        // saved previous settings used to choose the hold codec.
+        append(target, config.reversed(), 1, true);
+    } else if timing == 4 {
+        for (i, duration) in [0xffffff, 0xffffff, 1].into_iter().enumerate() {
+            append(
+                target,
+                if i % 2 == 0 {
+                    config.reversed()
+                } else {
+                    config
+                },
+                duration,
+                false,
+            );
+        }
+    }
+    Case::new("AnimationCache", input)
+}
+
+pub fn overflow_fixtures() -> Vec<Case> {
+    let cases = overflow_cases();
+    // Both hold codecs, reversed saved settings, undecided/earlier selections,
+    // threshold neighbors, capacity, before-change and repeated/final splits.
+    [
+        0, 2, 4, 6, 8, 21, 22, 23, 26, 28, 52, 62, 66, 68, 73, 82, 92, 96, 102, 106, 108, 122, 128,
+        132, 142, 146,
     ]
     .into_iter()
     .map(|i| cases[i].clone())

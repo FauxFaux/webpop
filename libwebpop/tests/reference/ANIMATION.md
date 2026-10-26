@@ -1656,3 +1656,159 @@ resource baseline. Final format/diff checks passed; upstream remained clean.
 4c is complete at the ordinary-duration, pre-reconstruction boundary. Enabled
 keyframes with duration overflow (4d), public RGBA Optimized (4e), sequence CLI,
 resource evidence and the single-frame discussion gate remain open.
+
+## 4d acceptance contract (2026-10-26)
+
+Integrate IncreasePreviousDuration with the existing shared CandidateWindow and
+codec dispatch. Preserve both alternative durations on ordinary merging. On a
+split, retain the previous duration, append the saved-config fixed hold, freeze
+any selected keyframe, rebase distance from its retained index, clear deferred
+selection/undecided state, reset the rectangle and flush the committed prefix
+before caching the incoming candidate. Remove the staged overflow rejection;
+public RGBA Optimized and decode-dependent reconstruction remain outside 4d.
+
+Named cases: below/at/above duration threshold without selection, with an
+undecided selection and with an earlier retained selection; all-frames and
+bounded policies; full two-slot capacity on splitting and longer retained
+windows; splits near kmin/kmax, before changed input and at final timing;
+repeated skips/holds; saved-config switches in each direction; VP8L/VP8 fixed
+holds and mixed-mode winners independent of saved primary. Compare both
+alternatives, counters, configs and raw canvases through the existing V3 public
+add observer. Extend final-timing observations with snapshots immediately after
+original IncreasePreviousDuration and FlushFrames, using those original
+functions directly. Keep old requests/fixtures valid. Unit checks compare these
+intermediate snapshots against the same private Rust functions; integration
+checks compare public adds/final assembly at the pre-OptimizeSingleFrame
+boundary and independent/native all-frame canvases and exact timing.
+
+## 4d keyframes with duration overflow (2026-10-26)
+
+IncreasePreviousDuration now supports the enabled keyframe window. On ordinary
+merging it retains the existing update to both alternative duration records.
+On overflow it appends the established 1x1 transparent hold using the preceding
+saved config (VP8L if that config is lossless or mixed mode permits it, VP8/ALPH
+otherwise). The previous frame keeps its duration; the hold receives the new
+interval. An already selected keyframe remains chosen, while the distance is
+rebased to `new_count - 1 - selected_index`. The cache resets the penalty sentinel,
+selected index and undecided flag, restores the known 1x1 rectangle and commits
+the prefix before another CacheFrame. The existing add path flushes this prefix;
+finish drains all remaining slots. Existing CandidateWindow ownership, fixed
+payloads, codec dispatch and canvas helpers are reused.
+
+The staged KeyframeDurationOverflow rejection and its error variant are removed.
+The checked low-level constructor accepts complete keyframe timing/cache routes;
+existing constructors still default to disabled insertion. Validation remains
+before timing/canvas mutation, including on skips and an add that would split.
+The replacement validation test crosses all-frames/bounded, both primary codecs
+and mixed off/on near u64::MAX. Invalid settings, dimensions and timestamps
+preserve state, retry can split successfully, invalid final timing preserves
+output and state, successful finish closes the cache and releases canvases.
+It directly checks emitted durations `[2^24-1, 1, 1]`. Public RGBA Optimized,
+production decoding and single-frame reconstruction remain outside this package.
+
+### Oracle protocol and acceptance evidence
+
+V1-V3 requests and all older fixtures remain unchanged. Optional flags bit 5
+(V4) requires V3/history, V2/window and extended codecs, and mode 0. After the
+existing before-final snapshot it calls original IncreasePreviousDuration with
+the supplied final interval, records a snapshot, calls original FlushFrames,
+and records another snapshot, then uses the existing pre-OptimizeSingleFrame
+assembly path. No selection or duration algorithm is copied into C. Public
+WebPAnimEncoderAdd still processes all submitted inputs, so splits before the
+next candidate exercise the real combined entry point.
+
+The unit driver in `anim_encode/cache/tests.rs` imports each committed request
+through real Rust adds and compares its state to every C after-add snapshot.
+It then compares the private IncreasePreviousDuration and FlushFrames directly
+to the new intermediate snapshots, including both encoded alternatives,
+controls, selection/flush state, saved configs and raw original/carryover words.
+The integration evaluator compares public adds and final assembly with those
+two intermediate snapshots removed. In addition, live comparisons run every
+request through unmodified public C final timing (V3) and assert that it matches
+the V4 driver at all existing observed states and complete bytes. All files use
+the pre-reconstruction mode-0 assembly boundary.
+
+The deterministic corpus reuses 15 explicit prefixes of the named 4c histories.
+Prefixes end before a selected keyframe, at an undecided selection, or with an
+earlier retained selection. They include first input, kmin/kmax neighbors,
+all-frames, bounded windows, 1x1/8x8/19x17 canvases, codec/config switches,
+padding, hidden RGB, fades and sparse/disposal/mask histories. Each prefix
+crosses five timing forms, with saved primary retained/reversed on repeats:
+
+- Final merged duration 2^24-1 (no split), exactly 2^24, or 2^24+1.
+- A split before a changed input that reverses the codec again, exercising hold
+  choice from the preceding saved config and the following candidate transition.
+- Repeated skipped inputs and holds with changing saved primaries and max/one
+  intervals, including a split at final timing.
+
+This produces **150 traces / 1,320 submitted inputs**. Live coverage assertions
+require splits with no selected keyframe, with an undecided selection, with an
+earlier retained selection, at full two-slot capacity, both 28-byte VP8L and
+72-byte VP8/ALPH holds, ordinary merging and the exact largest nonsplit duration.
+For each final split they independently assert that all prior alternatives and
+controls remain unchanged, deferred state is cleared, the rectangle resets,
+only the hold remains after prefix flushing and the rebased distance matches
+its position relative to the frozen selection. Ordinary final merging checks
+both duration fields. Byte comparisons through before-change/repeated-hold
+histories establish that a frozen emitted keyframe is not later demoted.
+
+The new `animation_keyframe_overflow.txt` commits **26 traces / 213 inputs**,
+explicitly retaining the threshold, codec, selected/retained, capacity and
+repeated/final split branches. Portable checks compare states/trials/files and
+independently decode and exactly composite the rectangles. All **150** live
+playback sequences match pinned WebPAnimDecoder for every canvas and stored
+cumulative delay; piecewise intervals also verify exact per-input/total timing.
+Each live request has both V4 and public-final-timing C comparisons. Existing
+4c selection and disabled-keyframe fixture families remain unchanged.
+
+### Provenance, growth and validation
+
+Reviewed original source and wrapper changes against clean upstream
+`1844042d1ca751e62e61df7617dba19c98588339` before generating the new fixture.
+Toolchain remains rustc `1.101.0-nightly (7189d39d9 2026-10-22)`, GCC 15.2.0 and
+CMake 4.2.3; actual scalar/unthreaded flags are retained in the native harness
+provenance. Only the new file was generated:
+
+```sh
+WEBPOP_UPDATE_FIXTURES=1 cargo test -p libwebpop --features native-oracle --test animation_keyframes animation_keyframe_overflow_fixtures_match -- --nocapture
+```
+
+Growth: production +12/-28 lines; test/evaluator/oracle +562/-74 lines, including
+186 unit-test lines and their three-line registration; fixtures +28 lines /
+3,297,279 bytes including requests and intermediate/raw-canvas snapshots.
+Documentation is separate. Implementation/review took approximately 20 minutes
+of interactive work (wall estimate excluding command waits). Build/test costs
+are measured separately below.
+
+Focused validation:
+
+```sh
+cargo test -p libwebpop --lib animation_keyframe_overflow -- --nocapture
+cargo test -p libwebpop --features native-oracle --lib --test animation_keyframes --test animation_cache --test animation_codec_cache --test animation_near_lossless --test animation_mixed -- --nocapture
+```
+
+The private snapshot test passed. The final focused command passed in 11.97 s
+(3.12 s Cargo build; 8.85 s tests/oracle/launches), covering the new public/private
+transitions, all 126 unchanged 4c selection traces, disabled cache fixtures,
+1,680 VP8L caches, 1,396 shared codec caches, 4,893 near-lossless cases and 4,237
+mixed candidate/history cases. No encoder or playback mismatch was found.
+
+Final integration gate, all passed:
+
+| Command | Cargo build | Post-build wall (tests/oracle/launches) | Total wall |
+| --- | ---: | ---: | ---: |
+| `cargo build -p libwebpop --lib` | 0.26 s | — | 0.27 s |
+| `cargo test -p libwebpop --release --features native-oracle animation -- --nocapture` | 29.51 s | 11.08 s | 40.59 s |
+| `cargo test -p cwebpop` | 1.24 s | 0.85 s | 2.09 s |
+| `cargo test --workspace` | 14.96 s | 15.01 s | 29.97 s |
+| `cargo test --workspace --features native-oracle -- --nocapture` | 17.87 s | 53.90 s | 71.77 s |
+| `cargo fmt --all -- --check` | — | — | 5.30 s |
+
+Release passed 92 animation tests. Workspace totals, including doctests, were
+336 passing portable tests (two manual baselines ignored) and 478 passing native
+tests (four manual baselines ignored). Existing unused native-helper warnings
+in unrelated targets remain. These timings describe validation, not a resource
+baseline. Final diff/format and documentation-link checks passed; upstream
+remained clean. 4d completes the shared low-level keyframe timing/cache branch.
+Public RGBA Optimized (4e), sequence CLI, resource evidence and the single-frame
+reconstruction discussion/follow-up remain open.
