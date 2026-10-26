@@ -1,12 +1,19 @@
 # WebP CLI benchmarks
 
-This comparison covers two implementations, five configurations and all five
-full-size images in `samples/`: **25 paired cases, 50 implementation results**.
+The initial comparison covers two implementations, five configurations and all
+five full-size images in `samples/`: **25 paired cases, 50 implementation results**.
 The historical lossless experiments are in
 [LOSSLESS-BENCHMARKS.md](LOSSLESS-BENCHMARKS.md).
 
-All 25 paired cases produce **identical compressed bytes**. Rust takes about
-9–41% longer for lossless. Near-lossless favors Rust on the invitation and
+**Updated lossy q80/m4 and m5 results:** the
+[widened Rust comparison](benchmarks/2026-10-26-lossy-wide-m4-m5.md) freshly
+times C, scalar Rust and revision `a239a59` across all five images. On the
+photo, new Rust takes **1.623 s at m4 and 1.804 s at m5**, about **1.57× faster**
+than scalar Rust. All ten cases retain identical bytes. The original tables
+below record scalar Rust before the kernel and copy changes.
+
+In the initial matrix, all 25 paired cases produce **identical compressed bytes**.
+Rust takes about 9–41% longer for lossless. Near-lossless favors Rust on the invitation and
 photo, while the map and screenshot favor C. At lossy q80, Rust takes about
 1.5–2.3× C's time at methods 4–5 and 1.2–1.9× at method 6.
 
