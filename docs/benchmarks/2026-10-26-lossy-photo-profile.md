@@ -1,5 +1,9 @@
 # Lossy photo q80 / method 4: C versus Rust profiles
 
+This records the scalar Rust baseline. The
+[widened Rust follow-up](2026-10-26-lossy-photo-wide-profile.md) updates the
+hotspot ranking after the kernel and copy changes.
+
 The release Rust CLI takes **2.28× C's time** on the full-size
 `photo-japan-p50.webp`. About **80% of the excess sampled cycles** are in the
 4×4 and 16×16 luma mode searches. Quantization and inverse transforms together

@@ -12,6 +12,11 @@ photo, new Rust takes **1.623 s at m4 and 1.804 s at m5**, about **1.57× faster
 than scalar Rust. All ten cases retain identical bytes. The original tables
 below record scalar Rust before the kernel and copy changes.
 
+The [updated q80/m4 photo profile](benchmarks/2026-10-26-lossy-photo-wide-profile.md)
+finds that inverse transforms and copying/initialization explain about 40% of
+the remaining cycle gap. Repeated candidate-state initialization is a concrete
+next target; the small row-copy helper now emits direct loads and stores.
+
 In the initial matrix, all 25 paired cases produce **identical compressed bytes**.
 Rust takes about 9–41% longer for lossless. Near-lossless favors Rust on the invitation and
 photo, while the map and screenshot favor C. At lossy q80, Rust takes about

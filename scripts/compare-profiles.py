@@ -39,7 +39,7 @@ LOSSY_STAGES = {
 LOSSY_FUNCTIONS = [
     "VP8Decimate", "PickBestIntra4", "PickBestIntra16", "PickBestUV",
     "ReconstructIntra4", "ReconstructIntra16", "ReconstructUV",
-    "FTransform", "ITransform", "QuantizeBlock", "Quantize2Blocks",
+    "FTransform", "ITransform", "inverse_one", "QuantizeBlock", "Quantize2Blocks",
     "GetResidualCost", "VP8GetCostLuma4", "VP8GetCostLuma16", "VP8GetCostUV",
     "VP8RecordCoeffTokens", "VP8EmitTokens", "VP8EncAnalyze", "CollectHistogram",
     "SSE4x4", "SSE16x16", "Disto4x4", "Disto16x16",
@@ -47,7 +47,9 @@ LOSSY_FUNCTIONS = [
     "import_rgba_to_yuva", "WebPPictureImport",
 ]
 LOSSY_KERNELS = {
-    "inverse_transform": r"ITransform",
+    # The single-block entry point tail-calls inverse_one, so ITransform_wide
+    # need not appear in its sampled stack.
+    "inverse_transform": r"ITransform|\binverse_one\b",
     "forward_transform": r"FTransform",
     "quantization": r"QuantizeBlock|Quantize2Blocks",
     "spectral_distortion": r"Disto4x4|Disto16x16|TTransform",
