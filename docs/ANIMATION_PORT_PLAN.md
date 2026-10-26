@@ -11,7 +11,8 @@ This expands the [encoder completion plan](ENCODER_COMPLETION_PLAN.md), building
 on the completed [lossless](LOSSLESS_PORT_PLAN.md),
 [near-lossless](NEAR_LOSSLESS_PORT_PLAN.md), [lossy](LOSSY_PORT_PLAN.md) and
 [additional lossy methods](LOSSY_METHODS_PLAN.md) ports. Production decoding
-remains excluded pending discussion; this revision does not authorize a change.
+remains excluded. The agreed omission of decode-dependent single-frame
+reconstruction is recorded in [libwebpop variations](../libwebpop/VARIATIONS.md).
 
 ## Implemented baseline
 
@@ -83,11 +84,12 @@ Two boundaries must remain explicit:
 - Blended VP8 candidates use autofilter off, filter strength zero and profile 2;
   replacements retain existing defaults. Shared mixed exact handling is internal
   and does not extend the public still options. Preserve the existing fixtures.
-- OptimizeSingleFrame can decode a remaining rectangle, re-encode a full canvas
-  with saved configurations and select it if smaller. This is distinct from
+- Upstream OptimizeSingleFrame can decode a remaining rectangle, re-encode a
+  full canvas with saved configurations and select it if smaller. This is distinct from
   already implemented full-canvas mux cleanup. One submitted input or many
-  merged inputs can reach it. See the discussion gate below; original input is
-  not generally equivalent to decoded VP8/near-lossless pixels.
+  merged inputs can reach it. libwebpop intentionally omits this optimization,
+  as recorded in [libwebpop variations](../libwebpop/VARIATIONS.md); original
+  input is not generally equivalent to decoded VP8/near-lossless pixels.
 
 ## Contracts to preserve and finish
 
@@ -145,8 +147,8 @@ Retain checked container invariants and their existing independent tests:
 ## How to execute the remaining work
 
 The work packages below are acceptance boundaries, not equal effort estimates.
-Keyframes contain several coupled transitions; single-frame reconstruction has
-an unresolved scope dependency. Checkbox count and total diff size are poor
+Keyframes contain several coupled transitions; single-frame reconstruction is
+excluded by the decision below. Checkbox count and total diff size are poor
 progress measures. No current evidence establishes a need for a broad rewrite.
 
 Before implementing each package:
@@ -185,14 +187,13 @@ that invalidate their results; avoid unchanged broad reruns within one package.
 | 4c. Deferred selection — complete | 4b | Candidate decisions and cache flushing without overflow interactions |
 | 4d. Keyframes plus duration overflow — complete | 4c | Complete keyframe timing/cache branch integration |
 | 4e. Public optimized RGBA — complete | 4a; 4d for keyframe controls | Checked public policy and settings for an advertised subset |
-| Single-frame discussion gate | Existing reference evidence | A separately discussed scope decision; no decoder change is assumed |
+| Single-frame discussion gate — resolved | Existing reference evidence | Intentionally omitted; decision recorded in [libwebpop variations](../libwebpop/VARIATIONS.md) |
 | 5a. Sequence CLI | Existing milestone 2; 4e for optimizer switches | Useful full-frame frontend, then supported optimized controls |
 | 5b. Resource baseline | A usable measured route | Paired timing/size/memory evidence for that route |
 
-The CLI and an initial full-frame resource baseline can proceed independently
-of keyframes or the decoding discussion. A keyframe-disabled public optimizer
-can ship after 4a and 4e with an explicit subset contract. Complete keyframe
-support requires 4d. Neither release implies full pinned animation completion.
+The CLI and an initial full-frame resource baseline can proceed now. Keyframe
+support is complete through 4d and 4e. The single-frame omission is an agreed
+variation and does not block delivery; CLI and resource evidence remain open.
 
 ### 4a. Shared timestamp cache for lossy and mixed candidates
 
@@ -308,7 +309,8 @@ Completed: IncreasePreviousDuration is integrated with the full keyframe cache.
 See the [4d reference record](../libwebpop/tests/reference/ANIMATION.md#4d-keyframes-with-duration-overflow-2026-10-26)
 for intermediate-state, public-add/assembly and playback comparisons. Both
 established disabled routes and enabled keyframes use the shared timing owner;
-the RGBA facade is delivered by 4e and single-frame reconstruction remains separate.
+the RGBA facade is delivered by 4e and single-frame reconstruction is
+intentionally omitted.
 
 - [x] Increase the pending subframe and keyframe durations together on ordinary
   merging. On overflow, insert the fixed hold selected from saved config, freeze
@@ -355,25 +357,25 @@ Acceptance includes padded/short buffers, unchanged inputs, invalid settings on
 skipped frames, per-frame codec changes, defaults, supplied metadata, repeats,
 zero/max durations, wide timelines, all state transitions and final timing.
 A public optimized subset may retain the valid cropped single-ANMF result;
-its documented reconstruction exception remains an open completion gate.
+its documented reconstruction exception is the agreed variation below.
 
-### Single-frame reconstruction: discussion gate
+### Single-frame reconstruction: decision recorded 2026-10-26
 
-- [ ] Discuss the production decoding boundary before deciding an approach.
-  Existing reference fixtures demonstrate 94-byte ANMF to 44-byte still and
-  merged transparent inputs producing 90-byte ANMF versus a 34-byte C still.
-  Preserve these explicit reference-only gaps and the Rust pre-optimization
-  representation. Test-only decoding remains available for validation.
-- [ ] Record the agreed scope, dependency/API implications, exact pixel
-  requirements and follow-up acceptance plan after that discussion. Until then,
-  do not add a production decoder dependency, port a decoder, treat retained
-  input as equivalent reconstruction, or mark this branch complete.
+- [x] Resolve the production decoding boundary: intentionally omit upstream
+  OptimizeSingleFrame and keep production decoding outside the encoder's scope.
+- [x] Record the omission and applicable situations in
+  [libwebpop variations](../libwebpop/VARIATIONS.md). This closes the discussion
+  gate; implementing reconstruction is not required for completion of this plan.
 
-Any later approved reconstruction plan must account for VP8L, near-lossless,
-VP8/ALPH, canvas offsets/clearing, saved configs changed by skipped inputs,
-mixed reversal, equal-size retention, metadata, final size choice and failure
-behavior. These are discussion inputs, not approval to implement decoding.
-Ordinary full-canvas mux cleanup remains complete and needs no decoder.
+When optimized encoding leaves one cropped output frame, from one input or
+merged inputs, retain the valid single-ANMF representation. Upstream may instead
+decode that rectangle and re-encode a smaller full-canvas still. Preserve the
+reference-only fixtures demonstrating 94-byte ANMF to 44-byte still and merged
+transparent inputs producing 90-byte ANMF versus a 34-byte C still as evidence
+of the intentional difference. Test-only decoding remains available for
+validation. Retained original input is not equivalent to decoded VP8/near-lossless
+pixels and must not be substituted to claim parity. Ordinary full-canvas mux
+cleanup remains complete and needs no decoder.
 
 ### 5a. Sequence CLI
 
@@ -404,8 +406,8 @@ The full-frame frontend can ship now; add optimizer controls after 4e.
   memory and total buffered output with pinned scalar C. Match codecs, methods,
   quality/alpha, keyframe and thread policies. FullFrame uses the corresponding
   mux route; optimized subsets use the declared WebPAnimEncoder boundary.
-- [ ] Verify correctness before timing; report unsupported reconstruction cases
-  separately. Distinguish whole-process RSS from isolated encoder allocation
+- [ ] Verify correctness before timing; report cases affected by the agreed
+  single-frame omission separately. Distinguish whole-process RSS from isolated encoder allocation
   evidence, working canvases/candidate windows from growing buffered output,
   and codec time from orchestration where measurements allow it. Performance
   is initially informational. Profile actual allocations/copies before changes.
@@ -457,7 +459,9 @@ consistency and diff checks; they do not require rebuilding the encoder.
 
 Full-frame and optimized RGBA support (4a–4e) are complete at their declared
 assembly boundaries; the sequence CLI remains 5a. These APIs retain the existing
-`internal` compatibility boundary. Full pinned animation completion still requires resolving the
-single-frame discussion gate and implementing its agreed follow-up, plus all
-advertised settings, CLI and resource evidence. Update the parent completion
-checklist at those boundaries. Valid playback alone does not close parity gaps.
+`internal` compatibility boundary. Completion within this plan's agreed scope
+still requires all advertised settings, CLI and resource evidence. Single-frame
+reconstruction is intentionally omitted as recorded in
+[libwebpop variations](../libwebpop/VARIATIONS.md); exact pinned parity for that
+branch is not claimed or required. Update the parent completion checklist at
+those boundaries. Valid playback alone does not close other parity gaps.
